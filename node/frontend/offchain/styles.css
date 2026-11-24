@@ -1,47 +1,5 @@
 /* 清算行 tab 专属样式。与功能文件同目录，避免继续把清算行业务样式散落到全局 CSS。 */
-.admin-card-decrypted {
-  border-color: rgba(34, 197, 94, 0.5);
-  background: rgba(34, 197, 94, 0.1);
-}
 
-.decrypted-tag {
-  font-size: 11px;
-  color: #4ade80;
-  background: rgba(34, 197, 94, 0.18);
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-weight: 500;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.green-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #4ade80;
-  display: inline-block;
-}
-
-.decrypt-button {
-  font-size: 11px;
-  color: #4ade80;
-  background: rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.3);
-  border-radius: 4px;
-  padding: 2px 8px;
-  cursor: pointer;
-}
-
-.decrypt-button:hover:not(:disabled) {
-  background: rgba(34, 197, 94, 0.2);
-}
-
-.decrypt-button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
 
 .status-badge {
   font-size: 11px;

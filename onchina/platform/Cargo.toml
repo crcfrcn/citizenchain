@@ -88,7 +88,6 @@ primitives = { path = "../../runtime/primitives" }
 runtime = { workspace = true, default-features = true }
 frame-system = { workspace = true, default-features = true }
 codec = { workspace = true, default-features = true }
-adminbase = { path = "../../runtime/admins/adminbase" }
 entitybase = { path = "../../runtime/entity/entitybase" }
 webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
 

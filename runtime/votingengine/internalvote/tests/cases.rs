@@ -176,35 +176,6 @@ fn permanent_singleton_reads_entity_threshold_and_freezes_snapshot() {
 }
 
 #[test]
-fn pending_personal_proposal_uses_supplied_admin_snapshot_and_all_admin_threshold() {
-    new_test_ext().execute_with(|| {
-        let proposal_id = create_pending_personal_proposal_via_engine(
-            pending_personal_admin(0),
-            pending_personal_account(),
-        );
-
-        assert_eq!(InternalThresholdSnapshot::<Test>::get(proposal_id), Some(2));
-        assert!(VotingEngine::is_admin_in_snapshot(
-            proposal_id,
-            ProposalSubject::PersonalAccount(pending_personal_account()),
-            &pending_personal_admin(0)
-        ));
-
-        assert_ok!(cast_internal_vote_via_extrinsic(
-            pending_personal_admin(1),
-            proposal_id,
-            true
-        ));
-        assert_eq!(
-            VotingEngine::proposals(proposal_id)
-                .expect("proposal should exist")
-                .status,
-            STATUS_PASSED
-        );
-    });
-}
-
-#[test]
 fn institution_proposal_keeps_cid_identity_and_execution_account_separate() {
     new_test_ext().execute_with(|| {
         for (institution_code, actor_cid_number) in
@@ -243,122 +214,6 @@ fn institution_proposal_keeps_cid_identity_and_execution_account_separate() {
 }
 
 #[test]
-fn pending_personal_dynamic_threshold_must_be_strict_majority() {
-    new_test_ext().execute_with(|| {
-        assert_noop!(
-            <InternalVote as InternalVoteEngine<AccountId32>>::create_personal_account_create_proposal_with_data(
-                pending_personal_admin(0),
-                pending_personal_account(),
-                sp_std::vec![pending_personal_admin(0), pending_personal_admin(1)],
-                1,
-                b"test",
-                b"payload".to_vec(),
-            ),
-            Error::<Test>::InvalidDynamicThreshold
-        );
-    });
-}
-
-#[test]
-fn pending_personal_snapshot_rejects_duplicate_admins() {
-    new_test_ext().execute_with(|| {
-        assert_noop!(
-            <InternalVote as InternalVoteEngine<AccountId32>>::create_personal_account_create_proposal_with_data(
-                pending_personal_admin(0),
-                pending_personal_account(),
-                sp_std::vec![pending_personal_admin(0), pending_personal_admin(0)],
-                2,
-                b"test",
-                b"payload".to_vec(),
-            ),
-            engingcore::Error::<Test>::InvalidInstitution
-        );
-    });
-}
-
-#[test]
-fn personal_close_proposal_requires_all_snapshot_admins() {
-    new_test_ext().execute_with(|| {
-        let proposal_id = <InternalVote as InternalVoteEngine<AccountId32>>::create_personal_lifecycle_proposal_with_data(
-            personal_admin(0),
-            personal_account_id(),
-            b"close",
-            b"payload".to_vec(),
-        )
-        .expect("personal close proposal should be created");
-        assert_eq!(InternalThresholdSnapshot::<Test>::get(proposal_id), Some(3));
-    });
-}
-
-#[test]
-fn personal_threshold_must_not_exceed_snapshot_size() {
-    new_test_ext().execute_with(|| {
-        set_personal_threshold(4);
-        assert_noop!(
-            <InternalVote as InternalVoteEngine<AccountId32>>::create_personal_proposal_with_data(
-                personal_admin(0),
-                personal_account_id(),
-                b"test",
-                b"payload".to_vec(),
-            ),
-            Error::<Test>::InvalidDynamicThreshold
-        );
-    });
-}
-
-#[test]
-fn personal_admin_set_mutation_uses_valid_current_snapshot_threshold() {
-    new_test_ext().execute_with(|| {
-        set_personal_threshold(4);
-        assert_noop!(
-            <InternalVote as InternalVoteEngine<AccountId32>>::create_personal_admin_change_proposal_with_data(
-                personal_admin(0),
-                personal_account_id(),
-                3,
-                2,
-                b"test",
-                b"payload".to_vec(),
-            ),
-            Error::<Test>::InvalidDynamicThreshold
-        );
-    });
-}
-
-#[test]
-fn personal_proposal_snapshots_dynamic_threshold() {
-    new_test_ext().execute_with(|| {
-        set_personal_threshold(3);
-        let proposal_id =
-            create_personal_proposal_via_engine(personal_admin(0), personal_account_id());
-
-        assert_eq!(InternalThresholdSnapshot::<Test>::get(proposal_id), Some(3));
-        set_personal_threshold(2);
-        assert_ok!(cast_internal_vote_via_extrinsic(
-            personal_admin(1),
-            proposal_id,
-            true
-        ));
-        assert_eq!(
-            VotingEngine::proposals(proposal_id)
-                .expect("proposal exists")
-                .status,
-            STATUS_VOTING
-        );
-        assert_ok!(cast_internal_vote_via_extrinsic(
-            personal_admin(2),
-            proposal_id,
-            true
-        ));
-        assert_eq!(
-            VotingEngine::proposals(proposal_id)
-                .expect("proposal exists")
-                .status,
-            STATUS_PASSED
-        );
-    });
-}
-
-#[test]
 fn institution_orgs_snapshot_dynamic_active_threshold_by_cid() {
     new_test_ext().execute_with(|| {
         for (institution_code, actor_cid_number) in
@@ -389,56 +244,6 @@ fn institution_orgs_snapshot_dynamic_active_threshold_by_cid() {
 }
 
 #[test]
-fn admin_set_mutation_mutex_blocks_same_subject_regular_proposal() {
-    new_test_ext().execute_with(|| {
-        let proposal_id =
-            create_admin_set_mutation_proposal_via_engine(personal_admin(0), personal_account_id());
-        let state = personal_mutex_for(personal_account_id()).expect("mutex should exist");
-        assert_eq!(state.admin_set_mutation_proposal, Some(proposal_id));
-
-        assert_noop!(
-            <InternalVote as InternalVoteEngine<AccountId32>>::create_personal_proposal_with_data(
-                personal_admin(1),
-                personal_account_id(),
-                b"test",
-                b"payload".to_vec(),
-            ),
-            engingcore::Error::<Test>::AdminSetMutationProposalActive
-        );
-    });
-}
-
-#[test]
-fn regular_mutex_blocks_same_subject_admin_set_mutation() {
-    new_test_ext().execute_with(|| {
-        let proposal_id =
-            create_personal_proposal_via_engine(personal_admin(0), personal_account_id());
-        let state = personal_mutex_for(personal_account_id()).expect("mutex should exist");
-        assert_eq!(state.regular_active_count, 1);
-        assert_eq!(state.admin_set_mutation_proposal, None);
-
-        assert_noop!(
-            <InternalVote as InternalVoteEngine<AccountId32>>::create_personal_admin_change_proposal_with_data(
-                personal_admin(1),
-                personal_account_id(),
-                3,
-                2,
-                b"test",
-                b"payload".to_vec(),
-            ),
-            engingcore::Error::<Test>::RegularInternalProposalActive
-        );
-
-        assert_eq!(
-            VotingEngine::proposals(proposal_id)
-                .expect("proposal should exist")
-                .status,
-            STATUS_VOTING
-        );
-    });
-}
-
-#[test]
 fn regular_internal_proposals_can_coexist_under_same_subject() {
     new_test_ext().execute_with(|| {
         let first = create_internal_proposal_via_engine(nrc_admin(0), NRC, nrc_cid());
@@ -448,41 +253,6 @@ fn regular_internal_proposals_can_coexist_under_same_subject() {
         let state = internal_mutex_for(nrc_cid()).expect("mutex should exist");
         assert_eq!(state.regular_active_count, 2);
         assert_eq!(state.admin_set_mutation_proposal, None);
-    });
-}
-
-#[test]
-fn admin_set_mutation_passed_status_keeps_mutex_until_terminal_status() {
-    new_test_ext().execute_with(|| {
-        let proposal_id =
-            create_admin_set_mutation_proposal_via_engine(personal_admin(0), personal_account_id());
-
-        assert_ok!(VotingEngine::set_status_and_emit(
-            proposal_id,
-            STATUS_PASSED
-        ));
-        assert_eq!(
-            VotingEngine::proposals(proposal_id)
-                .expect("proposal should exist")
-                .status,
-            STATUS_PASSED
-        );
-        assert!(personal_mutex_for(personal_account_id()).is_some());
-        assert_noop!(
-            <InternalVote as InternalVoteEngine<AccountId32>>::create_personal_proposal_with_data(
-                personal_admin(1),
-                personal_account_id(),
-                b"test",
-                b"payload".to_vec(),
-            ),
-            engingcore::Error::<Test>::AdminSetMutationProposalActive
-        );
-
-        assert_ok!(VotingEngine::set_status_and_emit(
-            proposal_id,
-            STATUS_EXECUTION_FAILED
-        ));
-        assert!(personal_mutex_for(personal_account_id()).is_none());
     });
 }
 
@@ -1071,11 +841,9 @@ fn delayed_cleanup_removes_joint_vote_plan_and_role_snapshots() {
         assert!(engingcore::ProposalVotePlans::<Test>::contains_key(
             proposal_id
         ));
-        assert!(
-            engingcore::VoterSnapshot::<Test>::iter_prefix(proposal_id)
-                .next()
-                .is_some()
-        );
+        assert!(engingcore::RoleVoters::<Test>::iter_prefix(proposal_id)
+            .next()
+            .is_some());
         assert!(
             engingcore::InstitutionTicketCountSnapshot::<Test>::iter_prefix(proposal_id)
                 .next()
@@ -1096,7 +864,7 @@ fn delayed_cleanup_removes_joint_vote_plan_and_role_snapshots() {
             proposal_id
         ));
         assert_eq!(
-            engingcore::VoterSnapshot::<Test>::iter_prefix(proposal_id).count(),
+            engingcore::RoleVoters::<Test>::iter_prefix(proposal_id).count(),
             0
         );
         assert_eq!(
@@ -1551,7 +1319,7 @@ fn pending_cleanup_fifo_rotates_large_and_small_proposals_fairly() {
             AdminSnapshot::<Test>::insert(
                 large,
                 ProposalSubject::PersonalAccount(AccountId32::new([seed; 32])),
-                BoundedVec::<AccountId32, ConstU32<32>>::default(),
+                BoundedVec::<AccountId32, <Test as engingcore::Config>::MaxSnapshotVoters>::default(),
             );
         }
         PendingProposalCleanups::<Test>::insert(large, PendingCleanupStage::AdminSnapshots);
@@ -1797,7 +1565,7 @@ fn internal_vote_public_call_casts_vote() {
                     .try_into()
                     .expect("测试岗位码合法"),
             },
-            voter_account_id: nrc_admin(0),
+            person_cid: codec::Encode::encode(&nrc_admin(0)).try_into().unwrap(),
         });
         assert!(InternalVotesByTicket::<Test>::contains_key(
             proposal_id,
@@ -1868,7 +1636,9 @@ fn internal_vote_counts_same_account_id_once_per_role_ticket() {
                 proposal_id,
                 InternalVoteTicket::Institution(engingcore::InstitutionVoteTicket {
                     role_subject: subject,
-                    voter_account_id: test_institution_admin(0),
+                    person_cid: codec::Encode::encode(&test_institution_admin(0))
+                        .try_into()
+                        .unwrap(),
                 })
             ));
         }
@@ -1885,9 +1655,9 @@ fn internal_vote_counts_same_account_id_once_per_role_ticket() {
 }
 
 #[test]
-fn original_wallet_keeps_frozen_vote_and_new_wallet_cannot_inherit_it() {
+fn rebound_wallet_uses_the_same_frozen_person_ticket_once() {
     new_test_ext().execute_with(|| {
-        // 钱包变更不能迁移旧票权或重置已投状态；个人CID不参与机构票据解析。
+        // 票据冻结人员 CID，新钱包只能使用该人员未投的票。
         reset_internal_callback_state();
         // 岗位快照 3 席（admin(0..2)），阈值 3：中途不会提前达标终结，便于逐条断言。
         set_institution_threshold(public_cid(), 3);
@@ -1924,61 +1694,30 @@ fn original_wallet_keeps_frozen_vote_and_new_wallet_cannot_inherit_it() {
         // 建案自动由 admin(0) 投出第一票。
         assert_eq!(InternalTallies::<Test>::get(proposal_id).yes, 1);
 
-        let subject_key = AuthorizationSubject::Institution(subject.clone());
-        let original_voters =
-            engingcore::VoterSnapshot::<Test>::get(proposal_id, &subject_key).unwrap();
-        let original_versions =
-            engingcore::FrozenWalletVersions::<Test>::get(proposal_id, &subject_key).unwrap();
-        let rebound_wallet = AccountId32::new([200; 32]);
-        set_institution_wallet(test_institution_admin(1), rebound_wallet.clone(), 0);
-        assert_noop!(InternalVote::cast(
-            RuntimeOrigin::signed(rebound_wallet.clone()),
-            proposal_id,
-            InternalVoteTicketClaim::InstitutionRole(role.clone()),
-            true
-            ),
+        let original_voters = engingcore::RoleVoters::<Test>::get(proposal_id, &subject).unwrap();
+        let old = test_institution_admin(1);
+        let current = AccountId32::new([200; 32]);
+        let claim = InternalVoteTicketClaim::InstitutionRole(role);
+        rebind_fixture_person(old.clone(), current.clone());
+        assert_noop!(
+            InternalVote::cast(RuntimeOrigin::signed(old), proposal_id, claim.clone(), true),
             engingcore::Error::<Test>::NoPermission
         );
         assert_ok!(InternalVote::cast(
-            RuntimeOrigin::signed(test_institution_admin(1)),
+            RuntimeOrigin::signed(current.clone()),
             proposal_id,
-            InternalVoteTicketClaim::InstitutionRole(role.clone()),
+            claim.clone(),
             true
         ));
-        assert_eq!(InternalTallies::<Test>::get(proposal_id).yes, 2);
-        set_institution_wallet(test_institution_admin(1), test_institution_admin(1), 2);
         assert_noop!(
-            InternalVote::cast(
-                RuntimeOrigin::signed(test_institution_admin(1)),
-                proposal_id,
-                InternalVoteTicketClaim::InstitutionRole(role.clone()),
-                false
-            ),
+            InternalVote::cast(RuntimeOrigin::signed(current), proposal_id, claim, false),
             engingcore::Error::<Test>::AlreadyVoted
         );
         assert_eq!(
-            engingcore::Pallet::<Test>::frozen_voter_identity(
-                proposal_id,
-                &subject_key,
-                &test_institution_admin(1)
-            ),
-            Some((test_institution_admin(1), 0))
-        );
-        assert_eq!(
-            engingcore::VoterSnapshot::<Test>::get(proposal_id, &subject_key),
+            engingcore::RoleVoters::<Test>::get(proposal_id, subject),
             Some(original_voters)
         );
-        assert_eq!(
-            engingcore::FrozenWalletVersions::<Test>::get(proposal_id, &subject_key),
-            Some(original_versions)
-        );
-        assert!(InternalVotesByTicket::<Test>::contains_key(
-            proposal_id,
-            InternalVoteTicket::Institution(engingcore::InstitutionVoteTicket {
-                role_subject: subject,
-                voter_account_id: test_institution_admin(1)
-            })
-        ));
+        assert_eq!(InternalTallies::<Test>::get(proposal_id).yes, 2);
     });
 }
 
@@ -2129,7 +1868,7 @@ fn internal_vote_callback_err_defers_execution_without_reverting_vote() {
                     .try_into()
                     .expect("测试岗位码合法"),
             },
-            voter_account_id: nrc_admin(12),
+            person_cid: codec::Encode::encode(&nrc_admin(12)).try_into().unwrap(),
         });
         assert!(InternalVotesByTicket::<Test>::contains_key(
             proposal_id,
@@ -2168,9 +1907,7 @@ fn asynchronous_callback_errors_dead_letter_after_bounded_retries() {
         System::set_block_number(third_attempt_at);
         process_current_block();
 
-        assert!(
-            engingcore::pallet::PendingProposalExecutions::<Test>::get(proposal_id).is_none()
-        );
+        assert!(engingcore::pallet::PendingProposalExecutions::<Test>::get(proposal_id).is_none());
         assert_eq!(
             VotingEngine::proposals(proposal_id)
                 .expect("proposal should remain until retention cleanup")
@@ -2514,169 +2251,5 @@ fn internal_vote_rejects_wrong_stage_joint_proposal() {
             cast_internal_vote_via_extrinsic(nrc_admin(0), proposal_id, true),
             engingcore::Error::<Test>::InvalidProposalKind
         );
-    });
-}
-
-#[test]
-fn new_proposal_freezes_current_wallet_and_version_without_old_alias() {
-    new_test_ext().execute_with(|| {
-        reset_internal_callback_state();
-        // 岗位快照 3 席（admin(0..2)），阈值 3：中途不会提前达标终结，便于逐条断言。
-        set_institution_threshold(public_cid(), 3);
-        let data = b"rebind-vote".to_vec();
-        let owner: BoundedVec<u8, ConstU32<32>> = b"test".to_vec().try_into().unwrap();
-        let role: engingcore::types::RoleCode = b"TEST_ROLE".to_vec().try_into().unwrap();
-        let subject = RoleSubject {
-            cid_number: public_cid(),
-            role_code: role.clone(),
-        };
-        let vote_plan = engingcore::types::VotePlanOf::try_new(
-            engingcore::types::BusinessActionId {
-                module_tag: owner.clone(),
-                action_code: 0,
-            },
-            owner,
-            AuthorizationSubject::Institution(subject.clone()),
-            vec![AuthorizationSubject::Institution(subject.clone())],
-            engingcore::types::VotingEngineKind::Internal,
-            sp_io::hashing::blake2_256(&data),
-        )
-        .unwrap();
-        let current = AccountId32::new([200; 32]);
-        set_institution_wallet(test_institution_admin(1), current.clone(), 4);
-        let proposal_id = <InternalVote as InternalVoteEngine<AccountId32>>::
-            create_institution_proposal_with_data(
-                test_institution_admin(0),
-                PUBLIC_CODE,
-                public_cid().to_vec(),
-                None,
-                subject_cids_for(&public_cid()),
-                vote_plan,
-                data,
-            )
-            .unwrap();
-
-        let key = AuthorizationSubject::Institution(subject);
-        assert_eq!(
-            engingcore::Pallet::<Test>::frozen_voter_identity(proposal_id, &key, &current),
-            Some((current.clone(), 4))
-        );
-        assert!(!engingcore::Pallet::<Test>::is_subject_voter_in_snapshot(
-            proposal_id,
-            key.clone(),
-            &test_institution_admin(1)
-        ));
-        assert_ok!(InternalVote::cast(
-            RuntimeOrigin::signed(current),
-            proposal_id,
-            InternalVoteTicketClaim::InstitutionRole(role),
-            true
-        ));
-    });
-}
-
-#[test]
-fn missing_historical_versions_require_explicit_exact_backfill_and_preserve_existing_votes() {
-    new_test_ext().execute_with(|| {
-        reset_internal_callback_state();
-        // 岗位快照 3 席（admin(0..2)），阈值 3：中途不会提前达标终结，便于逐条断言。
-        set_institution_threshold(public_cid(), 3);
-        let data = b"rebind-vote".to_vec();
-        let owner: BoundedVec<u8, ConstU32<32>> = b"test".to_vec().try_into().unwrap();
-        let role: engingcore::types::RoleCode = b"TEST_ROLE".to_vec().try_into().unwrap();
-        let subject = RoleSubject {
-            cid_number: public_cid(),
-            role_code: role.clone(),
-        };
-        let vote_plan = engingcore::types::VotePlanOf::try_new(
-            engingcore::types::BusinessActionId {
-                module_tag: owner.clone(),
-                action_code: 0,
-            },
-            owner,
-            AuthorizationSubject::Institution(subject.clone()),
-            vec![AuthorizationSubject::Institution(subject.clone())],
-            engingcore::types::VotingEngineKind::Internal,
-            sp_io::hashing::blake2_256(&data),
-        )
-        .unwrap();
-        let proposal_id = <InternalVote as InternalVoteEngine<AccountId32>>::
-            create_institution_proposal_with_data(
-                test_institution_admin(0),
-                PUBLIC_CODE,
-                public_cid().to_vec(),
-                None,
-                subject_cids_for(&public_cid()),
-                vote_plan,
-                data,
-            )
-            .unwrap();
-
-        let key = AuthorizationSubject::Institution(subject);
-        let frozen = engingcore::VoterSnapshot::<Test>::get(proposal_id, &key).unwrap();
-        let versions = engingcore::FrozenWalletVersions::<Test>::take(proposal_id, &key).unwrap();
-        let votes = InternalVotesByTicket::<Test>::iter_prefix(proposal_id)
-            .collect::<Vec<_>>()
-            .encode();
-        let tally = InternalTallies::<Test>::get(proposal_id);
-        let count = engingcore::InstitutionTicketCountSnapshot::<Test>::iter_prefix(proposal_id)
-            .collect::<Vec<_>>()
-            .encode();
-        set_institution_wallet(test_institution_admin(1), AccountId32::new([201; 32]), 0);
-        assert_noop!(
-            InternalVote::cast(
-                RuntimeOrigin::signed(test_institution_admin(1)),
-                proposal_id,
-                InternalVoteTicketClaim::InstitutionRole(role.clone()),
-                true
-            ),
-            engingcore::Error::<Test>::NoPermission
-        );
-        let mut wrong = versions.to_vec();
-        wrong[1].0 = AccountId32::new([201; 32]);
-        assert_noop!(
-            engingcore::Pallet::<Test>::record_frozen_wallet_versions(
-                proposal_id,
-                key.clone(),
-                wrong
-            ),
-            engingcore::Error::<Test>::InvalidInstitution
-        );
-        assert_ok!(engingcore::Pallet::<Test>::record_frozen_wallet_versions(
-            proposal_id,
-            key.clone(),
-            versions.to_vec()
-        ));
-        assert_noop!(
-            engingcore::Pallet::<Test>::record_frozen_wallet_versions(
-                proposal_id,
-                key.clone(),
-                versions.to_vec()
-            ),
-            engingcore::Error::<Test>::VotePlanAlreadyBound
-        );
-        assert_eq!(
-            engingcore::VoterSnapshot::<Test>::get(proposal_id, &key),
-            Some(frozen)
-        );
-        assert_eq!(
-            InternalVotesByTicket::<Test>::iter_prefix(proposal_id)
-                .collect::<Vec<_>>()
-                .encode(),
-            votes
-        );
-        assert_eq!(InternalTallies::<Test>::get(proposal_id), tally);
-        assert_eq!(
-            engingcore::InstitutionTicketCountSnapshot::<Test>::iter_prefix(proposal_id)
-                .collect::<Vec<_>>()
-                .encode(),
-            count
-        );
-        assert_ok!(InternalVote::cast(
-            RuntimeOrigin::signed(test_institution_admin(1)),
-            proposal_id,
-            InternalVoteTicketClaim::InstitutionRole(role),
-            true
-        ));
     });
 }

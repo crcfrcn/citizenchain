@@ -265,7 +265,7 @@ pub(crate) fn submit_hot_transfer_inner(
 
 // ──── 编码工具 ────
 
-/// 构造 OnchainTransaction::transfer_with_remark 的 SCALE 编码 call data。
+/// 构造 Onchain::transfer_with_remark 的 SCALE 编码 call data。
 ///
 /// 格式：[pallet=4][call=0][beneficiary:AccountId32][amount:u128_le][remark:BoundedVec<u8>]
 pub(crate) fn build_transfer_with_remark_call(

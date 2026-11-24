@@ -1,4 +1,4 @@
-//! SquarePost 订阅签名操作的 FRAME benchmark。
+//! Square 订阅签名操作的 FRAME benchmark。
 
 #![cfg(feature = "runtime-benchmarks")]
 
@@ -11,7 +11,6 @@ use crate::{
     PeriodPrice, SquarePostCitizenIdentityProvider, SquarePostType, SubscriptionPlan,
     SubscriptionState, SubscriptionStatus, TierName,
 };
-use codec::Decode;
 use frame_benchmarking::v2::*;
 use frame_support::traits::{Currency, Get, Hooks};
 use frame_system::RawOrigin;
@@ -39,9 +38,9 @@ mod benchmarks {
     }
 
     fn benchmark_cid<T: Config>(account_id: &T::AccountId) -> CidNumberOf<T> {
-        T::CitizenIdentity::benchmark_seed_identity(account_id)
+        T::Identity::benchmark_seed_identity(account_id)
             .try_into()
-            .expect("benchmark CID must fit SquarePost bounds")
+            .expect("benchmark CID must fit Square bounds")
     }
 
     fn benchmark_tier_input<T: Config>(index: u8) -> CreatorTierInput {
@@ -307,17 +306,14 @@ mod benchmarks {
     fn propose_set_platform_price() {
         use entitybase::InstitutionRoleAuthorizationQuery;
         let foundation = primitives::cid::china::citizenchain::CITIZENCHAIN_FOUNDATION.cid_number;
-        let caller =
-            T::AccountId::decode(
-                &mut &primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ADMINS[0]
-                    .account_id[..],
-            )
-            .unwrap();
+        let person = primitives::cid::china::citizenchain::LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER;
+        let caller = T::Identity::current_account_id(person.as_bytes())
+            .expect("基准初始身份已绑定");
         let action = entitybase::BusinessActionId {
             module_tag: crate::MODULE_TAG.to_vec(),
             action_code: entitybase::business_action::ACTION_PLATFORM_PRICE,
         };
-        let role = primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ASSIGNMENTS
+        let role = primitives::cid::china::citizenchain::CITIZENCHAIN_FIXED_ROLES
             .iter()
             .find(|a| {
                 T::InstitutionRoleAuthorization::is_authorized(

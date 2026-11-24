@@ -188,7 +188,7 @@ async fn fetch_all_laws() -> Result<Vec<OnChainLaw>, String> {
         .at_latest()
         .await
         .map_err(|e| format!("get latest chain storage failed: {e}"))?;
-    let query = dynamic::storage("LegislationYuan", "Laws", Vec::<dynamic::Value>::new());
+    let query = dynamic::storage("Legislation", "Laws", Vec::<dynamic::Value>::new());
     let mut iter = storage
         .iter(query)
         .await
@@ -212,11 +212,7 @@ async fn fetch_all_law_versions() -> Result<Vec<OnChainLawVersion>, String> {
         .at_latest()
         .await
         .map_err(|e| format!("get latest chain storage failed: {e}"))?;
-    let query = dynamic::storage(
-        "LegislationYuan",
-        "LawVersions",
-        Vec::<dynamic::Value>::new(),
-    );
+    let query = dynamic::storage("Legislation", "LawVersions", Vec::<dynamic::Value>::new());
     let mut iter = storage
         .iter(query)
         .await
@@ -241,7 +237,7 @@ pub async fn fetch_immutable_article_numbers() -> Result<Vec<u32>, String> {
         .await
         .map_err(|e| format!("get latest chain storage failed: {e}"))?;
     let address = dynamic::storage(
-        "LegislationYuan",
+        "Legislation",
         "ConstitutionImmutableManifest",
         Vec::<dynamic::Value>::new(),
     );
@@ -340,7 +336,7 @@ pub async fn fetch_law_version_label(
         .await
         .map_err(|e| format!("get latest chain storage failed: {e}"))?;
     let address = dynamic::storage(
-        "LegislationYuan",
+        "Legislation",
         "LawVersionLabels",
         vec![
             dynamic::Value::u128(law_id as u128),

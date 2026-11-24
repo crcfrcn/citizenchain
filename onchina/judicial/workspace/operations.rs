@@ -10,6 +10,5 @@ pub(super) fn judicial_operations(capabilities: CapabilitySet) -> Vec<WorkspaceA
             "护宪终审",
             capabilities.can_sign_legislation,
         ),
-        action("manage_own_admins".to_string(), "变更本机构管理员", false),
     ]
 }

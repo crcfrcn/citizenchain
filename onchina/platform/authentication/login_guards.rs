@@ -11,7 +11,7 @@ use crate::*;
 
 use super::model::AdminAuthContext;
 
-/// 本地会话不授予当前资格；HTTP中间件及广播前复核最终块钱包、版本与辖区。
+/// 本地会话不授予当前资格；HTTP中间件及广播前复核最终块人员绑定、岗位与辖区。
 pub(crate) fn admin_session(
     state: &AppState,
     headers: &HeaderMap,
@@ -48,12 +48,8 @@ pub(crate) fn admin_session(
             .map_err(|error| error.to_string())?;
             return Err("http:unauthorized:access token expired".to_string());
         }
-        let binding = repo::get_active_node_binding_conn(conn)?;
-        if !binding.as_ref().is_some_and(|binding| {
-            session.candidate_id == binding.candidate_id
-                && session.institution_code == binding.institution_code
-                && session.institution_cid_number == binding.institution_cid_number
-        }) {
+        // 节点归属只控制宿主初始化状态，不把其缓存操作者作为人员授权真源。
+        if repo::get_active_node_binding_conn(conn)?.is_none() {
             conn.execute(
                 "DELETE FROM session WHERE token_hash=$1",
                 &[&repo::admin_session_token_hash(&token)],
@@ -88,7 +84,7 @@ pub fn require_admin_session(
     admin_session(state, headers).map(|session| session.context())
 }
 
-/// 本地就绪门不消费Passkey；完整HTTP入口先经中间件复核链上钱包，处理函数保留原业务范围。
+/// 本地就绪门不消费Passkey；完整HTTP入口先经中间件复核链上任职，处理函数保留原业务范围。
 pub fn require_admin_any(
     state: &AppState,
     headers: &HeaderMap,
@@ -113,16 +109,15 @@ pub(crate) fn bearer_token(headers: &HeaderMap) -> Option<String> {
     Some(token.trim().to_string())
 }
 
-/// 受保护请求/首次广播只接受当前实际钱包和在用版本；旧快照不提供业务权限。
-pub(crate) async fn validate_current_wallet(
-    state: &AppState,
+/// 每次受保护请求固定最终块，复核当前人员绑定、所选岗位及链上有效任职。
+pub(crate) async fn validate_current_assignment(
+    _state: &AppState,
     ctx: &AdminAuthContext,
 ) -> Result<(), axum::response::Response> {
-    // 测试快照来自各自隔离Db实例，不能影响正式二进制或其他测试会话。
     #[cfg(test)]
-    if let Some(snapshot) = state
+    if let Some(snapshot) = _state
         .db
-        .wallet_snapshot
+        .role_snapshot
         .lock()
         .map_err(|_| {
             api_error(
@@ -133,21 +128,22 @@ pub(crate) async fn validate_current_wallet(
         })?
         .clone()
     {
-        let equal = ctx.account_id == snapshot.account_id
-            && ctx.wallet_revision == snapshot.wallet_revision
-            && ctx.wallet_namespace == snapshot.wallet_namespace
+        return if ctx.account_id == snapshot.account_id
+            && ctx.person_cid == snapshot.person_cid
+            && ctx.binding_revision == snapshot.binding_revision
+            && ctx.role_code == snapshot.role_code
             && ctx.institution_cid_number == snapshot.institution_cid_number
             && ctx.institution_code == snapshot.institution_code
             && ctx.scope_province_name == snapshot.scope_province_name
             && ctx.scope_city_name == snapshot.scope_city_name
-            && ctx.scope_town_name == snapshot.scope_town_name;
-        return if equal {
+            && ctx.scope_town_name == snapshot.scope_town_name
+        {
             Ok(())
         } else {
             Err(api_error(
                 StatusCode::UNAUTHORIZED,
                 1002,
-                "institution wallet or version is no longer active",
+                "current person assignment changed",
             ))
         };
     }
@@ -156,45 +152,31 @@ pub(crate) async fn validate_current_wallet(
             &ctx.institution_code,
             Some(&ctx.institution_cid_number),
         )?;
-        let finalized = crate::chain_runtime::FinalizedChainView::connect().await?;
-        let admins = crate::chain_runtime::fetch_active_admins_onchain_at(&identity, &finalized, Some(&ctx.account_id))
-            .await?
-            .unwrap_or_default();
-        let Some(admin) = admins.iter().find(|a| a.account_id == ctx.account_id) else {
-            return Ok(false);
-        };
-        if !ctx.matches_wallet(admin) {
-            return Ok(false);
-        }
-        if ctx.institution_code == "FRG" {
-            let provinces = crate::institutions::fetch_frg_province_codes_for_admin(
-                &finalized,
-                identity.cid_number.as_bytes(),
-                admin.role_account_id,
-            )
-            .await?;
-            if provinces.len() != 1 {
-                return Ok(false);
-            }
-            let membership = crate::chain_runtime::ActiveAdminMembership {
-                institution_code: primitives::cid::code::institution_code_from_cid_number(
-                    &ctx.institution_cid_number,
-                )
-                .ok_or("invalid institution CID")?,
-                cid_number: identity.cid_number,
-                frg_province_code: Some(provinces[0]),
-            };
-            let candidate = state.db.with_client(|conn| {
-                super::onchain_gate::candidate_from_membership_conn(conn, &membership)
-            })?;
-            if candidate.scope_province_name != ctx.scope_province_name
-                || candidate.scope_city_name != ctx.scope_city_name
-                || candidate.scope_town_name != ctx.scope_town_name
-            {
-                return Ok(false);
-            }
-        }
-        Ok::<bool, String>(true)
+        let view = crate::chain_runtime::FinalizedChainView::connect().await?;
+        let assignments = crate::institutions::fetch_active_assignments_at(
+            &identity,
+            &view,
+            Some(&ctx.account_id),
+        )
+        .await?;
+        let snapshot =
+            crate::institutions::registration_snapshot_at(&ctx.institution_cid_number, &view)
+                .await?;
+        let scope = crate::chain_runtime::role_scope(
+            &snapshot.institution.institution_code,
+            &ctx.institution_cid_number,
+            &ctx.role_code,
+            &snapshot.institution.town_code,
+        )?;
+        Ok::<_, String>(
+            assignments.iter().any(|a| ctx.matches_assignment(a))
+                && scope
+                    == (
+                        ctx.scope_province_name.clone(),
+                        ctx.scope_city_name.clone(),
+                        ctx.scope_town_name.clone(),
+                    ),
+        )
     }
     .await;
     match result {
@@ -202,14 +184,127 @@ pub(crate) async fn validate_current_wallet(
         Ok(false) => Err(api_error(
             StatusCode::UNAUTHORIZED,
             1002,
-            "institution wallet or version is no longer active",
+            "current person assignment changed",
         )),
-        Err(error) => {
-            tracing::warn!(%error,"current institution wallet check failed");
+        Err(e) => {
+            tracing::warn!(error=%e,"read current assignment failed");
             Err(api_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 1503,
-                "current institution wallet unavailable",
+                "current assignment unavailable",
+            ))
+        }
+    }
+}
+
+/// 本地资料写入也要有当前岗位的对应业务发起权限；不因“已登录”授予写权。
+pub(crate) async fn validate_selected_permission(
+    _state: &AppState,
+    ctx: &AdminAuthContext,
+    module: Option<&[u8]>,
+    action: Option<u32>,
+) -> Result<(), axum::response::Response> {
+    let allows = |p: &entitybase::RoleBusinessPermission<Vec<u8>, Vec<u8>, Vec<u8>>| {
+        p.role_subject.cid_number == ctx.institution_cid_number.as_bytes()
+            && p.role_subject.role_code == ctx.role_code.as_bytes()
+            && p.operation == entitybase::RolePermissionOperation::Propose
+            && module.is_none_or(|m| p.business_action_id.module_tag == m)
+            && action.is_none_or(|a| p.business_action_id.action_code == a)
+    };
+    #[cfg(test)]
+    if _state
+        .db
+        .role_snapshot
+        .lock()
+        .map_err(|_| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                5001,
+                "test snapshot unavailable",
+            )
+        })?
+        .is_some()
+    {
+        validate_current_assignment(_state, ctx).await?;
+        return if _state
+            .db
+            .role_permissions
+            .lock()
+            .map_err(|_| {
+                api_error(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    5001,
+                    "test permissions unavailable",
+                )
+            })?
+            .iter()
+            .any(allows)
+        {
+            Ok(())
+        } else {
+            Err(api_error(
+                StatusCode::FORBIDDEN,
+                1003,
+                "当前岗位没有该业务发起权限",
+            ))
+        };
+    }
+    let result = async {
+        let view = crate::chain_runtime::FinalizedChainView::connect().await?;
+        let identity = crate::chain_runtime::identity_from_binding_parts(
+            &ctx.institution_code,
+            Some(&ctx.institution_cid_number),
+        )?;
+        let rows = crate::institutions::fetch_active_assignments_at(
+            &identity,
+            &view,
+            Some(&ctx.account_id),
+        )
+        .await?;
+        if !rows.iter().any(|a| ctx.matches_assignment(a)) {
+            return Ok::<_, String>(false);
+        }
+        let snapshot =
+            crate::institutions::registration_snapshot_at(&ctx.institution_cid_number, &view)
+                .await?;
+        let scope = crate::chain_runtime::role_scope(
+            &snapshot.institution.institution_code,
+            &ctx.institution_cid_number,
+            &ctx.role_code,
+            &snapshot.institution.town_code,
+        )?;
+        if scope
+            != (
+                ctx.scope_province_name.clone(),
+                ctx.scope_city_name.clone(),
+                ctx.scope_town_name.clone(),
+            )
+        {
+            return Ok(false);
+        }
+        Ok(snapshot.permissions.iter().any(|(role, perms)| {
+            role == ctx.role_code.as_bytes()
+                && perms.iter().any(|p| {
+                    allows(p)
+                        && (module.is_some()
+                            || p.business_action_id.module_tag == snapshot.module_tag())
+                })
+        }))
+    }
+    .await;
+    match result {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(api_error(
+            StatusCode::FORBIDDEN,
+            1003,
+            "当前岗位没有该业务发起权限",
+        )),
+        Err(e) => {
+            tracing::warn!(error=%e,"read current role permission failed");
+            Err(api_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                1503,
+                "current role permission unavailable",
             ))
         }
     }

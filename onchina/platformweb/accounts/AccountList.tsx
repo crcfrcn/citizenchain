@@ -7,7 +7,18 @@ import {
   type MultisigChainStatus,
 } from './api';
 import { tryEncodeSs58 } from '../codes/ss58';
-import { formatAdminBalanceFen } from '../institutions/AssignmentCard';
+function formatBalance(fen?: string | null): string {
+  if (fen == null) return '';
+  try {
+    const value = BigInt(fen);
+    const negative = value < 0n;
+    const abs = negative ? -value : value;
+    const yuan = abs / 100n;
+    const cents = abs % 100n;
+    const yuanText = yuan.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return `${negative ? '-' : ''}${yuanText}.${cents.toString().padStart(2, '0')} 元`;
+  } catch { return ''; }
+}
 
 interface Props {
   accounts: InstitutionAccount[];
@@ -64,7 +75,7 @@ export const AccountList: React.FC<Props> = ({
       dataIndex: 'balanceFen',
       width: 180,
       align: 'right',
-      render: (value: string | null | undefined) => formatAdminBalanceFen(value) || '-',
+      render: (value: string | null | undefined) => formatBalance(value) || '-',
     },
     {
       title: '链上状态',

@@ -193,3 +193,81 @@ async fn host_forwards_over_real_https_and_restart_replaces_only_module_software
         .unwrap()
         .contains("application/json"));
 }
+
+#[tokio::test]
+async fn account_errors_keep_real_binding_and_authentication_semantics_without_retired_admin_codes()
+{
+    for (status, code, message, expected) in [
+        (
+            StatusCode::FORBIDDEN,
+            2002,
+            "node binding required",
+            "ONCHINA_LOGIN_NODE_BINDING_REQUIRED",
+        ),
+        (
+            StatusCode::FORBIDDEN,
+            1003,
+            "必须使用当前所选机构和岗位",
+            "ONCHINA_AUTH_FORBIDDEN",
+        ),
+        (
+            StatusCode::FORBIDDEN,
+            1003,
+            "机构超出当前岗位作用域",
+            "ONCHINA_AUTH_FORBIDDEN",
+        ),
+        (
+            StatusCode::BAD_REQUEST,
+            1001,
+            "passkey setup required",
+            "ONCHINA_PASSKEY_SETUP_REQUIRED",
+        ),
+        (
+            StatusCode::FORBIDDEN,
+            2002,
+            "security grant required",
+            "ONCHINA_ADMIN_SECURITY_GRANT_REQUIRED",
+        ),
+        (
+            StatusCode::UNAUTHORIZED,
+            1002,
+            "missing bearer token",
+            "ONCHINA_AUTH_MISSING_TOKEN",
+        ),
+        (
+            StatusCode::FORBIDDEN,
+            2002,
+            "admin account_id already exists as federal admin",
+            "ONCHINA_AUTH_FORBIDDEN",
+        ),
+        (
+            StatusCode::FORBIDDEN,
+            2002,
+            "admin account_id already exists as city admin",
+            "ONCHINA_AUTH_FORBIDDEN",
+        ),
+        (
+            StatusCode::FORBIDDEN,
+            2002,
+            "city admin city limit reached",
+            "ONCHINA_AUTH_FORBIDDEN",
+        ),
+        (
+            StatusCode::FORBIDDEN,
+            2002,
+            "not an on-chain admin",
+            "ONCHINA_AUTH_FORBIDDEN",
+        ),
+    ] {
+        let response = api_error(status, code, message);
+        assert_eq!(response.status(), status);
+        let bytes = axum::body::to_bytes(response.into_body(), 4096)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(body["code"], code);
+        assert_eq!(body["errorCode"], expected);
+        assert_eq!(body["message"], message);
+        assert!(!body["traceId"].as_str().unwrap().is_empty());
+    }
+}

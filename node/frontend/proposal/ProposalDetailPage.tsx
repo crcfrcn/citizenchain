@@ -5,22 +5,22 @@ import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { MultisigTransferProposalDetailSection } from "../multisig/ProposalDetailSection";
 import type { ProposalFullInfo, FrozenVoteBinding } from "./types";
-import type { AdminSignerMatch } from "../institution/council";
+import type { RoleSigner } from "../institution/council";
 import { VoteSigningFlow, readPendingFrozenVote, clearPendingFrozenVote } from "./VoteSigningFlow";
-// 提案详情页：提案元数据 + 业务详情模块挂载 + 投票进度 + 管理员投票状态列表。
-// 投票资格来自原提案；现任管理员不继承旧票。
+// 提案详情页：提案元数据 + 业务详情模块挂载 + 投票进度 + 冻结人员投票状态列表。
+// 投票资格来自原提案；现任人员不继承旧票。
 import { useEffect, useState, useCallback, useRef } from 'react';
 import '../institution/styles.css';
 
 type Props = {
   proposalId: string;
-  adminSigners: AdminSignerMatch[];
+  roleSigners: RoleSigner[];
   cidNumber?: string;
   onBack: () => void;
 };
 
-// 不从当前管理员/人员目录重算历史投票人。
-export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSigners, cidNumber: externalCidNumber, onBack }: Props) {
+// 不从当前任职目录重算历史投票人。
+export function ProposalDetailPage({ proposalId, roleSigners: externalSigners, cidNumber: externalCidNumber, onBack }: Props) {
   const [info, setInfo] = useState<ProposalFullInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,7 +28,7 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
   const [displayMeta, setDisplayMeta] = useState<import('./types').ProposalDisplayMeta | null>(null);
   const epoch = useRef(0);
   const previousChain = useRef<string | null>(null);
-  const signersKey = externalAdminSigners.map(s => s.accountId).sort().join(',');
+  const signersKey = JSON.stringify(externalSigners.map(s => [s.personCid, s.roleCode, s.accountId, s.bindingRevision]).sort());
   const refreshData = useCallback(async () => {
     const token = epoch.current;
     try {
@@ -40,9 +40,9 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
       setInfo(data); setError(null);
       // 只在原票据明确记录同一选择时清理待确认签名。
       for (const role of data.frozenVoteView?.roles ?? []) for (const voter of role.voters) {
-        if (voter.walletRevision == null || voter.voteError || voter.vote == null) continue;
+        if (!voter.personCid || !voter.accountId || voter.bindingRevision == null || voter.voteError || voter.vote == null) continue;
         const binding = { genesisHash: data.frozenVoteView!.genesisHash, proposalId,
-          cidNumber: role.cidNumber, roleCode: role.roleCode, accountId: voter.accountId, walletRevision: voter.walletRevision };
+          cidNumber: role.cidNumber, roleCode: role.roleCode, accountId: voter.accountId, bindingRevision: voter.bindingRevision,personCid:voter.personCid! };
         const pending = readPendingFrozenVote(binding);
         if (pending?.approve === voter.vote) clearPendingFrozenVote(binding);
       }
@@ -102,7 +102,7 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
       {votingTicket && (
         <VoteSigningFlow key={JSON.stringify(votingTicket)}
           proposalId={meta.proposalId} proposalKind={meta.kind}
-          adminSigners={[{ accountId: votingTicket.accountId, accountLabel: '' }]}
+          roleSigners={[{...votingTicket,roleName:votingTicket.roleCode,permissions:[]}]}
           frozenTicket={votingTicket} cidNumber={votingTicket.cidNumber}
           onClose={() => setVotingTicket(null)} onSuccess={handleVoteSuccess}
         />
@@ -160,18 +160,18 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
         const cid = externalCidNumber ?? meta.actorCidNumber ?? meta.subjectCidNumbers[0];
         const roles = view.roles.filter(role => role.cidNumber === cid);
         const ticketCount = roles.reduce((n, r) => n + r.voters.length, 0);
-        const walletCount = new Set(roles.flatMap(r => r.voters.map(v => v.accountId))).size;
+        const walletCount = new Set(roles.flatMap(r => r.voters.filter(v => v.accountId && v.bindingRevision != null).map(v => v.accountId))).size;
         return <div className="institution-info-section">
-          <h3>原提案投票钱包（{walletCount} 个 / {ticketCount} 张岗位票）</h3>
+          <h3>原提案冻结资格（{walletCount} 个当前绑定 / {ticketCount} 张岗位票）</h3>
           {view.scopeError && <p className="error">{view.scopeError}</p>}
           {!roles.length && <p className="error">原提案中没有该机构的冻结票据</p>}
-          <div className="admin-grid proposal-detail-admin-grid">
+          <div className="institution-grid proposal-detail-vote-grid">
             {roles.map(role => <div key={role.cidNumber + ':' + role.roleCode}>
               {role.error && <p className="error">{role.error}</p>}
               {role.voters.map(voter => {
-                const binding: FrozenVoteBinding | null = voter.walletRevision == null ? null : {
+                const binding: FrozenVoteBinding | null = !voter.personCid||!voter.accountId||voter.bindingRevision == null ? null : {
                   genesisHash: view.genesisHash, proposalId, cidNumber: role.cidNumber,
-                  roleCode: role.roleCode, accountId: voter.accountId, walletRevision: voter.walletRevision,
+                  roleCode: role.roleCode, accountId: voter.accountId, bindingRevision: voter.bindingRevision,personCid:voter.personCid!,
                 };
                 let pending: ReturnType<typeof readPendingFrozenVote> = null;
                 let pendingError = '';
@@ -179,9 +179,9 @@ export function ProposalDetailPage({ proposalId, adminSigners: externalAdminSign
                 const canVote = !pendingError && !error && !view.scopeError && !role.error && !voter.voteError && binding && voter.vote == null &&
                   view.status === 0 && ((view.kind === 0 && view.stage === 0) || (view.kind === 1 && view.stage === 1)) &&
                   BigInt(view.blockNumber) <= BigInt(view.endBlock);
-                return <div className="institution-assignment-card" key={voter.accountId + ':' + voter.walletRevision}>
-                  <p><code>{accountIdToSs58(voter.accountId)}</code></p>
-                  <p>原岗位：{role.roleCode} / 冻结钱包版本：{voter.walletRevision ?? '未知'}</p>
+                return <div className="institution-assignment-card" key={voter.personCid??voter.accountId??role.roleCode}>
+                  <p><code>{voter.accountId?accountIdToSs58(voter.accountId):'无有效当前绑定'}</code></p>
+                  <p>原岗位：{role.roleCode} / 人员CID：{voter.personCid??'历史钱包快照'}</p>
                   <p>姓名及岗位名称：历史资料未记录</p>
                   {voter.voteError ? <p className="error">投票状态未知：{voter.voteError}</p> :
                     voter.vote === true ? <span className="vote-yes-tag">赞成</span> :

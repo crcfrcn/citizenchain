@@ -79,17 +79,16 @@ onchain = { path = "transaction/onchain", default-features = false }
 entitybase = { path = "entity/entitybase", default-features = false }
 publicentity = { path = "entity/publicentity", default-features = false }
 privateentity = { path = "entity/privateentity", default-features = false }
-personalentity = { path = "entity/personalentity", default-features = false }
-personaladmin = { path = "admins/personaladmin", default-features = false }
+personal = { path = "misc/personal", default-features = false }
 resolutionissue = { path = "issuance/resolutionissue", default-features = false }
 engingcore = { path = "votingengine/engingcore", default-features = false }
 internalvote = { path = "votingengine/internalvote", default-features = false }
 jointvote = { path = "votingengine/jointvote", default-features = false }
 electionvote = { path = "votingengine/electionvote", default-features = false }
 legislationvote = { path = "votingengine/legislationvote", default-features = false }
-adminbase = { path = "admins/adminbase", default-features = false }
-publicadmin = { path = "admins/publicadmin", default-features = false }
-privateadmin = { path = "admins/privateadmin", default-features = false }
+
+
+
 grandpakey = { path = "governance/grandpakey", default-features = false }
 upgrade = { path = "governance/upgrade", default-features = false }
 legislation = { path = "public/legislation", default-features = false }
@@ -132,17 +131,16 @@ std = [
 	"entitybase/std",
 	"publicentity/std",
 	"privateentity/std",
-	"personalentity/std",
-	"personaladmin/std",
+	"personal/std",
 	"resolutionissue/std",
 	"engingcore/std",
 	"internalvote/std",
 	"jointvote/std",
 	"electionvote/std",
 	"legislationvote/std",
-	"adminbase/std",
-	"publicadmin/std",
-	"privateadmin/std",
+
+
+
 	"grandpakey/std",
 	"upgrade/std",
 	"legislation/std",
@@ -198,8 +196,7 @@ runtime-benchmarks = [
 	"onchain/runtime-benchmarks",
 	"publicentity/runtime-benchmarks",
 	"privateentity/runtime-benchmarks",
-	"personalentity/runtime-benchmarks",
-	"personaladmin/runtime-benchmarks",
+	"personal/runtime-benchmarks",
 	"resolutionissue/runtime-benchmarks",
 	"engingcore/runtime-benchmarks",
 	"internalvote/runtime-benchmarks",
@@ -207,8 +204,8 @@ runtime-benchmarks = [
 	"electionvote/runtime-benchmarks",
 	"election/runtime-benchmarks",
 	"legislationvote/runtime-benchmarks",
-	"publicadmin/runtime-benchmarks",
-	"privateadmin/runtime-benchmarks",
+
+
 	"grandpakey/runtime-benchmarks",
 	"upgrade/runtime-benchmarks",
 	"destroy/runtime-benchmarks",
@@ -240,16 +237,15 @@ try-runtime = [
 	"onchain/try-runtime",
 	"publicentity/try-runtime",
 	"privateentity/try-runtime",
-	"personalentity/try-runtime",
-	"personaladmin/try-runtime",
+	"personal/try-runtime",
 	"resolutionissue/try-runtime",
 	"engingcore/try-runtime",
 	"internalvote/try-runtime",
 	"jointvote/try-runtime",
 	"electionvote/try-runtime",
 	"election/try-runtime",
-	"publicadmin/try-runtime",
-	"privateadmin/try-runtime",
+
+
 	"grandpakey/try-runtime",
 	"upgrade/try-runtime",
 	"destroy/try-runtime",

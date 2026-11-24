@@ -2,25 +2,6 @@
 
 impl Db {
     /// 机构治理按账户读取最小身份投影，沿用原查询的空值、修剪和最新记录语义。
-    pub(crate) fn find_governance_citizen_by_account_id(
-        &self,
-        account_id: &str,
-    ) -> Result<Option<crate::institutions::GovernanceCitizen>, String> {
-        let account_id = account_id.trim().to_string();
-        if account_id.is_empty() {
-            return Ok(None);
-        }
-        self.with_client(move |conn| {
-            let row = conn
-                .query_opt(
-                    "SELECT cid_number, family_name, given_name, account_id
-                 FROM citizen WHERE account_id = $1 ORDER BY created_at DESC LIMIT 1",
-                    &[&account_id],
-                )
-                .map_err(|e| format!("query governance citizen by account failed: {e}"))?;
-            Ok(row.as_ref().map(governance_citizen_from_row))
-        })
-    }
 
     /// 法定代表人治理按CID读取同一最小身份投影，不依赖注册局二进制。
     pub(crate) fn find_governance_citizen_by_cid(
@@ -123,7 +104,7 @@ impl Db {
     }
 
     /// `get_institution_with_accounts` 的 conn 级版本,供已持有连接的
-    /// 注册局动作派发(admins/actions.rs 注销校验）直接复用,避免嵌套 with_client。
+    /// 注册局动作派发(workspace/actions.rs 注销校验）直接复用,避免嵌套 with_client。
     pub(crate) fn get_institution_with_accounts_conn(
         conn: &mut impl postgres::GenericClient,
         cid_number: &str,
@@ -315,7 +296,7 @@ impl Db {
                 &inst.legal_representative.as_ref().map(|value| value.family_name.as_str()),
                 &inst.legal_representative.as_ref().map(|value| value.given_name.as_str()),
                 &inst.legal_representative.as_ref().map(|value| value.cid_number.as_str()),
-                &inst.legal_representative.as_ref().map(|value| value.account_id.as_str()),
+                &inst.legal_representative.as_ref().and_then(|value| value.account_id.as_deref()),
                 &inst.creator_account_id,
                 &inst.created_at,
                 &inst.status,
@@ -710,7 +691,7 @@ impl Db {
 				                                    s.private_type, s.partnership_kind, s.legal_personality,
 				                                    s.parent_cid, s.creator_account, s.created_at,
 				                                    COALESCE(ac.account_count, 0),
-				                                    a.family_name, a.given_name, a.institution_code, s.full_name, s.short_name,
+				                                    NULL::text, NULL::text, NULL::text, s.full_name, s.short_name,
 				                                    ''::text AS town_name, COALESCE(s.town_code, ''),
 				                                    s.education_type, s.state_code, s.chain_status
 		                             FROM subject s
@@ -723,7 +704,6 @@ impl Db {
 	                                  AND ($2::text IS NULL OR city_code = $2)
 	                                GROUP BY province_code, cid_number
 	                             ) ac ON ac.province_code = s.province_code AND ac.cid_number = s.cid_number
-	                             LEFT JOIN admin a ON a.account_id = s.creator_account
 	                             WHERE s.record_kind IN ('PUBLIC', 'PRIVATE')
 	                               {filter_clause}
 	                               AND ($6::text IS NULL OR s.private_type = $6)
@@ -790,7 +770,7 @@ impl Db {
                                     s.private_type, s.partnership_kind, s.legal_personality,
                                     s.parent_cid, s.creator_account, s.created_at,
                                     COALESCE(ac.account_count, 0),
-                                    a.family_name, a.given_name, a.institution_code, s.full_name, s.short_name,
+                                    NULL::text, NULL::text, NULL::text, s.full_name, s.short_name,
                                     ''::text AS town_name, COALESCE(s.town_code, ''),
                                     s.education_type, s.state_code, s.chain_status
 	                     FROM subject s
@@ -800,7 +780,6 @@ impl Db {
                         FROM account
                         GROUP BY cid_number
                      ) ac ON ac.cid_number = s.cid_number
-                     LEFT JOIN admin a ON a.account_id = s.creator_account
                      WHERE s.record_kind = 'PUBLIC'
 		                       AND g.source_kind = 'CHAIN'
 		                       AND s.institution_code IN ('NED', 'CEDU', 'GUN', 'GSCH')
@@ -851,7 +830,7 @@ impl Db {
                                     s.private_type, s.partnership_kind, s.legal_personality,
                                     s.parent_cid, s.creator_account, s.created_at,
                                     COALESCE(ac.account_count, 0),
-                                    a.family_name, a.given_name, a.institution_code, s.full_name, s.short_name,
+                                    NULL::text, NULL::text, NULL::text, s.full_name, s.short_name,
                                     ''::text AS town_name, COALESCE(s.town_code, ''),
                                     s.education_type, s.state_code, s.chain_status
 	                     FROM subject s
@@ -860,7 +839,6 @@ impl Db {
                         FROM account
                         GROUP BY cid_number
                      ) ac ON ac.cid_number = s.cid_number
-                     LEFT JOIN admin a ON a.account_id = s.creator_account
                      WHERE s.record_kind = 'PRIVATE'
 	                       AND s.subject_kind = 'PRIVATE_INSTITUTION'
 	                       AND s.private_type IS NOT NULL
@@ -904,7 +882,7 @@ impl Db {
                 .map_err(|_| "page_size too large".to_string())?;
             let offset_i64 =
                 i64::try_from(offset).map_err(|_| "page offset too large".to_string())?;
-	            // 公权目录 = 链上 PublicManage 投影(gov.source=CHAIN)
+	            // 公权目录 = 链上 PublicEntity 投影(gov.source=CHAIN)
 	            // + 公权下属非法人(F,父级为公法人)。本地 pending/手工行不能作为公权机构真源。
             // 父级只按 cid_number 关联(cid 全局唯一,父级不限定本省分区)。
             let rows = conn
@@ -915,7 +893,7 @@ impl Db {
 				                                    s.private_type, s.partnership_kind, s.legal_personality,
 				                                    s.parent_cid, s.creator_account, s.created_at,
 			                                    COALESCE(ac.account_count, 0),
-			                                    a.family_name, a.given_name, a.institution_code, s.full_name, s.short_name,
+			                                    NULL::text, NULL::text, NULL::text, s.full_name, s.short_name,
 			                                    ''::text AS town_name, COALESCE(s.town_code, ''),
 			                                    s.education_type, s.state_code, s.chain_status
 	                             FROM subject s
@@ -928,7 +906,6 @@ impl Db {
 	                                  AND ($2::text IS NULL OR city_code = $2)
 	                                GROUP BY province_code, cid_number
 	                             ) ac ON ac.province_code = s.province_code AND ac.cid_number = s.cid_number
-	                             LEFT JOIN admin a ON a.account_id = s.creator_account
 	                             WHERE s.record_kind IN ('PUBLIC', 'PRIVATE')
 			                               AND (
 			                                    (s.subject_kind = 'GOV_INSTITUTION'

@@ -2,7 +2,6 @@
 
 #![cfg(feature = "runtime-benchmarks")]
 
-use codec::Decode;
 use ed25519_dalek::{Signer, SigningKey};
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
@@ -16,10 +15,6 @@ use crate::{
     Pallet, CHINA_CB,
 };
 
-fn decode_account<T: pallet::Config>(raw: [u8; 32]) -> T::AccountId {
-    T::AccountId::decode(&mut &raw[..]).expect("benchmark account must decode")
-}
-
 fn nrc_cid() -> engingcore::types::CidNumber {
     CHINA_CB[0]
         .cid_number
@@ -30,7 +25,7 @@ fn nrc_cid() -> engingcore::types::CidNumber {
 }
 
 fn nrc_admin<T: pallet::Config>() -> T::AccountId {
-    decode_account::<T>(CHINA_CB[0].admins[0])
+    frame_benchmarking::account(CHINA_CB[0].cid_number, 0, 0)
 }
 
 fn seeded_pair(seed: u8) -> SigningKey {
@@ -50,6 +45,24 @@ fn benchmark_proof_expiry<T: pallet::Config>() -> frame_system::pallet_prelude::
     frame_system::Pallet::<T>::block_number().saturating_add(100_000u32.saturated_into())
 }
 
+fn seed_current_key<T: Config>(cid: &engingcore::CidNumber, public_key: [u8; 32]) {
+    if let Some(previous) = CurrentGrandpaKeys::<T>::get(cid) {
+        GrandpaKeyOwnerByKey::<T>::remove(previous);
+    }
+    CurrentGrandpaKeys::<T>::insert(cid, public_key);
+    GrandpaKeyOwnerByKey::<T>::insert(public_key, cid);
+        pallet_grandpa::Authorities::<T>::put(pallet_grandpa::BoundedAuthorityList::<
+            T::MaxAuthorities,
+        >::force_from(
+            vec![(
+                GrandpaAuthorityId::from(ed25519::Public::from_raw(public_key)),
+                1,
+            )],
+            None,
+        ));
+
+}
+
 #[benchmarks]
 mod benchmarks {
     use super::*;
@@ -63,8 +76,8 @@ mod benchmarks {
         let new_public_key = new_pair.verifying_key().to_bytes();
         let proof_nonce = 0;
         let proof_expires_at = benchmark_proof_expiry::<T>();
-        let old_public_key =
-            CurrentGrandpaKeys::<T>::get(actor_cid_number.clone()).expect("NRC key exists");
+        let old_public_key = seeded_pair(12).verifying_key().to_bytes();
+        seed_current_key::<T>(&actor_cid_number, old_public_key);
         let payload = proof::payload::<T>(
             actor_cid_number.clone(),
             actor_role_code.clone(),
@@ -101,20 +114,7 @@ mod benchmarks {
         let old_public_key = old_pair.verifying_key().to_bytes();
         let new_public_key = new_pair.verifying_key().to_bytes();
 
-        let catalog_public_key =
-            CurrentGrandpaKeys::<T>::get(actor_cid_number.clone()).expect("NRC key exists");
-        GrandpaKeyOwnerByKey::<T>::remove(catalog_public_key);
-        CurrentGrandpaKeys::<T>::insert(actor_cid_number.clone(), old_public_key);
-        GrandpaKeyOwnerByKey::<T>::insert(old_public_key, actor_cid_number.clone());
-        pallet_grandpa::Authorities::<T>::put(pallet_grandpa::BoundedAuthorityList::<
-            T::MaxAuthorities,
-        >::force_from(
-            vec![(
-                GrandpaAuthorityId::from(ed25519::Public::from_raw(old_public_key)),
-                1,
-            )],
-            None,
-        ));
+        seed_current_key::<T>(&actor_cid_number, old_public_key);
 
         let proof_nonce = 0;
         let proof_expires_at = benchmark_proof_expiry::<T>();

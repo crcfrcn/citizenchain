@@ -2,22 +2,22 @@
 
 use crate::signing::build_register_call_data;
 use crate::signing::build_unregister_call_data;
+use crate::signing::build_update_endpoint_call_data;
 use crate::signing::parse_signer_public_key;
-use crate::signing::CALL_REGISTER;
-use crate::signing::CALL_UNREGISTER;
-use crate::signing::PALLET_INDEX;
+use codec::{DecodeAll, Encode};
 
 #[test]
 fn register_call_data_starts_with_pallet_and_call() {
     let cd = build_register_call_data(
         "AH001-SCB0V-123456789-2026",
+        "ROLE_A",
         "12D3KooWAbcDef0123456789012345678901234567890123456",
         "rpc.example.com",
         9944,
     )
     .unwrap();
-    assert_eq!(cd[0], PALLET_INDEX);
-    assert_eq!(cd[1], CALL_REGISTER);
+    assert_eq!(cd[0], 19);
+    assert_eq!(cd[1], 50);
     // tail 应为 little-endian u16 端口
     let n = cd.len();
     assert_eq!(u16::from_le_bytes([cd[n - 2], cd[n - 1]]), 9944);
@@ -27,6 +27,7 @@ fn register_call_data_starts_with_pallet_and_call() {
 fn register_call_rejects_empty_cid() {
     let err = build_register_call_data(
         "",
+        "ROLE_A",
         "12D3KooWaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "x.com",
         9944,
@@ -39,6 +40,7 @@ fn register_call_rejects_empty_cid() {
 fn register_call_rejects_low_port() {
     let err = build_register_call_data(
         "S",
+        "ROLE_A",
         "12D3KooWaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "x.com",
         80,
@@ -48,14 +50,68 @@ fn register_call_rejects_low_port() {
 }
 
 #[test]
-fn unregister_call_only_has_cid() {
-    let cid_number = "AH001-SCB0V-123456789-2026";
-    let cd = build_unregister_call_data(cid_number).unwrap();
-    assert_eq!(cd[0], PALLET_INDEX);
-    assert_eq!(cd[1], CALL_UNREGISTER);
-    // 单字节模式 compact: len << 2
-    assert_eq!(cd[2], (cid_number.len() as u8) << 2);
-    assert_eq!(&cd[3..], cid_number.as_bytes());
+fn all_clearing_calls_decode_as_actual_runtime_calls_with_the_selected_role() {
+    let cid = "AH001-SCB0V-123456789-2026";
+    for role in ["ROLE_A", "ROLE_B"] {
+        let register = build_register_call_data(
+            cid,
+            role,
+            "12D3KooWAbcDef0123456789012345678901234567890123456",
+            "rpc.example.com",
+            9944,
+        )
+        .unwrap();
+        let expected =
+            runtime::RuntimeCall::Offchain(offchain::pallet::Call::register_clearing_bank {
+                actor_cid_number: cid.as_bytes().to_vec().try_into().unwrap(),
+                actor_role_code: role.as_bytes().to_vec().try_into().unwrap(),
+                peer_id: b"12D3KooWAbcDef0123456789012345678901234567890123456"
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+                rpc_domain: b"rpc.example.com".to_vec().try_into().unwrap(),
+                rpc_port: 9944,
+            });
+        assert_eq!(register, expected.encode());
+        assert!(
+            matches!(runtime::RuntimeCall::decode_all(&mut register.as_slice()).unwrap(),runtime::RuntimeCall::Offchain(offchain::pallet::Call::register_clearing_bank{actor_role_code,..}) if actor_role_code.as_slice()==role.as_bytes())
+        );
+        let update = build_update_endpoint_call_data(cid, role, "new.example.com", 9443).unwrap();
+        assert_eq!(&update[..2], &[19, 51]);
+        assert!(
+            matches!(runtime::RuntimeCall::decode_all(&mut update.as_slice()).unwrap(),runtime::RuntimeCall::Offchain(offchain::pallet::Call::update_clearing_bank_endpoint{actor_cid_number,actor_role_code,new_domain,new_port}) if actor_cid_number.as_slice()==cid.as_bytes()&&actor_role_code.as_slice()==role.as_bytes()&&new_domain.as_slice()==b"new.example.com"&&new_port==9443)
+        );
+        let unregister = build_unregister_call_data(cid, role).unwrap();
+        assert_eq!(&unregister[..2], &[19, 52]);
+        assert!(
+            matches!(runtime::RuntimeCall::decode_all(&mut unregister.as_slice()).unwrap(),runtime::RuntimeCall::Offchain(offchain::pallet::Call::unregister_clearing_bank{actor_cid_number,actor_role_code}) if actor_cid_number.as_slice()==cid.as_bytes()&&actor_role_code.as_slice()==role.as_bytes())
+        );
+    }
+}
+
+#[test]
+fn clearing_calls_reject_missing_noncanonical_and_overlong_role_instead_of_defaulting() {
+    let cid = "AH001-SCB0V-123456789-2026";
+    for role in [
+        "".to_string(),
+        " ROLE_A".into(),
+        "ROLE_A ".into(),
+        "A".repeat(1024),
+    ] {
+        assert!(
+            build_register_call_data(cid, &role, "peer", "rpc.example.com", 9944)
+                .unwrap_err()
+                .contains("actor_role_code")
+        );
+        assert!(
+            build_update_endpoint_call_data(cid, &role, "rpc.example.com", 9944)
+                .unwrap_err()
+                .contains("actor_role_code")
+        );
+        assert!(build_unregister_call_data(cid, &role)
+            .unwrap_err()
+            .contains("actor_role_code"));
+    }
 }
 
 #[test]

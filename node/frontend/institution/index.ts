@@ -1,5 +1,5 @@
-// 导出机构管理员和任职共用组件及公开类型。
+// 导出机构岗位和任职共用组件及公开类型。
 
-export { AdminListPage } from './AdminListPage';
+export { AssignmentsPage } from './AssignmentsPage';
 export { InstitutionAssignmentCard } from './InstitutionAssignmentCard';
-export type { InstitutionAdminsState } from './administrators';
+export type { InstitutionRolesState } from './assignments';

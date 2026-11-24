@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 /// 扫码支付 pallet 在 runtime `construct_runtime!` 中的实例名。与
 /// `reserve.rs` 保持一致,storage key 前缀计算 `twox_128(PALLET_NAME)` 依赖它。
-const PALLET_NAME: &[u8] = b"OffchainTransaction";
+const PALLET_NAME: &[u8] = b"Offchain";
 
 /// 清算行节点暴露给 citizenapp 的查询 RPC。
 ///

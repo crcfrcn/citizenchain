@@ -48,7 +48,7 @@ impl InternalCleanupHandler for () {
 /// JointTallies / ReferendumVotesByCid / ReferendumTallies)
 /// 住在 jointvote pallet,engingcore 主 crate 通过本 trait 派发清理。
 pub trait JointCleanupHandler {
-    fn cleanup_joint_admin_votes_chunk(proposal_id: u128, limit: u32) -> CleanupChunkResult;
+    fn cleanup_joint_role_votes_chunk(proposal_id: u128, limit: u32) -> CleanupChunkResult;
     fn cleanup_joint_institution_votes_chunk(proposal_id: u128, limit: u32) -> CleanupChunkResult;
     fn cleanup_joint_institution_tallies_chunk(proposal_id: u128, limit: u32) -> CleanupChunkResult;
     fn cleanup_referendum_votes_chunk(proposal_id: u128, limit: u32) -> CleanupChunkResult;
@@ -58,7 +58,7 @@ pub trait JointCleanupHandler {
 }
 
 impl JointCleanupHandler for () {
-    fn cleanup_joint_admin_votes_chunk(_proposal_id: u128, _limit: u32) -> CleanupChunkResult {
+    fn cleanup_joint_role_votes_chunk(_proposal_id: u128, _limit: u32) -> CleanupChunkResult {
         (0, false)
     }
     fn cleanup_joint_institution_votes_chunk(_proposal_id: u128, _limit: u32) -> CleanupChunkResult {

@@ -1,10 +1,10 @@
 //! 提供清算行节点登记状态、PeerID及端点连通性测试命令。
 
 use crate::types::ClearingBankNodeOnChainInfo;
+use crate::types::ClearingDecryptInfo;
+use crate::types::ClearingDecryptRequest;
 use crate::types::ConnectivityTestReport;
-use crate::types::DecryptAdminRequestResult;
-use crate::types::DecryptedAdminInfo;
-use crate::unlock::VerifyDecryptAdminInput;
+use crate::unlock::VerifyClearingDecryptInput;
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_SMALL;
 use serde_json::Value;
 use std::time::Duration;
@@ -74,10 +74,12 @@ pub async fn test_clearing_bank_endpoint_connectivity(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn build_register_clearing_bank_request(
     app: AppHandle,
     signer_public_key: String,
     actor_cid_number: String,
+    actor_role_code: String,
     peer_id: String,
     rpc_domain: String,
     rpc_port: u16,
@@ -90,6 +92,7 @@ pub async fn build_register_clearing_bank_request(
         crate::signing::build_register_sign_request(
             &signer_public_key,
             &actor_cid_number,
+            &actor_role_code,
             &peer_id,
             &rpc_domain,
             rpc_port,
@@ -107,6 +110,7 @@ pub async fn submit_register_clearing_bank(
     expected_public_key: String,
     expected_payload_hash: String,
     actor_cid_number: String,
+    actor_role_code: String,
     peer_id: String,
     rpc_domain: String,
     rpc_port: u16,
@@ -121,6 +125,7 @@ pub async fn submit_register_clearing_bank(
     tauri::async_runtime::spawn_blocking(move || {
         let call_data = crate::signing::build_register_call_data(
             &actor_cid_number,
+            &actor_role_code,
             &peer_id,
             &rpc_domain,
             rpc_port,
@@ -144,6 +149,7 @@ pub async fn build_update_clearing_bank_endpoint_request(
     app: AppHandle,
     signer_public_key: String,
     actor_cid_number: String,
+    actor_role_code: String,
     new_domain: String,
     new_port: u16,
 ) -> Result<nodeclient::signing::VoteSignRequestResult, String> {
@@ -155,6 +161,7 @@ pub async fn build_update_clearing_bank_endpoint_request(
         crate::signing::build_update_endpoint_sign_request(
             &signer_public_key,
             &actor_cid_number,
+            &actor_role_code,
             &new_domain,
             new_port,
         )
@@ -171,6 +178,7 @@ pub async fn submit_update_clearing_bank_endpoint(
     expected_public_key: String,
     expected_payload_hash: String,
     actor_cid_number: String,
+    actor_role_code: String,
     new_domain: String,
     new_port: u16,
     sign_nonce: u32,
@@ -184,6 +192,7 @@ pub async fn submit_update_clearing_bank_endpoint(
     tauri::async_runtime::spawn_blocking(move || {
         let call_data = crate::signing::build_update_endpoint_call_data(
             &actor_cid_number,
+            &actor_role_code,
             &new_domain,
             new_port,
         )?;
@@ -206,13 +215,18 @@ pub async fn build_unregister_clearing_bank_request(
     app: AppHandle,
     signer_public_key: String,
     actor_cid_number: String,
+    actor_role_code: String,
 ) -> Result<nodeclient::signing::VoteSignRequestResult, String> {
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        crate::signing::build_unregister_sign_request(&signer_public_key, &actor_cid_number)
+        crate::signing::build_unregister_sign_request(
+            &signer_public_key,
+            &actor_cid_number,
+            &actor_role_code,
+        )
     })
     .await
     .map_err(|e| format!("build_unregister_clearing_bank task failed:{e}"))?
@@ -226,6 +240,7 @@ pub async fn submit_unregister_clearing_bank(
     expected_public_key: String,
     expected_payload_hash: String,
     actor_cid_number: String,
+    actor_role_code: String,
     sign_nonce: u32,
     sign_block_number: u64,
     response_json: String,
@@ -235,7 +250,8 @@ pub async fn submit_unregister_clearing_bank(
         return Err("节点未运行".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        let call_data = crate::signing::build_unregister_call_data(&actor_cid_number)?;
+        let call_data =
+            crate::signing::build_unregister_call_data(&actor_cid_number, &actor_role_code)?;
         nodeclient::signing::verify_and_submit(
             &request_id,
             &expected_public_key,
@@ -251,31 +267,31 @@ pub async fn submit_unregister_clearing_bank(
 }
 
 #[tauri::command]
-pub async fn build_decrypt_admin_request(
+pub async fn build_clearing_decrypt_request(
     app: AppHandle,
     signer_public_key: String,
     cid_number: String,
-) -> Result<DecryptAdminRequestResult, String> {
+) -> Result<ClearingDecryptRequest, String> {
     let status = nodecontrol::identity::current_status(&app)?;
     if !status.running {
         return Err("节点未运行".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
-        crate::unlock::build_decrypt_admin_request(&signer_public_key, &cid_number)
+        crate::unlock::build_clearing_decrypt_request(&signer_public_key, &cid_number)
     })
     .await
-    .map_err(|e| format!("build_decrypt_admin_request task failed:{e}"))?
+    .map_err(|e| format!("build_clearing_decrypt_request task failed:{e}"))?
 }
 
 #[tauri::command]
-pub async fn verify_and_decrypt_admin(
+pub async fn verify_clearing_decrypt(
     request_id: String,
     signer_public_key: String,
     expected_payload_hash: String,
     response_json: String,
-) -> Result<DecryptedAdminInfo, String> {
+) -> Result<ClearingDecryptInfo, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        crate::unlock::verify_and_decrypt_admin(VerifyDecryptAdminInput {
+        crate::unlock::verify_clearing_decrypt(VerifyClearingDecryptInput {
             request_id,
             signer_public_key,
             expected_payload_hash,
@@ -283,15 +299,15 @@ pub async fn verify_and_decrypt_admin(
         })
     })
     .await
-    .map_err(|e| format!("verify_and_decrypt_admin task failed:{e}"))?
+    .map_err(|e| format!("verify_clearing_decrypt task failed:{e}"))?
 }
 
 #[tauri::command]
-pub async fn list_decrypted_admins(cid_number: String) -> Result<Vec<DecryptedAdminInfo>, String> {
-    Ok(crate::unlock::list_decrypted_admins(&cid_number))
+pub async fn list_clearing_decrypt(cid_number: String) -> Result<Vec<ClearingDecryptInfo>, String> {
+    Ok(crate::unlock::list_clearing_decrypt(&cid_number))
 }
 
 #[tauri::command]
-pub fn lock_decrypted_admin(signer_public_key: String) -> Result<(), String> {
-    crate::unlock::lock_decrypted_admin(&signer_public_key)
+pub fn lock_clearing_decrypt(signer_public_key: String) -> Result<(), String> {
+    crate::unlock::lock_clearing_decrypt(&signer_public_key)
 }

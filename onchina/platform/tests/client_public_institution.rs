@@ -24,7 +24,7 @@ fn sample_row() -> PublicInstitutionRow {
                 "CN000-CTZN{}-100000000-2026",
                 primitives::cid::number::checksum_char_m1("CN000CTZN1000000002026", true)
             ),
-            account_id: format!("0x{}", "11".repeat(32)),
+            account_id: Some(format!("0x{}", "11".repeat(32))),
         }),
         parent_cid_number: None,
         account_count: 2,
@@ -137,4 +137,14 @@ fn citizen_public_filter_keeps_all_public_institutions() {
     assert!(!GOV_FROM_WHERE.contains("CITY_POLICE"));
     // 公民端公权视图不排除教育机构(教育也在此展示)。
     assert!(!GOV_FROM_WHERE.contains("institution_code NOT IN ('NED'"));
+}
+
+#[test]
+fn legal_representative_remains_visible_without_current_binding() {
+    let mut row = sample_row();
+    row.legal_representative.as_mut().unwrap().account_id = None;
+    let value = serde_json::to_value(row.legal_representative.as_ref().unwrap()).unwrap();
+    assert_eq!(value["family_name"], "张");
+    assert!(value["account_id"].is_null());
+    assert!(!value["cid_number"].as_str().unwrap().is_empty());
 }

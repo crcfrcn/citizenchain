@@ -19,7 +19,7 @@ pub trait DeveloperUpgradeCheck {
 }
 
 // ─── GenesisInstitutionSeeder trait ─────────────────────────────────────────
-// 创世机构/管理员 seeding 注入口。把「写 publicentity/publicadmin 治理存储」这件事
+// 创世机构播种注入口。把「写入公私实体的机构与岗位定义」这件事
 // 从本 pallet 的 Config supertrait 解耦成 runtime 注入,消费者与本 pallet 单测因此
 // 不必 mock 整套治理栈;seeding 逻辑仍在 institution::build,由 runtime 的实现调用。
 pub trait GenesisInstitutionSeeder {
@@ -162,8 +162,8 @@ impl<T: pallet::Config> DeveloperUpgradeCheck for pallet::Pallet<T> {
 
 // ─── ChainPhaseCheck 实现 ───────────────────────────────────────────────────
 // 供 admin/entity 层读运行期强制门控:管理员字段强制仅在 Operation 期生效。
-// trait 定义在 adminbase(本 pallet 反向依赖各 admin/entity pallet,不能定义于此)。
-impl<T: pallet::Config> adminbase::ChainPhaseCheck for pallet::Pallet<T> {
+// 阶段接口由 entitybase 定义，私权实体通过它保留既有运行期资料校验。
+impl<T: pallet::Config> entitybase::ChainPhaseCheck for pallet::Pallet<T> {
     fn is_operation() -> bool {
         pallet::Phase::<T>::get() == pallet::ChainPhase::Operation
     }

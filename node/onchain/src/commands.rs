@@ -142,7 +142,7 @@ pub fn get_wallet_balance(account_id: String) -> Result<Option<String>, String> 
 
 // ──── 转账命令 ────
 
-/// 为 Cold 钱包构建 OnchainTransaction::transfer_with_remark 签名请求。
+/// 为 Cold 钱包构建 Onchain::transfer_with_remark 签名请求。
 ///
 /// 返回 QR 签名请求 JSON，前端显示 QR 码供离线设备扫码签名。
 #[tauri::command]

@@ -191,7 +191,7 @@ describe('三档鉴权的前端头部组装', () => {
   });
 });
 describe('实际业务认证', () => {
-const auth = { accessToken: 'test-session', accountId: '0x' + '11'.repeat(32) } as never;
+const auth = {personCid:'fixture-person',bindingRevision:'1',roleCode:'REPRESENTATIVE',institutionCidNumber:'fixture-institution', accessToken: 'test-session', accountId: '0x' + '11'.repeat(32) } as never;
 it('直接治理commit取一次Passkey，普通grant commit不重复取', async () => {
     const { assertPasskey } = await import('../authentication/passkeyClient');
     const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 0, data: {} })));
@@ -209,7 +209,7 @@ it('直接治理commit取一次Passkey，普通grant commit不重复取', async 
   });
 });
 describe('实际业务认证', () => {
-const auth = { accessToken: 'test-session', accountId: '0x' + '11'.repeat(32) } as never;
+const auth = {personCid:'fixture-person',bindingRevision:'1',roleCode:'REPRESENTATIVE',institutionCidNumber:'fixture-institution', accessToken: 'test-session', accountId: '0x' + '11'.repeat(32) } as never;
 it('Passkey被取消时不得发送业务写请求', async () => {
     const { assertPasskey } = await import('../authentication/passkeyClient');
     const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 0, data: {} })));
@@ -221,7 +221,7 @@ it('Passkey被取消时不得发送业务写请求', async () => {
   });
 });
 describe('机构治理真实请求', () => {
-const auth = { accessToken: 'test-session', accountId: '0x' + '11'.repeat(32) } as never;
+const auth = {personCid:'fixture-person',bindingRevision:'1',roleCode:'REPRESENTATIVE',institutionCidNumber:'fixture-institution', accessToken: 'test-session', accountId: '0x' + '11'.repeat(32) } as never;
 it('机构治理准备等待一次Passkey，保留请求且失败不重试', async () => {
     const { assertPasskey } = await import('../authentication/passkeyClient');
     const { prepareInstitutionGovernance } = await import('../institutions/governance');
@@ -285,17 +285,39 @@ it('非安全上下文在发送认证请求前拒绝，只提示正式公信HTTP
   } finally { vi.unstubAllGlobals(); fetcher.mockRestore(); }
 });
 
-describe('机构钱包版本登录存储', () => {
+describe('人员当前绑定和岗位登录存储', () => {
   it('保留大整数版本，缺版本、数字版本或未知namespace直接失效', async () => {
     const {readStoredAuth,writeStoredAuth}=await import('../authentication/storage');
     const values=new Map<string,string>();
     vi.stubGlobal('sessionStorage',{getItem:(k:string)=>values.get(k)??null,setItem:(k:string,v:string)=>values.set(k,v),removeItem:(k:string)=>values.delete(k)});
-    const complete={walletRevision:'9007199254740993',walletNamespace:'PublicAdmins' as const,setupRequired:false,accessToken:'original-token',accountId:'0x'+'11'.repeat(32),institutionCidNumber:'original-CID',institutionCode:'FRG',familyName:'测',givenName:'试'};
+    const complete={bindingRevision:'9007199254740993',personCid:'fixture-person',roleCode:'REGISTRAR',setupRequired:false,accessToken:'original-token',accountId:'0x'+'11'.repeat(32),institutionCidNumber:'original-CID',institutionCode:'FRG',familyName:'测',givenName:'试'};
     try {
       writeStoredAuth(complete);expect(readStoredAuth()).toEqual(complete);
-      for(const bad of [{...complete,walletRevision:undefined},{...complete,walletRevision:0},{...complete,walletRevision:'-1'},{...complete,walletRevision:'18446744073709551616'},{...complete,walletNamespace:'Unknown'}]) {
+      for(const bad of [{...complete,bindingRevision:undefined},{...complete,bindingRevision:0},{...complete,bindingRevision:'-1'},{...complete,bindingRevision:'18446744073709551616'},{...complete,personCid:undefined},{...complete,roleCode:undefined},{...complete,walletRevision:'0'}]) {
         values.set('onchina_admin_auth',JSON.stringify(bad));expect(readStoredAuth()).toBeNull();
       }
     }finally{vi.unstubAllGlobals();}
   });
+});
+
+it('退役管理员错误不再触发专用文案，真实岗位拒绝和现有安全确认提示保留', async () => {
+  const { ApiError } = await import('../workspace/http');
+  const { normalizeNoticeText } = await import('../controls/notice');
+  const security = await import('../authentication/security');
+  expect('formatAdminCreateError' in security).toBe(false);
+  for (const errorCode of [
+    'ONCHINA_ACCOUNT_ID_EXISTS_AS_FEDERAL_REGISTRY_ADMIN',
+    'ONCHINA_ACCOUNT_ID_EXISTS_AS_CITY_REGISTRY_ADMIN',
+    'ONCHINA_ADMIN_REPLACEMENT_NOT_ONCHAIN',
+    'ONCHINA_ADMIN_CITY_REGISTRY_CITY_LIMIT_REACHED',
+    'ONCHINA_LOGIN_ADMIN_NOT_ONCHAIN',
+  ]) {
+    expect(normalizeNoticeText(new ApiError(409, { errorCode, message: '状态冲突，请刷新' }, '失败'))).toBe('状态冲突，请刷新');
+  }
+  for (const message of ['必须使用当前所选机构和岗位', '机构超出当前岗位作用域']) {
+    expect(normalizeNoticeText(new ApiError(403, { errorCode: 'ONCHINA_AUTH_FORBIDDEN', message }, '失败'))).toBe(message);
+  }
+  expect(normalizeNoticeText(new ApiError(403, { errorCode: 'ONCHINA_LOGIN_NODE_BINDING_REQUIRED', message: 'node binding required' }, '失败'))).toBe('请先确认本节点绑定机构');
+  expect(normalizeNoticeText(new ApiError(400, { code: 1001, errorCode: 'ONCHINA_PASSKEY_SETUP_REQUIRED', message: '' }, '失败'))).toBe('请先完成 Passkey 密钥设置');
+  expect(normalizeNoticeText(new ApiError(403, { errorCode: 'ONCHINA_ADMIN_SECURITY_GRANT_REQUIRED', message: 'security grant required' }, '失败'))).toBe('请先完成扫码签名确认');
 });

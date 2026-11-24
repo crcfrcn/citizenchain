@@ -156,17 +156,6 @@
     },
     {
       "group": "admin",
-      "path": "/api/admin/own-institution-admins",
-      "methods": [
-        "get"
-      ],
-      "handlers": [
-        "institutions::list_own_institution_admins"
-      ],
-      "owner": "platform"
-    },
-    {
-      "group": "admin",
       "path": "/api/admin/own-institution",
       "methods": [
         "get"
@@ -430,17 +419,6 @@
       ],
       "handlers": [
         "qr::split_frames"
-      ],
-      "owner": "platform"
-    },
-    {
-      "group": "admin",
-      "path": "/api/admin/institution/wallet/prepare",
-      "methods": [
-        "post"
-      ],
-      "handlers": [
-        "institutions::prepare_institution_wallet"
       ],
       "owner": "platform"
     }

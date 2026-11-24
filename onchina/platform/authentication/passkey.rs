@@ -29,7 +29,7 @@ const ASSERTION_TTL_SECONDS: i64 = 120;
 /// X-Passkey-Assertion 头:携一次性断言令牌,Passkey / PasskeyColdSign 档提交时消费。
 pub(crate) const PASSKEY_ASSERTION_HEADER: &str = "x-passkey-assertion";
 
-/// 管理员 passkey user handle 的 uuid v5 命名空间(由 account_id 稳定派生,不入库)。
+/// 人员Passkey user handle命名空间，绑定人员CID、账户和identity真实版本。
 const PASSKEY_USER_NS: Uuid = Uuid::from_bytes([
     0x6f, 0x6e, 0x63, 0x68, 0x69, 0x6e, 0x61, 0x70, 0x61, 0x73, 0x6b, 0x65, 0x79, 0x75, 0x69, 0x64,
 ]);
@@ -49,8 +49,15 @@ fn build_webauthn() -> Result<Webauthn, String> {
     build_webauthn_from(crate::PLATFORM_HOST, &crate::platform_url())
 }
 
-fn admin_user_uuid(account_id: &str) -> Uuid {
-    Uuid::new_v5(&PASSKEY_USER_NS, account_id.as_bytes())
+fn person_user_uuid(ctx: &crate::authentication::login::AdminAuthContext) -> Uuid {
+    Uuid::new_v5(
+        &PASSKEY_USER_NS,
+        format!(
+            "{}|{}|{}",
+            ctx.person_cid, ctx.account_id, ctx.binding_revision
+        )
+        .as_bytes(),
+    )
 }
 
 #[derive(Serialize)]
@@ -129,11 +136,11 @@ pub(crate) async fn register_begin(
         }
     };
     let account_id = ctx.account_id.clone();
-    let user_uuid = admin_user_uuid(&account_id);
+    let user_uuid = person_user_uuid(&ctx);
     let now = Utc::now();
     let result = state.db.with_client(move |conn| {
         store::cleanup_passkey_state_conn(conn, now)?;
-        let existing = store::list_credentials_for_admin_conn(conn, account_id.as_str())?;
+        let existing = store::list_credentials_conn(conn, &ctx)?;
         let exclude = existing
             .iter()
             .map(|p| p.cred_id().clone())
@@ -156,7 +163,7 @@ pub(crate) async fn register_begin(
         store::insert_ceremony_conn(
             conn,
             ceremony_id.as_str(),
-            account_id.as_str(),
+            &ctx,
             "REG",
             &state_json,
             now + Duration::seconds(CEREMONY_TTL_SECONDS),
@@ -217,31 +224,30 @@ pub(crate) async fn register_finish(
         let now = Utc::now();
         let session = crate::authentication::repo::get_admin_session_conn(&mut tx, &token)?
             .ok_or("http:forbidden:login session is no longer valid")?;
-        let binding = crate::authentication::repo::get_active_node_binding_conn(&mut tx)?
+        let _binding = crate::authentication::repo::get_active_node_binding_conn(&mut tx)?
             .ok_or("http:forbidden:node binding missing")?;
         if session.account_id != ctx.account_id
-            || session.candidate_id != binding.candidate_id
-            || session.institution_code != binding.institution_code
-            || session.institution_cid_number != binding.institution_cid_number
+            || session.person_cid != ctx.person_cid
+            || session.role_code != ctx.role_code
+            || session.binding_revision != ctx.binding_revision
             || now > session.expires_at
         {
             return Err("http:forbidden:login session is no longer valid".into());
         }
-        let existing = has_credential(&mut tx, &ctx.account_id)?;
+        let existing = has_credential(&mut tx, &ctx)?;
         if existing {
             // 已有密钥的新增/更新是本地安全写，必须消费已有凭证的一次断言。
             let assertion = assertion
                 .as_deref()
                 .ok_or("http:forbidden:passkey assertion required")?;
-            if !store::consume_assertion_conn(&mut tx, assertion, &ctx.account_id, now)? {
+            if !store::consume_assertion_conn(&mut tx, assertion, &ctx, now)? {
                 return Err("http:forbidden:passkey assertion invalid or expired".into());
             }
         } else if !session.setup_required {
             return Err("http:forbidden:passkey setup state invalid".into());
         }
-        let state_json =
-            store::take_ceremony_conn(&mut tx, &input.ceremony_id, &ctx.account_id, "REG", now)?
-                .ok_or("http:forbidden:passkey ceremony invalid or expired")?;
+        let state_json = store::take_ceremony_conn(&mut tx, &input.ceremony_id, &ctx, "REG", now)?
+            .ok_or("http:forbidden:passkey ceremony invalid or expired")?;
         let reg_state: PasskeyRegistration = serde_json::from_value(state_json)
             .map_err(|error| format!("decode reg state failed: {error}"))?;
         let passkey = webauthn
@@ -252,14 +258,10 @@ pub(crate) async fn register_finish(
         store::insert_credential_conn(
             &mut tx,
             &hex::encode(passkey.cred_id().as_ref()),
-            &ctx.account_id,
+            &ctx,
             &passkey,
         )?;
-        crate::authentication::repo::complete_passkey_setup_conn(
-            &mut tx,
-            &ctx.account_id,
-            &session.candidate_id,
-        )?;
+        crate::authentication::repo::complete_passkey_setup_conn(&mut tx, &ctx)?;
         tx.commit().map_err(|error| error.to_string())?;
         Ok(())
     });
@@ -291,11 +293,10 @@ pub(crate) async fn assert_begin(
             return passkey_config_error();
         }
     };
-    let account_id = ctx.account_id.clone();
     let now = Utc::now();
     let result = state.db.with_client(move |conn| {
         store::cleanup_passkey_state_conn(conn, now)?;
-        let passkeys = store::list_credentials_for_admin_conn(conn, account_id.as_str())?;
+        let passkeys = store::list_credentials_conn(conn, &ctx)?;
         if passkeys.is_empty() {
             return Err("http:forbidden:no passkey registered".to_string());
         }
@@ -308,7 +309,7 @@ pub(crate) async fn assert_begin(
         store::insert_ceremony_conn(
             conn,
             ceremony_id.as_str(),
-            account_id.as_str(),
+            &ctx,
             "AUTH",
             &state_json,
             now + Duration::seconds(CEREMONY_TTL_SECONDS),
@@ -346,16 +347,10 @@ pub(crate) async fn assert_finish(
             return passkey_config_error();
         }
     };
-    let account_id = ctx.account_id.clone();
     let now = Utc::now();
     let result = state.db.with_client(move |conn| {
-        let Some(state_json) = store::take_ceremony_conn(
-            conn,
-            input.ceremony_id.as_str(),
-            account_id.as_str(),
-            "AUTH",
-            now,
-        )?
+        let Some(state_json) =
+            store::take_ceremony_conn(conn, input.ceremony_id.as_str(), &ctx, "AUTH", now)?
         else {
             return Err("http:forbidden:passkey ceremony invalid or expired".to_string());
         };
@@ -366,17 +361,17 @@ pub(crate) async fn assert_finish(
             .map_err(|e| format!("http:forbidden:passkey authentication verify failed: {e}"))?;
         // counter 递增 / backup 状态变化时回写匹配凭证(webauthn-rs 已做 counter 回退安全校验)。
         if auth_result.needs_update() {
-            let mut passkeys = store::list_credentials_for_admin_conn(conn, account_id.as_str())?;
+            let mut passkeys = store::list_credentials_conn(conn, &ctx)?;
             for passkey in passkeys.iter_mut() {
                 if passkey.update_credential(&auth_result) == Some(true) {
                     let credential_id = hex::encode(passkey.cred_id().as_ref());
-                    store::update_credential_conn(conn, credential_id.as_str(), passkey)?;
+                    store::update_credential_conn(conn, credential_id.as_str(), &ctx, passkey)?;
                 }
             }
         }
         let assertion_id = format!("pk-assert-{}", Uuid::new_v4());
         let expires_at = now + Duration::seconds(ASSERTION_TTL_SECONDS);
-        store::insert_assertion_conn(conn, assertion_id.as_str(), account_id.as_str(), expires_at)?;
+        store::insert_assertion_conn(conn, assertion_id.as_str(), &ctx, expires_at)?;
         Ok((assertion_id, expires_at.timestamp()))
     });
     match result {
@@ -414,9 +409,9 @@ pub(crate) async fn passkey_status(
 /// 仅登录签发和密钥初始化读取凭证事实；业务读取直接使用会话阶段。
 pub(crate) fn has_credential(
     conn: &mut impl postgres::GenericClient,
-    account_id: &str,
+    ctx: &crate::authentication::login::AdminAuthContext,
 ) -> Result<bool, String> {
-    store::admin_has_credential_conn(conn, account_id)
+    store::has_credential_conn(conn, ctx)
 }
 
 /// passkey 断言已成功消费的凭证。
@@ -428,8 +423,11 @@ pub(crate) fn has_credential(
 /// 8 个冷签会话创建点里有 4 个漏做 passkey 的根因。
 #[derive(Debug)]
 pub struct PasskeyProof {
-    pub(crate) wallet_revision: String,
-    pub(crate) wallet_namespace: crate::chain_runtime::AdminPallet,
+    pub(crate) binding_revision: String,
+    pub(crate) person_cid: String,
+    pub(crate) role_code: String,
+    pub(crate) institution_cid_number: String,
+    pub(crate) institution_code: String,
     account_id: String,
     binding: crate::authentication::login::NodeInstitutionBinding,
 }
@@ -442,9 +440,7 @@ impl PasskeyProof {
         account: &str,
         binding: &crate::authentication::login::NodeInstitutionBinding,
     ) -> bool {
-        self.account_id == account
-            && self.binding.binding_id == binding.binding_id
-            && self.binding.institution_cid_number == binding.institution_cid_number
+        self.account_id == account && self.binding.binding_id == binding.binding_id
     }
 }
 
@@ -491,15 +487,18 @@ pub fn require_passkey_assertion(
             if !store::consume_assertion_conn(
                 &mut tx,
                 assertion_id.as_str(),
-                account_id.as_str(),
+                &session.context(),
                 Utc::now(),
             )? {
                 return Ok(None);
             }
             tx.commit().map_err(|e| e.to_string())?;
             Ok(Some(PasskeyProof {
-                wallet_revision: session.wallet_revision,
-                wallet_namespace: session.wallet_namespace,
+                binding_revision: session.binding_revision,
+                person_cid: session.person_cid,
+                role_code: session.role_code,
+                institution_cid_number: session.institution_cid_number,
+                institution_code: session.institution_code,
                 account_id,
                 binding,
             }))

@@ -14,7 +14,7 @@ scale-info = { workspace = true }
 frame-support = { workspace = true }
 sp-runtime = { workspace = true }
 primitives = { path = "../../primitives", default-features = false }
-adminbase = { path = "../../admins/adminbase", default-features = false }
+
 sp-std = { workspace = true }
 
 [features]
@@ -25,6 +25,6 @@ std = [
     "frame-support/std",
     "sp-runtime/std",
     "primitives/std",
-    "adminbase/std",
+
     "sp-std/std",
 ]

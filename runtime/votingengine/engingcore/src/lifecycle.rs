@@ -209,7 +209,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub(crate) fn ensure_retry_admin(who: &T::AccountId, proposal_id: u128) -> DispatchResult {
+    pub(crate) fn ensure_retry_voter(who: &T::AccountId, proposal_id: u128) -> DispatchResult {
         let proposal = Proposals::<T>::get(proposal_id).ok_or(Error::<T>::ProposalNotFound)?;
         let authorized = if proposal.kind == PROPOSAL_KIND_JOINT
             || (proposal.kind == PROPOSAL_KIND_INTERNAL && proposal.actor_cid_number.is_some())

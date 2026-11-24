@@ -38,7 +38,7 @@ mod runtime {
     #[runtime::pallet_index(1)]
     pub type Balances = pallet_balances;
     #[runtime::pallet_index(2)]
-    pub type CitizenIssuance = super;
+    pub type CitizenIssue = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -99,7 +99,7 @@ fn pending_reward_scale_and_storage_key_match_node_guard_contract() {
 
     let index = 3u32;
     let encoded = index.encode();
-    let mut expected = twox_128(b"CitizenIssuance").to_vec();
+    let mut expected = twox_128(b"CitizenIssue").to_vec();
     expected.extend_from_slice(&twox_128(b"PendingRewards"));
     expected.extend_from_slice(&twox_64(&encoded));
     expected.extend_from_slice(&encoded);
@@ -115,7 +115,7 @@ fn voting_identity_registered_issues_reward() {
         assert_eq!(RewardedCount::<Test>::get(), 1);
         assert!(IdentityRewardClaimed::<Test>::contains_key(&cid_number));
         assert!(AccountRewarded::<Test>::contains_key(1));
-        System::assert_last_event(RuntimeEvent::CitizenIssuance(
+        System::assert_last_event(RuntimeEvent::CitizenIssue(
             Event::<Test>::CertificationRewardIssued {
                 account_id: 1,
                 cid_number,
@@ -133,7 +133,7 @@ fn max_cap_stops_reward() {
 
         assert_eq!(Balances::free_balance(1), 0);
         assert_eq!(RewardedCount::<Test>::get(), CITIZEN_ISSUANCE_MAX_COUNT);
-        System::assert_last_event(RuntimeEvent::CitizenIssuance(
+        System::assert_last_event(RuntimeEvent::CitizenIssue(
             Event::<Test>::CertificationRewardSkipped {
                 account_id: 1,
                 cid_number,
@@ -164,7 +164,7 @@ fn max_count_minus_one_allows_last_reward_then_rejects_next() {
         assert!(!IdentityRewardClaimed::<Test>::contains_key(&cid_number_b));
         assert!(AccountRewarded::<Test>::contains_key(1));
         assert!(!AccountRewarded::<Test>::contains_key(2));
-        System::assert_last_event(RuntimeEvent::CitizenIssuance(
+        System::assert_last_event(RuntimeEvent::CitizenIssue(
             Event::<Test>::CertificationRewardSkipped {
                 account_id: 2,
                 cid_number: cid_number_b,
@@ -182,7 +182,7 @@ fn same_citizen_identity_only_rewards_once() {
 
         assert_eq!(Balances::free_balance(1), CITIZEN_ISSUANCE_HIGH_REWARD);
         assert_eq!(RewardedCount::<Test>::get(), 1);
-        System::assert_last_event(RuntimeEvent::CitizenIssuance(
+        System::assert_last_event(RuntimeEvent::CitizenIssue(
             Event::<Test>::CertificationRewardSkipped {
                 account_id: 1,
                 cid_number,
@@ -204,7 +204,7 @@ fn same_citizen_identity_with_different_account_only_rewards_once() {
         assert_eq!(RewardedCount::<Test>::get(), 1);
         assert!(IdentityRewardClaimed::<Test>::contains_key(&cid_number));
         assert!(!AccountRewarded::<Test>::contains_key(2));
-        System::assert_last_event(RuntimeEvent::CitizenIssuance(
+        System::assert_last_event(RuntimeEvent::CitizenIssue(
             Event::<Test>::CertificationRewardSkipped {
                 account_id: 2,
                 cid_number,
@@ -225,7 +225,7 @@ fn consecutive_rewards_switch_from_high_to_normal_in_same_block() {
         assert_eq!(Balances::free_balance(2), 0);
         assert_eq!(PendingRewardCount::<Test>::get(), 2);
 
-        CitizenIssuance::on_finalize(System::block_number());
+        CitizenIssue::on_finalize(System::block_number());
 
         assert_eq!(Balances::free_balance(1), CITIZEN_ISSUANCE_HIGH_REWARD);
         assert_eq!(Balances::free_balance(2), CITIZEN_ISSUANCE_NORMAL_REWARD);
@@ -244,7 +244,7 @@ fn consecutive_rewards_switch_from_high_to_normal_in_same_block() {
         let issuance_events: Vec<_> = System::events()
             .into_iter()
             .filter_map(|record| match record.event {
-                RuntimeEvent::CitizenIssuance(event) => Some(event),
+                RuntimeEvent::CitizenIssue(event) => Some(event),
                 _ => None,
             })
             .collect();
@@ -289,7 +289,7 @@ fn high_reward_count_minus_one_still_gets_high_reward() {
         let cid_number = notify_voting_identity_registered(1, &citizen_cid_number("HIGH-MINUS-1"));
 
         assert_eq!(Balances::free_balance(1), CITIZEN_ISSUANCE_HIGH_REWARD);
-        System::assert_last_event(RuntimeEvent::CitizenIssuance(
+        System::assert_last_event(RuntimeEvent::CitizenIssue(
             Event::<Test>::CertificationRewardIssued {
                 account_id: 1,
                 cid_number,
@@ -308,7 +308,7 @@ fn same_account_second_citizen_identity_is_not_marked_reward_claimed() {
         assert!(IdentityRewardClaimed::<Test>::contains_key(&cid_number_a));
         assert!(!IdentityRewardClaimed::<Test>::contains_key(&cid_number_b));
         assert!(AccountRewarded::<Test>::contains_key(1));
-        System::assert_last_event(RuntimeEvent::CitizenIssuance(
+        System::assert_last_event(RuntimeEvent::CitizenIssue(
             Event::<Test>::CertificationRewardSkipped {
                 account_id: 1,
                 cid_number: cid_number_b,
@@ -338,7 +338,7 @@ fn same_account_different_citizen_identities_only_rewards_once() {
 
         assert_eq!(Balances::free_balance(1), CITIZEN_ISSUANCE_HIGH_REWARD);
         assert_eq!(RewardedCount::<Test>::get(), 1);
-        System::assert_last_event(RuntimeEvent::CitizenIssuance(
+        System::assert_last_event(RuntimeEvent::CitizenIssue(
             Event::<Test>::CertificationRewardSkipped {
                 account_id: 1,
                 cid_number: cid_number_b,
@@ -361,7 +361,7 @@ fn same_block_pending_tables_prevent_duplicate_account_reward() {
         assert!(!PendingIdentityRewardClaimed::<Test>::contains_key(
             &second_cid
         ));
-        System::assert_last_event(RuntimeEvent::CitizenIssuance(
+        System::assert_last_event(RuntimeEvent::CitizenIssue(
             Event::<Test>::CertificationRewardSkipped {
                 account_id: 1,
                 cid_number: second_cid,
@@ -369,7 +369,7 @@ fn same_block_pending_tables_prevent_duplicate_account_reward() {
             },
         ));
 
-        CitizenIssuance::on_finalize(System::block_number());
+        CitizenIssue::on_finalize(System::block_number());
         assert_eq!(Balances::free_balance(1), CITIZEN_ISSUANCE_HIGH_REWARD);
         assert_eq!(RewardedCount::<Test>::get(), 1);
         assert_eq!(PendingRewardCount::<Test>::get(), 0);
@@ -393,7 +393,7 @@ fn same_block_pending_tables_prevent_duplicate_cid_reward_after_account_change()
         ));
         assert!(PendingAccountRewarded::<Test>::contains_key(1));
         assert!(!PendingAccountRewarded::<Test>::contains_key(2));
-        System::assert_last_event(RuntimeEvent::CitizenIssuance(
+        System::assert_last_event(RuntimeEvent::CitizenIssue(
             Event::<Test>::CertificationRewardSkipped {
                 account_id: 2,
                 cid_number: cid_number.clone(),
@@ -401,7 +401,7 @@ fn same_block_pending_tables_prevent_duplicate_cid_reward_after_account_change()
             },
         ));
 
-        CitizenIssuance::on_finalize(System::block_number());
+        CitizenIssue::on_finalize(System::block_number());
         assert_eq!(Balances::free_balance(1), CITIZEN_ISSUANCE_HIGH_REWARD);
         assert_eq!(Balances::free_balance(2), 0);
         assert_eq!(RewardedCount::<Test>::get(), 1);
@@ -434,7 +434,7 @@ fn notify_voting_identity_registered(
     cid_number: &[u8],
 ) -> identity::CidNumberBound {
     let cid_number = queue_voting_identity_registered(account_id, cid_number);
-    CitizenIssuance::on_finalize(System::block_number());
+    CitizenIssue::on_finalize(System::block_number());
     cid_number
 }
 
@@ -444,7 +444,7 @@ fn queue_voting_identity_registered(
 ) -> identity::CidNumberBound {
     let cid_number =
         identity::CidNumberBound::try_from(cid_number.to_vec()).expect("cid number should fit");
-    <CitizenIssuance as identity::OnVotingIdentityRegistered<u64>>::on_voting_identity_registered(
+    <CitizenIssue as identity::OnVotingIdentityRegistered<u64>>::on_voting_identity_registered(
         &account_id,
         &cid_number,
     );

@@ -3,7 +3,7 @@
 import { IdentityCidInput } from '@gmb/onchina-platform/controls/IdentityCidInput';
 // 机构新增弹窗共享表单(私权/公权/教育三入口共用)。
 // 当前只保留待第 6 步复用的资料录入界面；提交按钮固定关闭，任何入口都不能生成
-// 已删除的 PublicManage/PrivateManage call 5。新业务模块接入时必须同时提交岗位、权限、
+// 已删除的 PublicEntity/PrivateEntity call 5。新业务模块接入时必须同时提交岗位、权限、
 // 任职和投票规则，再重新开放提交。
 //
 // 主体属性统一联动(与后端号码生成器/subjects/unincorporated_org 同源):
@@ -62,11 +62,7 @@ interface FormValues {
   cidShortName?: string;
   /** 需挂靠的非法人必填;个体经营/无限合伙不接受所属法人。 */
   parentCidNumber?: string;
-  admins: {
-    accountId: string;
-    familyName?: string;
-    givenName?: string;
-  }[];
+
 }
 
 type CheckCidFullName = (
@@ -242,10 +238,6 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
       cidFullName: defaultCollectName ? '' : undefined,
       cidShortName: defaultCollectName ? '' : undefined,
       parentCidNumber: undefined,
-      admins: [
-        { accountId: '', familyName: '管理', givenName: '员' },
-        { accountId: '', familyName: '管理', givenName: '员' },
-      ],
     });
   }, [open, category, privateType, lockedProvinceName, lockedCityName]);
 
@@ -473,18 +465,6 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
     const institutionCode = isEducation
       ? computeEducationInstitutionCode(values.subjectProperty.trim(), values.educationType)
       : values.institution.trim();
-    const admins = (values.admins ?? [])
-      .map((admin) => ({
-        accountId: admin.accountId.trim(),
-        familyName: (admin.familyName ?? '').trim() || '管理',
-        givenName: (admin.givenName ?? '').trim() || '员',
-      }))
-      .filter((admin) => admin.accountId);
-    const uniqueAdminCount = new Set(admins.map((admin) => admin.accountId)).size;
-    if (uniqueAdminCount < 2) {
-      notice.warning('请至少填写 2 名初始管理员');
-      return;
-    }
     if (requiresTown && !(values.townName ?? '').trim()) {
       notice.warning('请选择镇');
       return;
@@ -510,7 +490,6 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
         partnershipKind: isPrivate && privateType === 'PARTNERSHIP'
           ? values.partnershipKind
           : undefined,
-        admins,
       });
       const signed = await signChain(result.requestId, result.institutionCreateSignRequest);
       await submitChainSign(
@@ -787,68 +766,7 @@ export const CreateInstitutionForm: React.FC<CreateInstitutionFormProps> = ({
             )}
           </>
         )}
-        <Form.List name="admins">
-          {(fields, { add, remove }) => (
-            <div style={{ marginTop: 8 }}>
-              <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
-                初始管理员（至少 2 人）
-              </Typography.Text>
-              {fields.map((field, index) => (
-                <Row gutter={8} key={field.key} align="top">
-                  <Col span={5}>
-                    <Form.Item
-                      label={index === 0 ? '姓' : undefined}
-                      name={[field.name, 'familyName']}
-                    >
-                      <Input placeholder="默认 管理" />
-                    </Form.Item>
-                  </Col>
-                  <Col span={5}>
-                    <Form.Item
-                      label={index === 0 ? '名' : undefined}
-                      name={[field.name, 'givenName']}
-                    >
-                      <Input placeholder="默认 员" />
-                    </Form.Item>
-                  </Col>
-                  <Col span={11}>
-                    <Form.Item
-                      label={index === 0 ? '管理员账户' : undefined}
-                      name={[field.name, 'accountId']}
-                      rules={[
-                        { required: true, message: '请输入管理员账户 ID' },
-                        {
-                          pattern: /^0x[0-9a-f]{64}$/,
-                          message: '账户 ID 必须是小写 0x 加 64 位十六进制',
-                        },
-                      ]}
-                    >
-                      <Input placeholder="小写 0x + 64 位十六进制" />
-                    </Form.Item>
-                  </Col>
-                  <Col span={3}>
-                    <Button
-                      danger
-                      icon={<DeleteOutlined />}
-                      disabled={fields.length <= 2}
-                      onClick={() => remove(field.name)}
-                      style={{ marginTop: index === 0 ? 30 : 0, width: '100%' }}
-                    />
-                  </Col>
-                </Row>
-              ))}
-              <Button
-                icon={<PlusOutlined />}
-                onClick={() => add({ accountId: '', familyName: '管理', givenName: '员' })}
-              >
-                添加管理员
-              </Button>
-              <div style={{ color: '#888', fontSize: 12, marginTop: 8 }}>
-                姓和名分别保存；管理员账户本身不授权。新创建业务必须把初始岗位、权限、任职和投票规则与机构一起原子提交。
-              </div>
-            </div>
-          )}
-        </Form.List>
+
         {!collectNameInModal && (
           <div style={{ color: '#888', fontSize: 12, marginTop: -8 }}>
             提示:本步骤仅生成身份CID号。生成后请在详情页设置机构全称等信息。

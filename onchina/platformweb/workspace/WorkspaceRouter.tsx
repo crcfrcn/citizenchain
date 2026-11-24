@@ -14,7 +14,6 @@ export type WorkspaceRouterProps = {
   auth: AdminAuth;
   requestedModule?: string | null;
   capabilities: CapabilitySet;
-  passkeyRegistered: boolean | null;
   cidMeta: CidMetaResult | null;
   setCidMeta: (next: CidMetaResult | null) => void;
 };
@@ -23,14 +22,13 @@ export function WorkspaceRouter({
   auth,
   requestedModule,
   capabilities,
-  passkeyRegistered,
   cidMeta,
   setCidMeta,
 }: WorkspaceRouterProps) {
   if (!auth.workspace) {
     return <Alert type="error" showIcon message="后端未返回机构工作台，已拒绝加载页面" />;
   }
-  // 未完成首次设置只显示原密钥设置入口，不能先取名册或渲染业务页面。
+  // 未完成首次设置只显示原密钥设置入口，不能渲染业务页面。
   if (auth.setupRequired) return <PasskeySetup />;
   if (requestedModule != null) {
     switch (resolveModuleLanding(auth, requestedModule)) {
@@ -52,7 +50,6 @@ export function WorkspaceRouter({
       <RegisteredWorkspace
         auth={authWithWorkspace}
         capabilities={capabilities}
-        passkeyRegistered={passkeyRegistered}
         cidMeta={cidMeta}
         setCidMeta={setCidMeta}
       />

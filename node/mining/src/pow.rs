@@ -53,7 +53,7 @@ impl PowAlgorithm<Block> for SimplePow {
         parent: <Block as BlockT>::Hash,
     ) -> Result<Self::Difficulty, sc_consensus_pow::Error<Block>> {
         let key = [
-            twox_128(b"PowDifficulty").as_slice(),
+            twox_128(b"Difficulty").as_slice(),
             twox_128(b"CurrentDifficulty").as_slice(),
         ]
         .concat();
@@ -63,18 +63,18 @@ impl PowAlgorithm<Block> for SimplePow {
             .map_err(|e| sc_consensus_pow::Error::BlockProposingError(e.to_string()))?
             .ok_or_else(|| {
                 sc_consensus_pow::Error::BlockProposingError(
-                    "父块缺少 PowDifficulty::CurrentDifficulty".into(),
+                    "父块缺少 Difficulty::CurrentDifficulty".into(),
                 )
             })?;
         let mut input = raw.0.as_slice();
         let difficulty = u64::decode(&mut input).map_err(|_| {
             sc_consensus_pow::Error::BlockProposingError(
-                "PowDifficulty::CurrentDifficulty SCALE 解码失败".into(),
+                "Difficulty::CurrentDifficulty SCALE 解码失败".into(),
             )
         })?;
         if !input.is_empty() || difficulty == 0 {
             return Err(sc_consensus_pow::Error::BlockProposingError(
-                "PowDifficulty::CurrentDifficulty 非规范或为零".into(),
+                "Difficulty::CurrentDifficulty 非规范或为零".into(),
             ));
         }
         Ok(U256::from(difficulty))

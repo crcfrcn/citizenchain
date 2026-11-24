@@ -66,7 +66,8 @@ fn parent_is_joint_stock(parent_cid_number: Option<&[u8]>) -> bool {
         == Some(SFGF)
 }
 
-/// 返回机构必须完整拥有的协议账户集合。
+/// 按制度顺序返回机构必须完整拥有的协议账户类别：第一个是主账户，第二个是费用账户。
+/// 公开账户列表应按这两个类别确定首两项。链上按账户名存储，哈希键遍历顺序不表示账户顺序。
 ///
 /// CID 与机构码必须互相匹配；不匹配时返回 `None`，调用方不得自行回落到普通机构规则。
 ///
@@ -126,7 +127,7 @@ pub const ROLE_CODE_SENATOR: &[u8] = b"SENATOR";
 pub const ROLE_CODE_REPRESENTATIVE: &[u8] = b"REPRESENTATIVE";
 /// 国家教委会法定委员岗位代码。
 pub const ROLE_CODE_COMMITTEE_MEMBER: &[u8] = b"COMMITTEE_MEMBER";
-/// 每个机构自动拥有且只能拥有一个的法定代表人岗位代码。
+/// 每个机构永久且唯一的法定代表人岗位代码。该岗位设一席，可以依法空缺。
 pub const ROLE_CODE_LEGAL_REPRESENTATIVE: &[u8] = b"LR";
 /// 联邦安全局局长岗位代码（该局创世岗位之一，与自带的 LR 并存）。
 pub const ROLE_CODE_DIRECTOR: &[u8] = b"DIRECTOR";
@@ -269,9 +270,8 @@ pub fn national_legislature_components() -> [SingletonInstitution; 2] {
     [singleton_from_lf(NSN), singleton_from_lf(NRP)]
 }
 
-/// 注册局钱包维护的共同辖区规则。权限和有效任职仍由调用者查链验证。
-/// FRG自身按目标管理员原省组继续核验，不能按其中央注册地址扩大权限。
-pub fn registry_wallet_role_in_scope(
+/// 注册局办理机构事务的辖区规则。调用者另校验发起岗位的有效任职和业务权限。
+pub fn registry_role_in_scope(
     actor: &[u8],
     role: &[u8],
     target: &[u8],

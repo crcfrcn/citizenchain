@@ -14,7 +14,6 @@ use crate::*;
 use onchina::authentication::login::{require_admin_any, AdminAuthContext};
 use onchina::authentication::repo;
 use onchina::chain_runtime::{self, PlatformMembershipSnapshot};
-use onchina::crypto::pubkey::same_account_id;
 
 use super::chain_call::{
     build_propose_platform_price_call, PlatformMembershipLevel, PROPOSE_PLATFORM_PRICE_ACTION,
@@ -74,7 +73,7 @@ pub(crate) async fn recheck_platform_admin(
             "current institution is not the platform institution",
         ));
     }
-    let binding = repo::active_node_binding(&state.db)
+    let _binding = repo::active_node_binding(&state.db)
         .map_err(|_| {
             api_error(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -83,30 +82,42 @@ pub(crate) async fn recheck_platform_admin(
             )
         })?
         .ok_or_else(|| api_error(StatusCode::UNAUTHORIZED, 1002, "node is not bound"))?;
-    if binding.institution_cid_number != ctx.institution_cid_number {
-        return Err(api_error(
-            StatusCode::UNAUTHORIZED,
-            1002,
-            "session institution binding mismatch",
-        ));
-    }
     let identity = chain_runtime::identity_from_binding_parts(
-        &binding.institution_code,
-        Some(binding.institution_cid_number.as_str()),
+        &ctx.institution_code,
+        Some(&ctx.institution_cid_number),
     )
-    .map_err(|_| api_error(StatusCode::FORBIDDEN, 2003, "invalid institution binding"))?;
-    let admins = chain_runtime::fetch_active_admins_onchain(&identity)
+    .map_err(|_| api_error(StatusCode::FORBIDDEN, 2003, "invalid institution"))?;
+    let block = chain_runtime::finalized_block_hash()
         .await
-        .map_err(|_| api_error(StatusCode::BAD_GATEWAY, 5002, "chain admins unavailable"))?
-        .ok_or_else(|| api_error(StatusCode::FORBIDDEN, 2002, "institution admins missing"))?;
-    if !admins
-        .iter()
-        .any(|admin| same_account_id(&admin.account_id, ctx.account_id.as_str()))
-    {
+        .map_err(|_| api_error(StatusCode::BAD_GATEWAY, 5002, "chain unavailable"))?;
+    let action = onchina::institutions::BusinessActionId {
+        module_tag: onchina::institutions::business_action::MODULE_SQUARE_SUBSCRIPTION.to_vec(),
+        action_code: onchina::institutions::business_action::ACTION_PLATFORM_PRICE,
+    };
+    let rows = onchina::institutions::fetch_authorized_roles_at(
+        &identity,
+        &ctx.account_id,
+        &action,
+        block,
+    )
+    .await
+    .map_err(|_| {
+        api_error(
+            StatusCode::BAD_GATEWAY,
+            5002,
+            "chain permissions unavailable",
+        )
+    })?;
+    if !rows.iter().any(|a| {
+        a.person_cid == ctx.person_cid
+            && a.role_code == ctx.role_code
+            && a.account_id == ctx.account_id
+            && a.binding_revision == ctx.binding_revision
+    }) {
         return Err(api_error(
             StatusCode::FORBIDDEN,
             2002,
-            "admin is no longer active for this institution",
+            "person assignment or price permission is no longer active",
         ));
     }
     Ok(snapshot)
@@ -161,6 +172,9 @@ pub(crate) async fn propose_platform_price(
         Ok(value) => value,
         Err(response) => return response,
     };
+    if input.proposer_role_code != ctx.role_code {
+        return api_error(StatusCode::FORBIDDEN, 2002, "必须使用本次所选岗位");
+    }
     // 链上写(PasskeyColdSign 档):平台调价要发 extrinsic,会话 + passkey + 冷签缺一不可。
     let passkey = match onchina::authentication::passkey::require_passkey_assertion(
         &state,

@@ -205,10 +205,11 @@ pub struct UserVoteStatus {
     pub joint_vote: Option<bool>,
 }
 
-/// 只读最终块视图；版本保留十进制字符串，不从现任管理员推断。
+/// 只读最终块冻结人员票据；账户与identity绑定版本只表达当前签名绑定。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FrozenVoteView {
+    pub proposal_id: String,
     pub genesis_hash: String,
     pub block_hash: String,
     pub block_number: String,
@@ -231,8 +232,9 @@ pub struct FrozenRoleSnapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FrozenVoter {
-    pub account_id: String,
-    pub wallet_revision: Option<String>,
+    pub person_cid: Option<String>,
+    pub account_id: Option<String>,
+    pub binding_revision: Option<String>,
     pub vote: Option<bool>,
     pub vote_error: Option<String>,
 }
@@ -251,5 +253,16 @@ pub struct FrozenVoteBinding {
     pub cid_number: String,
     pub role_code: String,
     pub account_id: String,
-    pub wallet_revision: String,
+    pub person_cid: String,
+    pub binding_revision: String,
+}
+
+impl FrozenVoteBinding {
+    pub(crate) fn same_ticket(&self, other: &Self) -> bool {
+        self.genesis_hash == other.genesis_hash
+            && self.proposal_id == other.proposal_id
+            && self.cid_number == other.cid_number
+            && self.role_code == other.role_code
+            && self.person_cid == other.person_cid
+    }
 }

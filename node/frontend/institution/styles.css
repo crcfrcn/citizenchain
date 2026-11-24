@@ -14,18 +14,6 @@
   gap: 10px;
 }
 
-.institution-assignment-card .admin-card-index {
-  display: inline-flex;
-  min-width: 28px;
-  height: 28px;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: rgba(96, 165, 250, 0.14);
-  color: #bfdbfe;
-  font-size: 12px;
-  font-weight: 700;
-}
 
 /* 三个入口共用卡片布局；保留原方形序号及操作控件。 */
 .institution-assignment-top {
@@ -60,8 +48,6 @@
   margin-left: auto;
 }
 
-.institution-assignment-top-action .activated-tag,
-.institution-assignment-top-action .activate-button,
 .institution-assignment-top-action .vote-result-tag,
 .institution-assignment-top-action .vote-button-inline {
   display: inline-flex;
@@ -75,36 +61,11 @@
   gap: 7px;
 }
 
-.institution-admin-list-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(300px, 1fr));
-  gap: 8px;
-  overflow-x: auto;
-}
 
-.institution-admin-list-grid .institution-assignment-card {
-  align-content: start;
-  gap: 6px;
-  padding: 10px 12px;
-}
 
-.institution-admin-list-grid .institution-assignment-top {
-  justify-content: flex-start;
-  gap: 8px;
-}
 
-.institution-admin-list-grid .institution-assignment-role {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
 
-.institution-admin-list-grid .institution-assignment-top-action {
-  flex-shrink: 0;
-}
 
-.institution-admin-list-grid .institution-assignment-account {
-  gap: 3px;
-}
 
 .institution-assignment-list-row {
   display: grid;
@@ -209,7 +170,7 @@
   overflow-wrap: anywhere;
 }
 
-.institution-overview .institution-overview-admin-button {
+.institution-overview .institution-overview-role-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -226,11 +187,11 @@
   font-weight: 600;
 }
 
-.institution-overview .institution-overview-admin-button:hover {
+.institution-overview .institution-overview-role-button:hover {
   border-color: var(--primary);
 }
 
-.institution-overview .institution-overview-admin-button span {
+.institution-overview .institution-overview-role-button span {
   color: var(--institution-overview-secondary);
   font-size: 18px;
   line-height: 1;
@@ -799,7 +760,7 @@ body:has(.institution-transfer-dialog[open]) {
 .proposal-detail-page .proposal-transfer-remark .proposal-transfer-value { white-space: pre-wrap; }
 .proposal-detail-page .proposal-transfer-proposer { grid-area: proposer; }
 
-.proposal-detail-page .proposal-detail-admin-grid {
+.proposal-detail-page .proposal-detail-vote-grid {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, max(268px, calc((100% - 36px) / 4))), 1fr));
   gap: 12px;
 }
@@ -815,7 +776,6 @@ body:has(.institution-transfer-dialog[open]) {
   gap: 7px;
 }
 
-.proposal-detail-page .institution-assignment-compact-vote .admin-card-index,
 .proposal-detail-page .institution-assignment-compact-vote .institution-assignment-top-action {
   flex-shrink: 0;
 }

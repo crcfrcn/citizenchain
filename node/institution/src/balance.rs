@@ -1,4 +1,4 @@
-//! 读取机构管理员和账户余额，区分冻结、保留和可支配金额。
+//! 读取账户余额，区分冻结、保留和可支配金额。
 
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_SMALL;
 use serde_json::Value;
@@ -15,13 +15,6 @@ fn rpc_post(method: &str, params: Value) -> Result<Value, String> {
     )
 }
 
-/// 查询指定机构的管理员账户及其全部有效岗位任职。
-pub(crate) fn fetch_institution_admins(
-    cid_number: &str,
-) -> Result<Vec<crate::admins::InstitutionAdminInfo>, String> {
-    crate::storage::fetch_institution_admins_by_cid_number(cid_number)
-}
-
 /// 查询 finalized 块上的账户总余额（free + reserved，单位为分）。
 pub fn fetch_balance(account_id: &str) -> Result<Option<u128>, String> {
     // (ADR-017):钉块哈希统一取自 chain_query 收口,业务读取禁止 best。
@@ -29,7 +22,7 @@ pub fn fetch_balance(account_id: &str) -> Result<Option<u128>, String> {
     fetch_balance_at(account_id, Some(&hash))
 }
 
-/// 查询指定 finalized 块上的账户总余额；机构、管理员及钱包共用此口径。
+/// 查询指定 finalized 块上的账户总余额；机构及人员钱包共用此口径。
 pub(crate) fn fetch_balance_at(
     account_id: &str,
     block_hash: Option<&str>,

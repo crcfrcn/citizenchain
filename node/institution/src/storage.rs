@@ -1,231 +1,196 @@
-//! 构造机构链存储键，读取管理员、岗位和任职的真实状态。
-
-use crate::admins::institution_code_label;
-use crate::admins::kind_label;
-use crate::admins::AdminDecoded;
-use crate::admins::InstitutionAdminInfo;
-use crate::admins::InstitutionAdminsState;
-use crate::admins::InstitutionRoleAssignmentInfo;
-use crate::admins::InstitutionRolePermissionInfo;
-use codec::Decode;
-use codec::Encode;
-use entitybase::InstitutionAdminAssignment;
-use entitybase::InstitutionAssignmentSource;
-use entitybase::InstitutionAssignmentStatus;
-use entitybase::InstitutionRole;
-use entitybase::InstitutionRoleStatus;
-use entitybase::RoleBusinessPermission;
-use entitybase::RolePermissionOperation;
-use primitives::cid::code::is_fixed_governance_code;
-use primitives::cid::code::is_private_legal_code;
-use primitives::cid::code::is_public_legal_code;
-use primitives::cid::code::is_unincorporated_code;
-use primitives::cid::code::InstitutionCode;
-use primitives::cid::code::NRC;
-use primitives::cid::code::PRB;
-use primitives::cid::code::PRC;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
-
+//! 固定同一最终块读取实体岗位、任职及identity当前绑定，全部SCALE使用所属共享类型。
+use crate::roles::*;
+use codec::{DecodeAll, Encode};
+use entitybase::{
+    InstitutionAssignment, InstitutionAssignmentSource, InstitutionAssignmentStatus,
+    InstitutionRole, InstitutionRoleStatus, RoleBusinessPermission, RolePermissionOperation,
+};
+use std::collections::{BTreeMap, BTreeSet};
 type RawRole = InstitutionRole<Vec<u8>, Vec<u8>, Vec<u8>>;
-
-type RawAssignment = InstitutionAdminAssignment<Vec<u8>, [u8; 32], Vec<u8>, Vec<u8>>;
-
+type RawAssignment = InstitutionAssignment<Vec<u8>, Vec<u8>, Vec<u8>>;
 type RawPermission = RoleBusinessPermission<Vec<u8>, Vec<u8>, Vec<u8>>;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AdminPalletSpec {
-    pub pallet_name: &'static str,
-    pub entity_pallet_name: &'static str,
-    pub kind: u8,
+pub enum EntityPallet {
+    Public,
+    Private,
 }
-
-const PUBLIC_ADMINS: AdminPalletSpec = AdminPalletSpec {
-    pallet_name: "PublicAdmins",
-    entity_pallet_name: "PublicManage",
-    kind: 0,
-};
-
-const PRIVATE_ADMINS: AdminPalletSpec = AdminPalletSpec {
-    pallet_name: "PrivateAdmins",
-    entity_pallet_name: "PrivateManage",
-    kind: 1,
-};
-
-/// 机构码能明确分类时选择管理员 pallet；非法人必须通过双探测取得实际归属。
-pub fn admin_pallet_for_code(code: &InstitutionCode) -> Result<AdminPalletSpec, String> {
-    if is_fixed_governance_code(code) || is_public_legal_code(code) {
-        return Ok(PUBLIC_ADMINS);
+impl EntityPallet {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Public => "PublicEntity",
+            Self::Private => "PrivateEntity",
+        }
     }
-    if is_private_legal_code(code) {
-        return Ok(PRIVATE_ADMINS);
+    pub fn kind(self) -> u8 {
+        match self {
+            Self::Public => 0,
+            Self::Private => 1,
+        }
     }
-    if is_unincorporated_code(code) {
-        return Err("非法人机构不能仅按机构码推断公权或私权管理员模块".to_string());
-    }
-    Err(format!(
-        "无法按机构码 {} 路由机构管理员模块",
-        institution_code_label(code)
-    ))
 }
-
-fn builtin_governance_code(cid_number: &str) -> Result<InstitutionCode, String> {
-    let entry = crate::registry::find_institution(cid_number)
-        .ok_or_else(|| format!("未知的内置治理机构 cidNumber: {cid_number}"))?;
-    Ok(match entry.org_type() {
-        crate::council::InstitutionType::Nrc => NRC,
-        crate::council::InstitutionType::Prc => PRC,
-        crate::council::InstitutionType::Prb => PRB,
+pub fn person_allowed(cid: &[u8], owner: EntityPallet) -> bool {
+    if !std::str::from_utf8(cid).is_ok_and(|s| s.trim() == s) {
+        return false;
+    }
+    primitives::cid::number::parse_cid_number_parts_bytes(cid).is_ok_and(|p| {
+        p.institution == *b"CTZN" || owner == EntityPallet::Private && p.institution == *b"NATP"
     })
 }
-
-/// 构造机构管理员 pallet 的 `AdminAccounts[cid_number]` StorageMap key。
-pub fn admin_accounts_key_for_pallet(pallet_name: &str, cid_number: &[u8]) -> String {
-    let pallet_hash = sp_crypto_hashing::twox_128(pallet_name.as_bytes());
-    let storage_hash = sp_crypto_hashing::twox_128(b"AdminAccounts");
-    let encoded_cid = cid_number.to_vec().encode();
-    let blake2_hash = sp_crypto_hashing::blake2_128(&encoded_cid);
-    let mut key = Vec::with_capacity(48 + encoded_cid.len());
-    key.extend_from_slice(&pallet_hash);
-    key.extend_from_slice(&storage_hash);
-    key.extend_from_slice(&blake2_hash);
-    key.extend_from_slice(&encoded_cid);
-    format!("0x{}", hex::encode(key))
+fn decode_exact<T: DecodeAll>(raw: &str, label: &str) -> Result<T, String> {
+    let bytes = nodeclient::codec::decode_hex_storage(raw)?;
+    T::decode_all(&mut bytes.as_slice()).map_err(|e| format!("{label} SCALE损坏:{e}"))
 }
-
-pub(crate) fn fetch_institution_admins_state_by_cid_number(
-    cid_number: &str,
-) -> Result<Option<InstitutionAdminsState>, String> {
-    if let Ok(institution_code) = builtin_governance_code(cid_number) {
-        return fetch_institution_admins_for_code(cid_number, institution_code);
+fn value<T: DecodeAll>(
+    pallet: &str,
+    item: &str,
+    keys: &[Vec<u8>],
+    at: &str,
+) -> Result<Option<T>, String> {
+    let key = storage_key(pallet, item, keys);
+    nodeclient::query::fetch_storage_at(&key, at)?
+        .map(|v| decode_exact(&v, item))
+        .transpose()
+}
+fn storage_key(pallet: &str, item: &str, keys: &[Vec<u8>]) -> String {
+    let mut bytes = nodedesktop::storage::prefix(pallet.as_bytes(), item.as_bytes());
+    for key in keys {
+        bytes.extend(nodedesktop::storage::blake2_128_concat(key));
     }
-    fetch_institution_admins(cid_number)
+    nodedesktop::storage::to_hex(&bytes)
 }
-
-/// 按 CID 在公权/私权管理员模块双探测，非法人也以实际命中的 pallet 决定 entity 路由。
-pub(crate) fn fetch_institution_admins(
-    cid_number: &str,
-) -> Result<Option<InstitutionAdminsState>, String> {
-    let finalized_hash = nodeclient::query::fetch_finalized_head()?;
-    let mut found = None;
-    for spec in [PUBLIC_ADMINS, PRIVATE_ADMINS] {
-        let storage_key = admin_accounts_key_for_pallet(spec.pallet_name, cid_number.as_bytes());
-        let Some(hex_data) = nodeclient::query::fetch_storage_at(&storage_key, &finalized_hash)?
-        else {
-            continue;
-        };
-        if found.is_some() {
-            return Err("同一机构 CID 在多个管理员模块中存在，链上状态不一致".to_string());
-        }
-        found = Some(decode_institution_admins_state(
-            cid_number,
-            spec,
-            &hex_data,
-            &finalized_hash,
-        )?);
+/// 允许调用方注入已固定块的只读入口；解码/闭环规则仍只有此处实现。
+pub fn person_binding(
+    person: &str,
+    read: &mut impl FnMut(&str) -> Result<Option<String>, String>,
+) -> Result<Option<(String, String)>, String> {
+    if person.trim() != person {
+        return Err("人员CID不是规范原值".into());
     }
-    Ok(found)
-}
-
-pub fn fetch_institution_admins_for_code(
-    cid_number: &str,
-    institution_code: InstitutionCode,
-) -> Result<Option<InstitutionAdminsState>, String> {
-    let finalized_hash = nodeclient::query::fetch_finalized_head()?;
-    fetch_institution_admins_for_code_at(cid_number, institution_code, &finalized_hash)
-}
-
-pub(crate) fn fetch_institution_admins_for_code_at(
-    cid_number: &str,
-    institution_code: InstitutionCode,
-    finalized_hash: &str,
-) -> Result<Option<InstitutionAdminsState>, String> {
-    let spec = admin_pallet_for_code(&institution_code)?;
-    let storage_key = admin_accounts_key_for_pallet(spec.pallet_name, cid_number.as_bytes());
-    let Some(hex_data) = nodeclient::query::fetch_storage_at(&storage_key, finalized_hash)? else {
+    let parts = primitives::cid::number::parse_cid_number_parts_bytes(person.as_bytes())
+        .map_err(|_| "人员CID无效")?;
+    if parts.institution != *b"CTZN" && parts.institution != *b"NATP" {
+        return Err("非人员CID不能解析签名绑定".into());
+    }
+    let mut get =
+        |item: &str, key: Vec<u8>| read(&nodeclient::query::map_key("Identity", item, &key));
+    let record = get("CidRegistry", person.as_bytes().to_vec().encode())?
+        .map(|v| decode_exact::<identity::CidRecord<u32>>(&v, "CidRegistry"))
+        .transpose()?;
+    let Some(record) = record else {
         return Ok(None);
     };
-    let state = decode_institution_admins_state(cid_number, spec, &hex_data, finalized_hash)?;
-    if state.institution_code != institution_code {
-        return Err(format!(
-            "管理员账户机构码不匹配：查询 {}，链上 {}",
-            institution_code_label(&institution_code),
-            institution_code_label(&state.institution_code)
-        ));
+    if record.status != identity::CidRecordStatus::Active {
+        return Ok(None);
     }
-    Ok(Some(state))
+    let Some(wallet) = get("AccountIdByCid", person.as_bytes().to_vec().encode())?
+        .map(|v| decode_exact::<[u8; 32]>(&v, "AccountIdByCid"))
+        .transpose()?
+    else {
+        return Ok(None);
+    };
+    let revision = get("BindingRevisionByCid", person.as_bytes().to_vec().encode())?
+        .map(|v| decode_exact::<u64>(&v, "BindingRevisionByCid"))
+        .transpose()?
+        .filter(|r| *r > 0)
+        .ok_or("有效人员缺少真实绑定版本")?;
+    let reverse = get("CidByAccountId", wallet.encode())?
+        .map(|v| decode_exact::<Vec<u8>>(&v, "CidByAccountId"))
+        .transpose()?;
+    if reverse.as_deref() != Some(person.as_bytes()) {
+        return Err("人员绑定双向索引不一致".into());
+    }
+    Ok(Some((
+        format!("0x{}", hex::encode(wallet)),
+        revision.to_string(),
+    )))
 }
-
-fn decode_institution_admins_state(
-    cid_number: &str,
-    spec: AdminPalletSpec,
-    hex_data: &str,
-    finalized_hash: &str,
-) -> Result<InstitutionAdminsState, String> {
-    let data = decode_hex_storage(hex_data)?;
-    let decoded = crate::codec::decode_institution_admins(&data, spec == PUBLIC_ADMINS)?;
-    let admins = fetch_role_assignments(
-        spec,
-        cid_number.as_bytes(),
-        decoded.admins.as_slice(),
-        finalized_hash,
-    )?;
-    Ok(InstitutionAdminsState {
-        cid_number: cid_number.to_string(),
-        institution_code: decoded.institution_code,
-        institution_code_label: institution_code_label(&decoded.institution_code),
-        kind: spec.kind,
-        kind_label: kind_label(spec.kind).to_string(),
-        admins,
+pub fn person_binding_at(person: &str, at: &str) -> Result<Option<(String, String)>, String> {
+    person_binding(person, &mut |key| {
+        nodeclient::query::fetch_storage_at(key, at)
     })
 }
 
-fn role_storage_prefix(spec: AdminPalletSpec, storage: &str, cid_number: &[u8]) -> String {
-    let mut key =
-        nodedesktop::storage::prefix(spec.entity_pallet_name.as_bytes(), storage.as_bytes());
-    key.extend_from_slice(&nodedesktop::storage::blake2_128_concat(
-        &cid_number.to_vec().encode(),
-    ));
-    nodedesktop::storage::to_hex(&key)
-}
-
-fn fetch_all_keys_at(prefix: &str, finalized_hash: &str) -> Result<Vec<String>, String> {
-    let mut keys = Vec::new();
-    let mut start_key: Option<String> = None;
-    loop {
-        let page = nodeclient::query::fetch_keys_paged_at(
-            prefix,
-            256,
-            start_key.as_deref(),
-            finalized_hash,
-        )?;
-        if page.is_empty() {
-            break;
-        }
-        let page_len = page.len();
-        start_key = page.last().cloned();
-        keys.extend(page);
-        if page_len < 256 {
-            break;
-        }
+/// 姓名优先读取人员档案；已有创世公民缺档时，仅使用同块链上法代公开资料。
+fn person_name(
+    person: &str,
+    read: &mut impl FnMut(&str) -> Result<Option<String>, String>,
+) -> Result<(String, String), String> {
+    let key = nodeclient::query::map_key(
+        "Identity",
+        "CandidateIdentityByCid",
+        &person.as_bytes().to_vec().encode(),
+    );
+    if let Some(raw) = read(&key)? {
+        let profile: identity::CandidateIdentity<u32> =
+            decode_exact(&raw, "CandidateIdentityByCid")?;
+        return Ok((
+            utf8(profile.family_name.to_vec())?,
+            utf8(profile.given_name.to_vec())?,
+        ));
     }
-    Ok(keys)
-}
-
-fn decode_exact<T: Decode>(hex_data: &str, label: &str) -> Result<T, String> {
-    let bytes = decode_hex_storage(hex_data)?;
-    let mut input = bytes.as_slice();
-    let value = T::decode(&mut input).map_err(|e| format!("{label} SCALE 解码失败: {e}"))?;
-    if !input.is_empty() {
-        return Err(format!("{label} 存在尾随字节"));
+    use primitives::cid::china::{china_zf::CHINA_ZF, citizenchain};
+    if person != citizenchain::LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER {
+        return Ok((String::new(), String::new()));
     }
-    Ok(value)
+    let security = CHINA_ZF
+        .iter()
+        .find(|entry| {
+            primitives::cid::code::institution_code_from_cid_number(entry.cid_number)
+                == Some(primitives::cid::code::FSC)
+        })
+        .ok_or("联邦安全局身份缺失")?;
+    let mut name = None;
+    for (owner, cid) in [
+        (
+            EntityPallet::Private,
+            citizenchain::CITIZENCHAIN_FOUNDATION.cid_number,
+        ),
+        (EntityPallet::Public, security.cid_number),
+    ] {
+        let key = storage_key(
+            owner.name(),
+            "Institutions",
+            &[cid.as_bytes().to_vec().encode()],
+        );
+        let Some(raw) = read(&key)? else { continue };
+        let info: entitybase::InstitutionInfo<u32, Vec<u8>, Vec<u8>> =
+            decode_exact(&raw, "Institutions")?;
+        if primitives::cid::code::institution_code_from_cid_number(cid)
+            != Some(info.institution_code)
+        {
+            return Err("姓名来源机构码不一致".into());
+        }
+        let Some(representative) = info.legal_representative else {
+            continue;
+        };
+        if representative.person_cid != person.as_bytes() {
+            continue;
+        }
+        if representative.family_name.is_empty() || representative.given_name.is_empty() {
+            return Err("法定代表人姓名不完整".into());
+        }
+        let current = (
+            utf8(representative.family_name)?,
+            utf8(representative.given_name)?,
+        );
+        if name.as_ref().is_some_and(|previous| previous != &current) {
+            return Err("同一人员的法定代表人姓名不一致".into());
+        }
+        name = Some(current);
+    }
+    Ok(name.unwrap_or_default())
 }
-
-fn source_label(source: InstitutionAssignmentSource) -> &'static str {
-    match source {
+fn assignment_is_effective(role: &RawRole, a: &RawAssignment, day: u32) -> bool {
+    role.role_status == InstitutionRoleStatus::Active
+        && a.assignment_status == InstitutionAssignmentStatus::Active
+        && if role.term_required {
+            a.term_start > 0 && a.term_start <= day && day <= a.term_end
+        } else {
+            a.term_start == 0 && a.term_end == 0
+        }
+}
+fn source_label(s: InstitutionAssignmentSource) -> &'static str {
+    match s {
         InstitutionAssignmentSource::Genesis => "创世",
         InstitutionAssignmentSource::Registry => "注册局",
         InstitutionAssignmentSource::PopularElection => "普选",
@@ -234,206 +199,184 @@ fn source_label(source: InstitutionAssignmentSource) -> &'static str {
         InstitutionAssignmentSource::InstitutionGovernance => "机构内部治理",
     }
 }
-
-fn permission_operation_label(operation: RolePermissionOperation) -> &'static str {
-    match operation {
+fn permission_operation_label(s: RolePermissionOperation) -> &'static str {
+    match s {
         RolePermissionOperation::Propose => "发起提案",
         RolePermissionOperation::Vote => "参与投票",
     }
 }
-
-fn assignment_is_effective(role: &RawRole, assignment: &RawAssignment, current_day: u32) -> bool {
-    if assignment.assignment_status != InstitutionAssignmentStatus::Active {
-        return false;
-    }
-    if !role.term_required {
-        return assignment.term_start == 0 && assignment.term_end == 0;
-    }
-    assignment.term_start > 0
-        && assignment.term_start <= current_day
-        && current_day <= assignment.term_end
+fn display_source_ref(v: Vec<u8>) -> String {
+    format!("0x{}", hex::encode(v))
 }
-
-fn utf8(value: Vec<u8>, label: &str) -> Result<String, String> {
-    String::from_utf8(value).map_err(|_| format!("{label} 不是 UTF-8"))
+fn utf8(v: Vec<u8>) -> Result<String, String> {
+    String::from_utf8(v).map_err(|_| "链上文本非UTF-8".into())
 }
-
-/// 来源引用由业务模块定义，既可能是可读登记号，也可能是 SCALE 编码的提案 ID。
-fn display_source_ref(value: Vec<u8>) -> String {
-    match String::from_utf8(value.clone()) {
-        Ok(text) if !text.chars().any(char::is_control) => text,
-        _ => format!("0x{}", hex::encode(value)),
-    }
-}
-
-fn fetch_role_assignments(
-    spec: AdminPalletSpec,
-    cid_number: &[u8],
-    admin_records: &[AdminDecoded],
-    finalized_hash: &str,
-) -> Result<Vec<InstitutionAdminInfo>, String> {
-    let role_prefix = role_storage_prefix(spec, "InstitutionRoles", cid_number);
-    let permission_prefix = role_storage_prefix(spec, "InstitutionRolePermissions", cid_number);
-    let assignment_prefix = role_storage_prefix(spec, "InstitutionRoleAssignments", cid_number);
-    let mut roles = HashMap::<Vec<u8>, RawRole>::new();
-    for key in fetch_all_keys_at(&role_prefix, finalized_hash)? {
-        let value = nodeclient::query::fetch_storage_at(&key, finalized_hash)?
-            .ok_or_else(|| "岗位 key 在同一 finalized 快照中缺少 value".to_string())?;
-        let role: RawRole = decode_exact(&value, "InstitutionRoles")?;
-        if role.cid_number == cid_number && role.role_status == InstitutionRoleStatus::Active {
-            roles.insert(role.role_code.clone(), role);
+fn keys_at(prefix: &str, at: &str) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let mut start = None;
+    loop {
+        let page = nodeclient::query::fetch_keys_paged_at(prefix, 256, start.as_deref(), at)?;
+        if page.is_empty() {
+            break;
+        }
+        let last = page.last().cloned();
+        if last == start {
+            return Err("链上分页未前进".into());
+        }
+        let n = page.len();
+        start = last;
+        out.extend(page);
+        if n < 256 {
+            break;
         }
     }
-    let mut permissions = HashMap::<Vec<u8>, Vec<InstitutionRolePermissionInfo>>::new();
-    for key in fetch_all_keys_at(&permission_prefix, finalized_hash)? {
-        let value = nodeclient::query::fetch_storage_at(&key, finalized_hash)?
-            .ok_or_else(|| "岗位权限 key 在同一 finalized 快照中缺少 value".to_string())?;
-        let stored: Vec<RawPermission> = decode_exact(&value, "InstitutionRolePermissions")?;
-        for permission in stored {
-            if permission.role_subject.cid_number != cid_number {
-                return Err("岗位权限所属 CID 与 storage 前缀不一致".to_string());
+    Ok(out)
+}
+pub fn entity_at(
+    cid: &str,
+    at: &str,
+) -> Result<
+    Option<(
+        EntityPallet,
+        entitybase::InstitutionInfo<u32, Vec<u8>, Vec<u8>>,
+    )>,
+    String,
+> {
+    if cid.trim() != cid {
+        return Err("机构CID不是规范原值".into());
+    }
+    let parts = primitives::cid::number::parse_cid_number_parts_bytes(cid.as_bytes())
+        .map_err(|_| "机构CID无效")?;
+    let mut found = None;
+    for owner in [EntityPallet::Public, EntityPallet::Private] {
+        if let Some(info) = value::<entitybase::InstitutionInfo<u32, Vec<u8>, Vec<u8>>>(
+            owner.name(),
+            "Institutions",
+            &[cid.as_bytes().to_vec().encode()],
+            at,
+        )? {
+            if found.is_some() || info.institution_code != parts.institution {
+                return Err("机构CID命名空间或机构码不唯一".into());
             }
-            let role_code = permission.role_subject.role_code;
-            if !roles.contains_key(&role_code) {
-                return Err("岗位权限引用了不存在或已停用的岗位".to_string());
+            if !primitives::cid::code::is_unincorporated_code(&parts.institution)
+                && (owner == EntityPallet::Private)
+                    != primitives::cid::code::is_private_legal_code(&parts.institution)
+            {
+                return Err("机构所属实体不匹配".into());
             }
-            permissions
-                .entry(role_code)
-                .or_default()
-                .push(InstitutionRolePermissionInfo {
-                    module_tag: utf8(permission.business_action_id.module_tag, "业务模块标签")?,
-                    action_code: permission.business_action_id.action_code,
-                    operation: permission.operation as u8,
-                    operation_label: permission_operation_label(permission.operation).to_string(),
-                });
+            found = Some((owner, info));
         }
     }
-    for role_permissions in permissions.values_mut() {
-        role_permissions.sort_by(|left, right| {
-            (&left.module_tag, left.action_code, left.operation).cmp(&(
-                &right.module_tag,
-                right.action_code,
-                right.operation,
-            ))
-        });
-    }
-
-    let mut grouped =
-        BTreeMap::<String, (&AdminDecoded, Vec<InstitutionRoleAssignmentInfo>)>::new();
-    for admin in admin_records {
-        let wallet: [u8; 32] = hex::decode(admin.account_id.trim_start_matches("0x"))
-            .map_err(|e| e.to_string())?
-            .try_into()
-            .map_err(|_| "invalid member wallet")?;
-        let state = storage_value_at::<adminbase::InstitutionAdminWalletState<[u8; 32]>>(
-            spec.pallet_name,
-            "AdminWallets",
-            &[cid_number.to_vec().encode(), wallet.encode()],
-            finalized_hash,
-        )?
-        .ok_or("institution wallet state missing")?;
-        if state.wallet != Some(wallet) {
-            return Err("institution wallet state inactive or mismatched".into());
-        }
-        let reference = storage_value_at::<[u8; 32]>(
-            spec.pallet_name,
-            "WalletRoleBindings",
-            &[cid_number.to_vec().encode(), wallet.encode()],
-            finalized_hash,
-        )?
-        .ok_or("role signing authorization missing")?;
-        if grouped
-            .insert(format!("0x{}", hex::encode(reference)), (admin, Vec::new()))
-            .is_some()
+    Ok(found)
+}
+pub fn fetch_roles(cid: &str) -> Result<Option<InstitutionRolesState>, String> {
+    let at = nodeclient::query::fetch_finalized_head()?;
+    fetch_roles_at(cid, &at)
+}
+pub fn fetch_roles_at(cid: &str, at: &str) -> Result<Option<InstitutionRolesState>, String> {
+    let Some((owner, info)) = entity_at(cid, at)? else {
+        return Ok(None);
+    };
+    let now = value::<u64>("Timestamp", "Now", &[], at)?.ok_or("最终块时间缺失")?;
+    let day = u32::try_from(now / 86_400_000).map_err(|_| "链上日期超限")?;
+    let prefix = storage_key(
+        owner.name(),
+        "InstitutionRoles",
+        &[cid.as_bytes().to_vec().encode()],
+    );
+    let mut roles = BTreeMap::new();
+    let mut people = BTreeMap::new();
+    for key in keys_at(&prefix, at)? {
+        let raw = nodeclient::query::fetch_storage_at(&key, at)?.ok_or("同块岗位值缺失")?;
+        let role: RawRole = decode_exact(&raw, "InstitutionRoles")?;
+        if role.cid_number != cid.as_bytes()
+            || role.seats == 0
+            || primitives::institution_constraints::is_legal_representative_role(&role.role_code)
+                && role.seats != 1
         {
-            return Err("机构管理员账户重复".to_string());
+            return Err("岗位主体或席位无效".into());
         }
-    }
-    let current_day = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| "系统时间早于 Unix epoch".to_string())?
-        .as_secs()
-        / 86_400;
-    let current_day =
-        u32::try_from(current_day).map_err(|_| "当前 UTC 日期超出 u32 范围".to_string())?;
-    for key in fetch_all_keys_at(&assignment_prefix, finalized_hash)? {
-        let value = nodeclient::query::fetch_storage_at(&key, finalized_hash)?
-            .ok_or_else(|| "任职 key 在同一 finalized 快照中缺少 value".to_string())?;
-        let assignments: Vec<RawAssignment> = decode_exact(&value, "InstitutionRoleAssignments")?;
-        for assignment in assignments {
-            if assignment.cid_number != cid_number {
-                continue;
+        let role_key = role.role_code.clone();
+        let encoded = [cid.as_bytes().to_vec().encode(), role_key.encode()];
+        let perms =
+            value::<Vec<RawPermission>>(owner.name(), "InstitutionRolePermissions", &encoded, at)?
+                .unwrap_or_default();
+        if perms.iter().any(|p| {
+            p.role_subject.cid_number != cid.as_bytes() || p.role_subject.role_code != role_key
+        }) {
+            return Err("岗位权限主体不一致".into());
+        }
+        let rows =
+            value::<Vec<RawAssignment>>(owner.name(), "InstitutionRoleAssignments", &encoded, at)?
+                .unwrap_or_default();
+        if rows.len() > role.seats as usize {
+            return Err("任职超过岗位席位容量".into());
+        }
+        let mut seen = BTreeSet::new();
+        let mut assignments = Vec::new();
+        for a in rows {
+            if a.cid_number != cid.as_bytes()
+                || a.role_code != role_key
+                || !person_allowed(&a.person_cid, owner)
+                || !seen.insert(a.person_cid.clone())
+            {
+                return Err("岗位任职身份无效或重复".into());
             }
-            let account_id = format!("0x{}", hex::encode(assignment.account_id));
-            let Some((_, account_assignments)) = grouped.get_mut(&account_id) else {
-                continue;
-            };
-            let role = roles
-                .get(&assignment.role_code)
-                .ok_or_else(|| "有效机构任职引用了不存在或已停用的岗位".to_string())?;
-            if !assignment_is_effective(role, &assignment, current_day) {
-                continue;
+            let effective = assignment_is_effective(&role, &a, day);
+            let person = utf8(a.person_cid)?;
+            if !people.contains_key(&person) {
+                people.insert(person.clone(), person_binding_at(&person, at)?);
             }
-            account_assignments.push(InstitutionRoleAssignmentInfo {
-                role_code: utf8(assignment.role_code.clone(), "岗位码")?,
-                role_name: utf8(role.role_name.clone(), "岗位名称")?,
-                term_required: role.term_required,
-                term_start: assignment.term_start,
-                term_end: assignment.term_end,
-                assignment_source: assignment.assignment_source as u8,
-                assignment_source_label: source_label(assignment.assignment_source).to_string(),
-                assignment_source_ref: display_source_ref(assignment.assignment_source_ref),
-                permissions: permissions
-                    .get(&assignment.role_code)
-                    .cloned()
-                    .unwrap_or_default(),
+            let binding = people[&person].clone();
+            let (family_name, given_name) = person_name(&person, &mut |key| {
+                nodeclient::query::fetch_storage_at(key, at)
+            })?;
+            assignments.push(InstitutionAssignmentInfo {
+                person_cid: person,
+                account_id: binding.as_ref().map(|b| b.0.clone()),
+                binding_revision: binding.map(|b| b.1),
+                family_name,
+                given_name,
+                term_start: a.term_start,
+                term_end: a.term_end,
+                assignment_source: a.assignment_source as u8,
+                assignment_source_label: source_label(a.assignment_source).into(),
+                assignment_source_ref: display_source_ref(a.assignment_source_ref),
+                active: a.assignment_status == InstitutionAssignmentStatus::Active,
+                effective,
             });
         }
-    }
-
-    let mut admins = Vec::with_capacity(grouped.len());
-    for (_reference, (admin, mut assignments)) in grouped {
-        // 管理员身份和岗位任职是两套独立状态；新任管理员可以尚未取得岗位。
-        assignments.sort_by(|left, right| left.role_code.cmp(&right.role_code));
-        admins.push(InstitutionAdminInfo {
-            account_id: admin.account_id.clone(),
-            cid_number: admin.cid_number.clone(),
-            family_name: admin.family_name.clone(),
-            given_name: admin.given_name.clone(),
+        let item = InstitutionRoleInfo {
+            role_code: utf8(role_key.clone())?,
+            role_name: utf8(role.role_name)?,
+            term_required: role.term_required,
+            seats: role.seats,
+            active: role.role_status == InstitutionRoleStatus::Active,
+            permissions: perms
+                .into_iter()
+                .map(|p| {
+                    Ok(InstitutionRolePermissionInfo {
+                        module_tag: utf8(p.business_action_id.module_tag)?,
+                        action_code: p.business_action_id.action_code,
+                        operation: p.operation as u8,
+                        operation_label: permission_operation_label(p.operation).into(),
+                    })
+                })
+                .collect::<Result<_, String>>()?,
             assignments,
-        });
+        };
+        if roles.insert(role_key, item).is_some() {
+            return Err("岗位码重复".into());
+        }
     }
-    Ok(admins)
-}
-
-pub(crate) fn fetch_institution_admins_by_cid_number(
-    cid_number: &str,
-) -> Result<Vec<InstitutionAdminInfo>, String> {
-    Ok(fetch_institution_admins_state_by_cid_number(cid_number)?
-        .map(|state| state.admins)
-        .unwrap_or_default())
-}
-
-fn decode_hex_storage(hex_str: &str) -> Result<Vec<u8>, String> {
-    let clean = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-    hex::decode(clean).map_err(|e| format!("hex 解码失败: {e}"))
+    Ok(Some(InstitutionRolesState {
+        cid_number: cid.into(),
+        institution_code: info.institution_code,
+        kind: owner.kind(),
+        block_hash: at.into(),
+        roles: roles.into_values().collect(),
+    }))
 }
 #[cfg(test)]
 #[path = "../tests/storage.rs"]
 mod tests;
-
-/// All map keys use the pallet's Blake2_128Concat hashers, including the actual wallet key.
-fn storage_value_at<V: Decode>(
-    pallet: &str,
-    item: &str,
-    encoded_keys: &[Vec<u8>],
-    at: &str,
-) -> Result<Option<V>, String> {
-    let mut key = nodedesktop::storage::prefix(pallet.as_bytes(), item.as_bytes());
-    for encoded in encoded_keys {
-        key.extend_from_slice(&nodedesktop::storage::blake2_128_concat(encoded));
-    }
-    nodeclient::query::fetch_storage_at(&nodedesktop::storage::to_hex(&key), at)?
-        .map(|raw| decode_exact(&raw, item))
-        .transpose()
-}

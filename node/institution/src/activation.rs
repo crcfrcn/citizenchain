@@ -1,731 +1,297 @@
-//! 构造机构管理员激活冷签会话，并持久化已激活资料。
-
-use crate::admins::institution_code_label;
-use crate::admins::InstitutionAdminsState;
-use primitives::cid::code::code_bytes;
-use primitives::cid::code::is_fixed_governance_code;
-use primitives::cid::code::is_private_legal_code;
-use primitives::cid::code::is_public_legal_code;
-use primitives::cid::code::is_unincorporated_code;
-use primitives::cid::code::InstitutionCode;
-use primitives::sign::activate_admin_payload;
-use primitives::sign::binary_domain_prefix;
-use primitives::sign::ACTIVATE_ADMIN_CID_LEN;
-use primitives::sign::ACTIVATE_ADMIN_PAYLOAD_LEN;
-use primitives::sign::BINARY_PREFIX_LEN;
-use primitives::sign::OP_SIGN_ACTIVATE_ADMIN;
-use serde::Deserialize;
-use serde::Serialize;
-use std::collections::HashMap;
-use std::fs;
-use std::io::ErrorKind;
-use std::sync::Mutex;
-use std::sync::OnceLock;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
+//! 本机岗位授权：复用现有钱包持有证明，所选人员、岗位和真实绑定固定在一次性会话。
+use crate::roles::{InstitutionRolesState, RoleAccess};
+use serde::{Deserialize, Serialize};
+use std::{
+    collections::HashMap,
+    io::ErrorKind,
+    sync::{Mutex, OnceLock},
+};
 use tauri::AppHandle;
-
-/// 把前端传入的机构码字符串(如 "NRC"/"CGOV")转成链上 [u8;4]。空串/缺省 → None。
-fn parse_expected_code(expected: Option<&str>) -> Option<InstitutionCode> {
-    expected
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(code_bytes)
-}
-
-/// CID 级激活管理员存储文件名；旧账户绑定文件不读取、不迁移。
-const ACTIVATED_ADMINS_FILE: &str = "activated-institution-admins.json";
-
-// 管理员本地激活签名 payload 前缀 = GMB || OP_SIGN_ACTIVATE_ADMIN(4B 二进制前缀，
-// 单一真源 primitives::sign)。
-// cid_number(32) + institution_code(4) + kind(1) + signer_public_key(32)
-// + timestamp(8) + nonce(16)。这里只改语义名称，不改变任何 payload 字节。
-
 #[derive(Debug, Clone)]
-struct ActivationSignSession {
+struct AccessSession {
+    access: RoleAccess,
     signer_public_key: String,
-    payload_hash_hex: String,
-    payload_hex: String,
+    payload: Vec<u8>,
     expires_at: u64,
 }
-
-static ACTIVATION_SIGN_SESSIONS: OnceLock<Mutex<HashMap<String, ActivationSignSession>>> =
-    OnceLock::new();
-
-fn activation_sign_sessions() -> &'static Mutex<HashMap<String, ActivationSignSession>> {
-    ACTIVATION_SIGN_SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+static SESSIONS: OnceLock<Mutex<HashMap<String, AccessSession>>> = OnceLock::new();
+fn sessions() -> &'static Mutex<HashMap<String, AccessSession>> {
+    SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
-
-// ──── 数据结构 ────
-
-/// 已激活的管理员信息（返回给前端）。
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ActivatedAdmin {
-    /// 已激活管理员账户 ID，固定为小写 `0x` + 64 位十六进制。
-    pub account_id: String,
-    /// 机构唯一 CID。
-    pub cid_number: String,
-    /// 链上机构码（CID institution_code，[u8;4]）。
-    pub institution_code: InstitutionCode,
-    /// Node 按实际命中的机构管理员 pallet 派生的机构类型编码。
-    pub kind: u8,
-    /// 激活时间（毫秒时间戳）。
-    pub activated_at_ms: u64,
-}
-
-/// 本地存储的激活凭证。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct StoredActivation {
-    /// 已激活管理员账户 ID，固定为小写 `0x` + 64 位十六进制。
-    account_id: String,
-    /// 机构唯一 CID。
-    cid_number: String,
-    /// 链上机构码（CID institution_code，[u8;4]）。
-    institution_code: InstitutionCode,
-    /// Node 按实际命中的机构管理员 pallet 派生的机构类型编码。
-    kind: u8,
-    /// 激活时间（毫秒时间戳）。
-    activated_at_ms: u64,
-    /// 激活时的签名（用于凭证校验）。
-    signature_hex: String,
-    /// 激活时签名的 payload hash。
-    payload_hash_hex: String,
+struct StoredAccess {
+    accesses: Vec<RoleAccess>,
 }
-
-/// 解码后的 CID 级激活 payload。
-struct ActivationPayload {
-    cid_number: String,
-    institution_code: InstitutionCode,
-    kind: u8,
-    signer_public_key: String,
-}
-
-/// 存储文件根结构。
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct StoredActivations {
-    #[serde(default)]
-    activations: Vec<StoredActivation>,
-}
-
-/// 构建激活请求的返回结果。
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ActivateRequestResult {
-    /// 完整的 QR 签名请求 JSON 字符串。
+pub struct RoleAccessRequest {
     pub request_json: String,
-    /// 请求 ID（用于后续验证匹配）。
     pub request_id: String,
-    /// 签名 payload 的 SHA-256 哈希（用于验证响应）。
     pub expected_payload_hash: String,
-    /// 激活 payload hex（用于本地验证）。
     pub payload_hex: String,
 }
-
-// ──── 存储操作 ────
-
-fn activations_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(nodedesktop::security::app_data_dir(app)?.join(ACTIVATED_ADMINS_FILE))
+use nodeclient::signing::now_secs;
+fn path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(nodedesktop::security::app_data_dir(app)?.join("role-access.json"))
 }
-
-fn load_activations(app: &AppHandle) -> Result<Vec<StoredActivation>, String> {
-    let path = activations_path(app)?;
-    let raw = match fs::read_to_string(&path) {
-        Ok(v) => v,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(format!("读取激活记录文件失败: {e}")),
-    };
-    serde_json::from_str::<StoredActivations>(&raw)
-        .map(|stored| stored.activations)
-        .map_err(|e| format!("解析 CID 管理员激活记录文件失败: {e}"))
-}
-
-fn normalize_hash_hex(value: &str, field: &str) -> Result<String, String> {
-    let clean = value
-        .trim()
-        .strip_prefix("0x")
-        .unwrap_or(value.trim())
-        .to_ascii_lowercase();
-    if clean.len() != 64 || !clean.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err(format!("{field} 必须是 32 字节 hex"));
+fn load(app: &AppHandle) -> Result<Vec<RoleAccess>, String> {
+    match std::fs::read_to_string(path(app)?) {
+        Ok(raw) => serde_json::from_str::<StoredAccess>(&raw)
+            .map(|s| s.accesses)
+            .map_err(|e| format!("本机岗位授权记录损坏:{e}")),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(e.to_string()),
     }
-    Ok(clean)
 }
-
-fn remember_activation_session(
-    request_id: String,
-    session: ActivationSignSession,
-) -> Result<(), String> {
-    let mut sessions = activation_sign_sessions()
-        .lock()
-        .map_err(|_| "管理员激活签名 session 状态异常".to_string())?;
-    let now = now_secs();
-    sessions.retain(|_, item| item.expires_at >= now);
-    sessions.insert(request_id, session);
+fn save(app: &AppHandle, accesses: Vec<RoleAccess>) -> Result<(), String> {
+    let raw = serde_json::to_string(&StoredAccess { accesses }).map_err(|e| e.to_string())?;
+    nodedesktop::security::write_text_atomic_restricted(&path(app)?, &raw)
+}
+fn check_code(state: &InstitutionRolesState, expected: Option<&str>) -> Result<(), String> {
+    if expected.is_some_and(|s| {
+        primitives::cid::code::institution_code_from_str(s) != Some(state.institution_code)
+    }) {
+        return Err("机构码与任职所属机构不一致".into());
+    }
     Ok(())
 }
-
-fn take_activation_session(request_id: &str) -> Result<ActivationSignSession, String> {
-    let mut sessions = activation_sign_sessions()
-        .lock()
-        .map_err(|_| "管理员激活签名 session 状态异常".to_string())?;
-    sessions
-        .remove(request_id)
-        .ok_or_else(|| "未找到管理员激活签名 session，请重新生成二维码".to_string())
-}
-
-fn save_activations(app: &AppHandle, activations: &[StoredActivation]) -> Result<(), String> {
-    let raw = serde_json::to_string_pretty(&StoredActivations {
-        activations: activations.to_vec(),
-    })
-    .map_err(|e| format!("序列化激活记录失败: {e}"))?;
-    let path = activations_path(app)?;
-    nodedesktop::security::write_text_atomic_restricted(&path, &format!("{raw}\n")).map_err(|e| {
-        format!(
-            "写入激活记录文件失败 ({}): {e}",
-            nodedesktop::security::sanitize_path(&path)
-        )
+pub(crate) fn selected_access(
+    state: &InstitutionRolesState,
+    person: &str,
+    role: &str,
+    account: &str,
+) -> Result<RoleAccess, String> {
+    let a = state
+        .current_assignment(person, role)
+        .ok_or("所选人员没有当前有效任职或绑定")?;
+    if a.account_id.as_deref() != Some(account) {
+        return Err("签名钱包不是该人员当前绑定".into());
+    }
+    Ok(RoleAccess {
+        cid_number: state.cid_number.clone(),
+        person_cid: person.into(),
+        role_code: role.into(),
+        account_id: account.into(),
+        binding_revision: a.binding_revision.clone().ok_or("人员绑定版本缺失")?,
+        activated_at_ms: 0,
     })
 }
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
-
-fn validate_activation_account(
-    state: &InstitutionAdminsState,
-    expected_code: Option<InstitutionCode>,
-) -> Result<(), String> {
-    if let Some(code) = expected_code {
-        if state.institution_code != code {
-            return Err(format!(
-                "管理员账户机构码不匹配：请求 {}，链上 {}",
-                institution_code_label(&code),
-                institution_code_label(&state.institution_code)
-            ));
-        }
-    }
-    match state.kind {
-        0 if is_fixed_governance_code(&state.institution_code)
-            || is_public_legal_code(&state.institution_code)
-            || is_unincorporated_code(&state.institution_code) =>
-        {
-            Ok(())
-        }
-        1 if is_private_legal_code(&state.institution_code)
-            || is_unincorporated_code(&state.institution_code) =>
-        {
-            Ok(())
-        }
-        _ => Err("管理员账户类型与机构码不匹配，不能激活".to_string()),
-    }
-}
-
-fn fetch_chain_account(
-    cid_number: &str,
-    expected_code: Option<InstitutionCode>,
-) -> Result<InstitutionAdminsState, String> {
-    let state = crate::storage::fetch_institution_admins_state_by_cid_number(cid_number)?
-        .ok_or_else(|| "链上不存在该 CID 的管理员集合".to_string())?;
-    validate_activation_account(&state, expected_code)?;
-    Ok(state)
-}
-
-/// 构建 CID 级激活 payload；字节布局唯一真源在 `primitives::sign`。
-fn build_activate_payload(
-    cid_number: &str,
-    institution_code: &InstitutionCode,
-    kind: u8,
-    signer_public_key: &[u8; 32],
-    timestamp: u64,
-) -> Result<Vec<u8>, String> {
-    let nonce: [u8; 16] = rand::random();
-    activate_admin_payload(
-        cid_number.as_bytes(),
-        institution_code,
-        kind,
-        signer_public_key,
-        timestamp,
-        &nonce,
-    )
-    .ok_or_else(|| "cid_number 超出管理员激活签名协议上限".to_string())
-}
-
-fn decode_activate_payload(payload_bytes: &[u8]) -> Result<ActivationPayload, String> {
-    if payload_bytes.len() != ACTIVATE_ADMIN_PAYLOAD_LEN {
-        return Err(format!(
-            "激活 payload 长度无效：期望 {} 字节，实际 {} 字节",
-            ACTIVATE_ADMIN_PAYLOAD_LEN,
-            payload_bytes.len()
-        ));
-    }
-    let expected_prefix = binary_domain_prefix(OP_SIGN_ACTIVATE_ADMIN);
-    if payload_bytes[..BINARY_PREFIX_LEN] != expected_prefix {
-        return Err("激活 payload 前缀无效".to_string());
-    }
-    let mut offset = BINARY_PREFIX_LEN;
-    let cid_bytes = &payload_bytes[offset..offset + ACTIVATE_ADMIN_CID_LEN];
-    offset += ACTIVATE_ADMIN_CID_LEN;
-    let cid_end = cid_bytes
-        .iter()
-        .position(|byte| *byte == 0)
-        .unwrap_or(cid_bytes.len());
-    if cid_end == 0 || cid_bytes[cid_end..].iter().any(|byte| *byte != 0) {
-        return Err("激活 payload CID 固定槽无效".to_string());
-    }
-    let cid_number = String::from_utf8(cid_bytes[..cid_end].to_vec())
-        .map_err(|_| "激活 payload CID 不是 UTF-8".to_string())?;
-    let institution_code: InstitutionCode = payload_bytes[offset..offset + 4]
-        .try_into()
-        .map_err(|_| "激活 payload 机构码长度无效".to_string())?;
-    offset += 4;
-    let kind = payload_bytes[offset];
-    offset += 1;
-    let signer_public_key = format!("0x{}", hex::encode(&payload_bytes[offset..offset + 32]));
-    Ok(ActivationPayload {
-        cid_number,
-        institution_code,
-        kind,
-        signer_public_key,
-    })
-}
-
-fn activated_admin_from_stored(item: &StoredActivation) -> ActivatedAdmin {
-    ActivatedAdmin {
-        account_id: item.account_id.clone(),
-        cid_number: item.cid_number.clone(),
-        institution_code: item.institution_code,
-        kind: item.kind,
-        activated_at_ms: item.activated_at_ms,
-    }
-}
-
-// ──── Tauri 命令 ────
-
-/// 构建管理员激活签名请求 QR JSON（需要节点运行）。
-///
-/// 验证公钥确实在该 CID 的链上管理员列表中，
-/// 然后生成 QR_V1/k=1 格式的 CID 级签名请求。
 #[tauri::command]
-pub async fn build_activate_admin_request(
+pub async fn build_role_access_request(
     app: AppHandle,
     signer_public_key: String,
     cid_number: String,
+    person_cid: String,
+    role_code: String,
     expected_institution_code: Option<String>,
-) -> Result<ActivateRequestResult, String> {
-    let status = nodecontrol::identity::current_status(&app)?;
-    if !status.running {
-        return Err("节点未运行，无法验证管理员身份".to_string());
+) -> Result<RoleAccessRequest, String> {
+    if !nodecontrol::identity::current_status(&app)?.running {
+        return Err("节点未运行，不能核验当前岗位".into());
     }
-
-    let signer_public_key = nodedesktop::validation::normalize_public_key(&signer_public_key)?;
-    let signer_account_id =
-        nodeclient::signing::signer_account_id_from_public_key(&signer_public_key)?;
-    let public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
-        .map_err(|e| format!("签名公钥解码失败: {e}"))?;
-    let public_key_array: [u8; 32] = public_key_bytes
-        .as_slice()
+    let public = nodedesktop::validation::normalize_public_key(&signer_public_key)?;
+    let account = nodeclient::signing::signer_account_id_from_public_key(&public)?;
+    let state = tauri::async_runtime::spawn_blocking(move || {
+        crate::storage::fetch_roles(&cid_number)?.ok_or("机构不存在".to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    check_code(&state, expected_institution_code.as_deref())?;
+    let access = selected_access(&state, &person_cid, &role_code, &account)?;
+    let bytes: [u8; 32] = hex::decode(public.trim_start_matches("0x"))
+        .map_err(|e| e.to_string())?
         .try_into()
-        .map_err(|_| "公钥长度必须为 32 字节".to_string())?;
-
-    let expected_code = parse_expected_code(expected_institution_code.as_deref());
-    let sid = cid_number.clone();
-    let state =
-        tauri::async_runtime::spawn_blocking(move || fetch_chain_account(&sid, expected_code))
-            .await
-            .map_err(|e| format!("查询管理员账户失败: {e}"))??;
-
-    if !state
-        .admins
-        .iter()
-        .any(|admin| admin.account_id == signer_account_id)
-    {
-        return Err("该签名公钥对应的账户不在此机构的链上管理员列表中".to_string());
-    }
-
-    let activations = load_activations(&app)?;
-    if activations.iter().any(|a| {
-        a.account_id == signer_account_id
-            && a.cid_number == state.cid_number
-            && a.institution_code == state.institution_code
-            && a.kind == state.kind
-    }) {
-        return Err("该管理员已激活，无需重复操作".to_string());
-    }
-
-    let timestamp = now_secs();
-    let payload = build_activate_payload(
-        &state.cid_number,
+        .map_err(|_| "钱包持有证明公钥长度无效")?;
+    // 此处消费所属primitives现有固定协议，不另造二维码字段、签名域或钱包解码合同。
+    let payload = primitives::sign::role_access_payload(
+        state.cid_number.as_bytes(),
         &state.institution_code,
         state.kind,
-        &public_key_array,
-        timestamp,
-    )?;
+        &bytes,
+        now_secs()?,
+        &rand::random(),
+    )
+    .ok_or("机构CID超出本机证明协议长度")?;
+    let request_id = nodeclient::signing::generate_request_id_public("role-access");
+    let expires_at = now_secs()? + nodeclient::signing::DEFAULT_TTL_SECS;
+    let hash = format!(
+        "0x{}",
+        hex::encode(nodeclient::signing::sha256_hash_public(&payload))
+    );
     let payload_hex = format!("0x{}", hex::encode(&payload));
-
-    let payload_hash = nodeclient::signing::sha256_hash_public(&payload);
-    let payload_hash_hex = format!("0x{}", hex::encode(payload_hash));
-    let request_id = nodeclient::signing::generate_request_id_public("activate-institution-admin");
-
-    let now = now_secs();
-    let expires_at = now + nodeclient::signing::DEFAULT_TTL_SECS;
     let request = nodeclient::signing::QrSignRequest {
-        proto: nodeclient::signing::QR_V1.to_string(),
+        proto: nodeclient::signing::QR_V1.into(),
         kind: nodeclient::signing::QR_KIND_SIGN_REQUEST,
         id: request_id.clone(),
         expires_at,
         body: nodeclient::signing::SignRequestBody {
-            action: primitives::sign::QR_ACTION_ACTIVATE_ADMIN,
-            sig_alg: 1,
-            signer_public_key: nodeclient::signing::public_key_b64(&public_key_bytes)?,
+            action: primitives::sign::QR_ACTION_ROLE_ACCESS,
+            sig_alg: 0,
+            signer_public_key: nodeclient::signing::public_key_b64(&bytes)?,
             payload: nodeclient::signing::payload_b64(&payload),
         },
     };
-
-    let request_json =
-        serde_json::to_string(&request).map_err(|e| format!("序列化签名请求失败: {e}"))?;
-    remember_activation_session(
+    let mut items = sessions().lock().map_err(|_| "本机授权会话锁异常")?;
+    let now = now_secs()?;
+    items.retain(|_, s| s.expires_at >= now);
+    if items.len() >= 256 {
+        return Err("本机岗位授权请求已达上限".into());
+    }
+    items.insert(
         request_id.clone(),
-        ActivationSignSession {
-            signer_public_key,
-            payload_hash_hex: normalize_hash_hex(&payload_hash_hex, "payload_hash")?,
-            payload_hex: payload_hex
-                .strip_prefix("0x")
-                .unwrap_or(&payload_hex)
-                .to_ascii_lowercase(),
+        AccessSession {
+            access,
+            signer_public_key: public,
+            payload,
             expires_at,
         },
-    )?;
-
-    Ok(ActivateRequestResult {
-        request_json,
+    );
+    Ok(RoleAccessRequest {
+        request_json: serde_json::to_string(&request).map_err(|e| e.to_string())?,
         request_id,
-        expected_payload_hash: payload_hash_hex,
+        expected_payload_hash: hash,
         payload_hex,
     })
 }
-
-/// 验证管理员激活签名并写入本地加密存储。
-///
-/// 本地验证 sr25519 签名，不提交链上交易；写入前重新确认链上账户仍 Active。
 #[tauri::command]
-pub async fn verify_activate_admin(
+pub async fn verify_role_access(
     app: AppHandle,
     request_id: String,
     signer_public_key: String,
     expected_payload_hash: String,
     payload_hex: String,
     response_json: String,
-) -> Result<ActivatedAdmin, String> {
-    if let Err(e) =
-        nodedesktop::security::append_audit_log(&app, "activate_institution_admin", "attempt")
-    {
-        eprintln!("[审计] activate_institution_admin attempt 日志写入失败: {e}");
-    }
-
-    let signer_public_key = nodedesktop::validation::normalize_public_key(&signer_public_key)?;
-    let signer_account_id =
-        nodeclient::signing::signer_account_id_from_public_key(&signer_public_key)?;
-
+) -> Result<RoleAccess, String> {
+    let session = sessions()
+        .lock()
+        .map_err(|_| "本机授权会话锁异常")?
+        .remove(&request_id)
+        .ok_or("本机授权会话不存在或已消费")?;
     let response: nodeclient::signing::QrSignResponse =
-        serde_json::from_str(&response_json).map_err(|e| format!("解析签名响应失败: {e}"))?;
-
-    if response.proto != nodeclient::signing::QR_V1 {
-        return Err(format!(
-            "协议版本不匹配：期望 {}，实际 {}",
-            nodeclient::signing::QR_V1,
-            response.proto
-        ));
+        serde_json::from_str(&response_json).map_err(|e| e.to_string())?;
+    let public = nodedesktop::validation::normalize_public_key(&signer_public_key)?;
+    let actual_public =
+        nodedesktop::validation::normalize_public_key(&response.body.signer_public_key)?;
+    if session.expires_at < now_secs()?
+        || response.expires_at != session.expires_at
+        || response.proto != nodeclient::signing::QR_V1
+        || response.kind != nodeclient::signing::QR_KIND_SIGN_RESPONSE
+        || response.id != request_id
+        || public != session.signer_public_key
+        || actual_public != public
+    {
+        return Err("授权响应与本机冻结请求不一致或已过期".into());
     }
-    if response.kind != nodeclient::signing::QR_KIND_SIGN_RESPONSE {
-        return Err(format!(
-            "二维码类型不匹配：期望 k={}，实际 k={}",
-            nodeclient::signing::QR_KIND_SIGN_RESPONSE,
-            response.kind
-        ));
+    let hash = hex::encode(nodeclient::signing::sha256_hash_public(&session.payload));
+    if expected_payload_hash.trim_start_matches("0x") != hash
+        || payload_hex.trim_start_matches("0x") != hex::encode(&session.payload)
+    {
+        return Err("授权载荷或摘要与原会话不一致".into());
     }
-    if response.expires_at < now_secs() {
-        return Err("签名响应已过期，请重新生成激活二维码".to_string());
+    let account: [u8; 32] = hex::decode(session.access.account_id.trim_start_matches("0x"))
+        .map_err(|e| e.to_string())?
+        .try_into()
+        .map_err(|_| "人员账户长度无效")?;
+    if !nodeclient::signing::verify_message_signature(&account, &session.payload, &response.body)? {
+        return Err("钱包持有证明签名无效".into());
     }
-    if response.id != request_id {
-        return Err("请求 ID 不匹配".to_string());
+    if !nodecontrol::identity::current_status(&app)?.running {
+        return Err("节点未运行，不能确认当前任职".into());
     }
-    let session = take_activation_session(&request_id)?;
-    if session.expires_at < now_secs() {
-        return Err("管理员激活签名 session 已过期，请重新生成二维码".to_string());
-    }
-    if response.expires_at != session.expires_at {
-        return Err("签名响应过期时间与本地激活 session 不匹配".to_string());
-    }
-    if session.signer_public_key != signer_public_key {
-        return Err("提交参数公钥与本地激活 session 不匹配".to_string());
-    }
-
-    // QR_V1 压缩键仍为 `u`；内部语义字段统一为 `signer_public_key`。
-    let response_public_key = response
-        .body
-        .signer_public_key
-        .strip_prefix("0x")
-        .unwrap_or(&response.body.signer_public_key)
-        .to_ascii_lowercase();
-    if format!("0x{response_public_key}") != signer_public_key {
-        return Err("公钥不匹配".to_string());
-    }
-
-    let expected_hash = expected_payload_hash
-        .strip_prefix("0x")
-        .unwrap_or(&expected_payload_hash)
-        .to_ascii_lowercase();
-    let expected_hash = normalize_hash_hex(&expected_hash, "expected_payload_hash")?;
-    if expected_hash != session.payload_hash_hex {
-        return Err("提交参数 payload hash 与本地激活 session 不匹配".to_string());
-    }
-
-    let payload_clean = payload_hex.strip_prefix("0x").unwrap_or(&payload_hex);
-    if payload_clean.to_ascii_lowercase() != session.payload_hex {
-        return Err("提交参数 payload 与本地激活 session 不匹配".to_string());
-    }
-    let payload_bytes = hex::decode(payload_clean).map_err(|e| format!("payload 解码失败: {e}"))?;
-    let actual_hash = hex::encode(nodeclient::signing::sha256_hash_public(&payload_bytes));
-    if actual_hash != session.payload_hash_hex {
-        return Err(format!(
-            "激活 payload hash 与本地 session 不匹配：expected={}, actual={actual_hash}",
-            session.payload_hash_hex
-        ));
-    }
-    let decoded = decode_activate_payload(&payload_bytes)?;
-    if decoded.signer_public_key != signer_public_key {
-        return Err("激活 payload 中的管理员公钥与签名公钥不一致".to_string());
-    }
-
-    let decoded_cid_number = decoded.cid_number.clone();
-    let state = tauri::async_runtime::spawn_blocking({
-        let cid_number = decoded.cid_number.clone();
-        move || {
-            crate::storage::fetch_institution_admins(&cid_number)?
-                .ok_or_else(|| "链上不存在该 CID 的管理员集合".to_string())
-        }
+    let access = session.access;
+    let cid = access.cid_number.clone();
+    let state = tauri::async_runtime::spawn_blocking(move || {
+        crate::storage::fetch_roles(&cid)?.ok_or("机构不存在".to_string())
     })
     .await
-    .map_err(|e| format!("查询管理员账户失败: {e}"))??;
-    if state.institution_code != decoded.institution_code {
-        return Err(format!(
-            "激活 payload 机构码与链上账户不一致：payload={}，链上={}",
-            institution_code_label(&decoded.institution_code),
-            institution_code_label(&state.institution_code)
-        ));
+    .map_err(|e| e.to_string())??;
+    if !state.matches_access(&access) {
+        return Err("签名期间人员绑定或岗位任职已变化".into());
     }
-    if state.kind != decoded.kind {
-        return Err(format!(
-            "激活 payload kind 与链上账户不一致：payload={}，链上={}",
-            decoded.kind, state.kind
-        ));
+    if session.expires_at < now_secs()? {
+        return Err("确认期间本机授权证明已过期".into());
     }
-    validate_activation_account(&state, Some(decoded.institution_code))?;
-    if !state
-        .admins
-        .iter()
-        .any(|admin| admin.account_id == signer_account_id)
-    {
-        return Err("该签名公钥对应的账户不在此机构的链上管理员列表中".to_string());
-    }
-
-    let sig_hex = response
-        .body
-        .signature
-        .strip_prefix("0x")
-        .unwrap_or(&response.body.signature);
-    if sig_hex.len() != 128 {
-        return Err(format!(
-            "签名长度无效：期望 128 hex，实际 {}",
-            sig_hex.len()
-        ));
-    }
-    let signature_bytes = hex::decode(sig_hex).map_err(|e| format!("签名解码失败: {e}"))?;
-    let public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
-        .map_err(|e| format!("签名公钥解码失败: {e}"))?;
-
-    use sp_core::crypto::Pair;
-    use sp_core::sr25519::{Public, Signature};
-    let public = Public::from_raw(
-        <[u8; 32]>::try_from(public_key_bytes.as_slice()).map_err(|_| "公钥长度必须为 32 字节")?,
-    );
-    let signature = Signature::from_raw(
-        <[u8; 64]>::try_from(signature_bytes.as_slice()).map_err(|_| "签名长度必须为 64 字节")?,
-    );
-    if !sp_core::sr25519::Pair::verify(&signature, &payload_bytes, &public) {
-        return Err("sr25519 签名验证失败，无法证明管理员身份".to_string());
-    }
-
-    let mut activations = load_activations(&app)?;
-    activations
-        .retain(|a| !(a.account_id == signer_account_id && a.cid_number == decoded_cid_number));
-    let activated_at = now_ms();
-    activations.push(StoredActivation {
-        account_id: signer_account_id.clone(),
-        cid_number: decoded_cid_number.clone(),
-        institution_code: decoded.institution_code,
-        kind: decoded.kind,
-        activated_at_ms: activated_at,
-        signature_hex: sig_hex.to_string(),
-        payload_hash_hex: expected_hash,
+    let mut access = access;
+    access.activated_at_ms = now_secs()?.checked_mul(1000).ok_or("时间超限")?;
+    let mut records = load(&app)?;
+    records.retain(|a| {
+        !(a.cid_number == access.cid_number
+            && a.role_code == access.role_code
+            && a.person_cid == access.person_cid)
     });
-    save_activations(&app, &activations)?;
-
-    if let Err(e) = nodedesktop::security::append_audit_log(
-        &app,
-        "activate_institution_admin",
-        &format!(
-            "success account_id={} cid_number={}",
-            &signer_account_id[..10],
-            decoded_cid_number
-        ),
-    ) {
-        eprintln!("[审计] activate_institution_admin success 日志写入失败: {e}");
-    }
-
-    Ok(ActivatedAdmin {
-        account_id: signer_account_id,
-        cid_number: decoded_cid_number,
-        institution_code: decoded.institution_code,
-        kind: decoded.kind,
-        activated_at_ms: activated_at,
-    })
+    records.push(access.clone());
+    save(&app, records)?;
+    nodedesktop::security::append_audit_log(&app, "role_access", "granted")?;
+    Ok(access)
 }
-
-/// 获取指定管理员账户的已激活管理员列表。
-///
-/// 每次调用时与链上当前管理员列表交叉校验：
-/// - 链上已移除的管理员 → 自动删除本地激活记录；
-/// - institution_code/kind 已变化或账户已关闭 → 不再返回本地激活记录；
-/// - 返回仍有效的已激活管理员。
 #[tauri::command]
-pub async fn get_activated_admins(
+pub async fn get_role_access(
     app: AppHandle,
     cid_number: String,
     expected_institution_code: Option<String>,
-) -> Result<Vec<ActivatedAdmin>, String> {
-    let expected_code = parse_expected_code(expected_institution_code.as_deref());
-    let mut activations = load_activations(&app)?;
-
-    let account_activations: Vec<&StoredActivation> = activations
-        .iter()
-        .filter(|a| a.cid_number == cid_number)
-        .collect();
-
-    if account_activations.is_empty() {
+) -> Result<Vec<RoleAccess>, String> {
+    if !nodecontrol::identity::current_status(&app)?.running {
+        return Err("节点未运行，不能读取有效本机岗位授权".into());
+    }
+    let records = load(&app)?;
+    let state =
+        tauri::async_runtime::spawn_blocking(move || crate::storage::fetch_roles(&cid_number))
+            .await
+            .map_err(|e| e.to_string())??;
+    let Some(state) = state else {
         return Ok(Vec::new());
-    }
-
-    let status = nodecontrol::identity::current_status(&app)?;
-    if status.running {
-        let sid = cid_number.clone();
-        let state =
-            tauri::async_runtime::spawn_blocking(move || fetch_chain_account(&sid, expected_code))
-                .await
-                .map_err(|e| format!("查询管理员账户失败: {e}"));
-
-        match state {
-            Ok(Ok(state)) => {
-                let before_len = activations.len();
-                activations.retain(|a| {
-                    if a.cid_number != cid_number {
-                        return true;
-                    }
-                    a.institution_code == state.institution_code
-                        && a.kind == state.kind
-                        && state
-                            .admins
-                            .iter()
-                            .any(|admin| admin.account_id == a.account_id)
-                });
-                if activations.len() != before_len {
-                    let _ = save_activations(&app, &activations);
-                }
-            }
-            Ok(Err(e)) if e.contains("链上不存在") || e.contains("类型与机构码不匹配") =>
-            {
-                activations.retain(|a| a.cid_number != cid_number);
-                let _ = save_activations(&app, &activations);
-                return Ok(Vec::new());
-            }
-            _ => {}
-        }
-    }
-
-    Ok(activations
-        .iter()
-        .filter(|a| a.cid_number == cid_number)
-        .map(activated_admin_from_stored)
+    };
+    check_code(&state, expected_institution_code.as_deref())?;
+    Ok(records
+        .into_iter()
+        .filter(|a| state.matches_access(a))
         .collect())
 }
-
-/// 取消管理员激活（需要设备密码）。
 #[tauri::command]
-pub fn deactivate_admin(
+pub fn revoke_role_access(
     app: AppHandle,
-    account_id: String,
     cid_number: String,
-    expected_institution_code: Option<String>,
+    person_cid: String,
+    role_code: String,
     unlock_password: String,
 ) -> Result<(), String> {
-    if let Err(e) = nodedesktop::security::append_audit_log(&app, "deactivate_admin", "attempt") {
-        eprintln!("[审计] deactivate_admin attempt 日志写入失败: {e}");
-    }
-
     let unlock = nodedesktop::security::ensure_unlock_password(&unlock_password)?;
     nodecontrol::password::verify_device_login_password(&app, unlock)?;
-
-    let account_id = crate::account::normalize_account_id(&account_id)?;
-    let expected_code = parse_expected_code(expected_institution_code.as_deref());
-    if let Some(code) = expected_code {
-        let state = crate::storage::fetch_institution_admins_state_by_cid_number(&cid_number)?
-            .ok_or_else(|| "链上不存在该 CID 的管理员集合".to_string())?;
-        validate_activation_account(&state, Some(code))?;
+    let mut records = load(&app)?;
+    let before = records.len();
+    records.retain(|a| {
+        !(a.cid_number == cid_number && a.person_cid == person_cid && a.role_code == role_code)
+    });
+    if before == records.len() {
+        return Err("本机岗位授权不存在".into());
     }
-
-    let mut activations = load_activations(&app)?;
-    let before_len = activations.len();
-    activations.retain(|a| !(a.account_id == account_id && a.cid_number == cid_number));
-
-    if activations.len() == before_len {
-        return Err("未找到该管理员的激活记录".to_string());
-    }
-
-    save_activations(&app, &activations)?;
-
-    if let Err(e) = nodedesktop::security::append_audit_log(
-        &app,
-        "deactivate_admin",
-        &format!(
-            "success account_id={} cid_number={}",
-            &account_id[..account_id.len().min(10)],
-            cid_number
-        ),
-    ) {
-        eprintln!("[审计] deactivate_admin success 日志写入失败: {e}");
-    }
-
-    Ok(())
+    save(&app, records)?;
+    nodedesktop::security::append_audit_log(&app, "role_access", "revoked")
 }
-
-/// 检查本地是否有任何已激活的管理员（纯本地文件读取，不需要节点运行）。
-///
-/// 用于设置页面判断是否显示引导节点和投票节点设置项。
 #[tauri::command]
-pub fn has_any_activated_admin(app: AppHandle) -> Result<bool, String> {
-    let activations = load_activations(&app)?;
-    Ok(!activations.is_empty())
+pub async fn has_role_access(app: AppHandle) -> Result<bool, String> {
+    if !nodecontrol::identity::current_status(&app)?.running {
+        return Ok(false);
+    }
+    let records = load(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut states = HashMap::new();
+        for a in records {
+            if !states.contains_key(&a.cid_number) {
+                states.insert(
+                    a.cid_number.clone(),
+                    crate::storage::fetch_roles(&a.cid_number)?,
+                );
+            }
+            if states[&a.cid_number]
+                .as_ref()
+                .is_some_and(|s| s.matches_access(&a))
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

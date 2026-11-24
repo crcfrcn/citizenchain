@@ -1,4 +1,4 @@
-//! 定义公民链技术发展基金会的创世身份、协议账户、管理员和岗位。
+//! 定义公民链技术发展基金会的创世身份、协议账户及固定岗位。
 
 use hex_literal::hex;
 
@@ -34,22 +34,6 @@ pub struct ChinaCitizenChain {
     pub fee_account: [u8; 32],
 }
 
-/// 创世管理员人员记录；岗位任职由独立常量表达。
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct CitizenChainGenesisAdmin {
-    pub account_id: [u8; 32],
-    pub family_name: &'static str,
-    pub given_name: &'static str,
-}
-
-/// 创世管理员固定岗位任职。
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct CitizenChainGenesisAssignment {
-    pub account_id: [u8; 32],
-    pub role_code: &'static [u8],
-    pub role_name: &'static [u8],
-}
-
 /// 三个岗位的冻结规格；岗位码、岗位名、启用状态和一岗一席均受节点守卫保护。
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct CitizenChainFixedRole {
@@ -69,33 +53,7 @@ pub const CITIZENCHAIN_FOUNDATION: ChinaCitizenChain = ChinaCitizenChain {
     fee_account: hex!("e4837d50cd5ef677c9b10ea49baf8c7d60cf11b422d748377e9e5f750640e927"),
 };
 
-/// 一名创世管理员程伟；账户是授权字段，姓、名仅用于人员展示。
-pub const CITIZENCHAIN_GENESIS_ADMINS: &[CitizenChainGenesisAdmin] = &[CitizenChainGenesisAdmin {
-    account_id: hex!("0cb1d05c0c9c7f05679b60d6f24c7e5719a3985264e41c5e899d4822dca4b06b"),
-    family_name: "程",
-    given_name: "伟",
-}];
-
-/// 程伟对三个固定岗位的三条独立创世任职。
-pub const CITIZENCHAIN_GENESIS_ASSIGNMENTS: &[CitizenChainGenesisAssignment] = &[
-    CitizenChainGenesisAssignment {
-        account_id: hex!("0cb1d05c0c9c7f05679b60d6f24c7e5719a3985264e41c5e899d4822dca4b06b"),
-        role_code: ROLE_CODE_LEGAL_REPRESENTATIVE,
-        role_name: ROLE_NAME_LEGAL_REPRESENTATIVE,
-    },
-    CitizenChainGenesisAssignment {
-        account_id: hex!("0cb1d05c0c9c7f05679b60d6f24c7e5719a3985264e41c5e899d4822dca4b06b"),
-        role_code: ROLE_CODE_GENESIS_PRODUCT_MANAGER,
-        role_name: ROLE_NAME_GENESIS_PRODUCT_MANAGER,
-    },
-    CitizenChainGenesisAssignment {
-        account_id: hex!("0cb1d05c0c9c7f05679b60d6f24c7e5719a3985264e41c5e899d4822dca4b06b"),
-        role_code: ROLE_CODE_GENESIS_PROGRAMMER,
-        role_name: ROLE_NAME_GENESIS_PROGRAMMER,
-    },
-];
-
-/// 三个固定岗位各一席；任职账户可以依法原子更换，岗位骨架本身永久不变。
+/// 三个固定岗位各一席；任职人员可依法原子更换，岗位骨架本身永久不变。
 pub const CITIZENCHAIN_FIXED_ROLES: &[CitizenChainFixedRole] = &[
     CitizenChainFixedRole {
         role_code: ROLE_CODE_LEGAL_REPRESENTATIVE,

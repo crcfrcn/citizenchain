@@ -66,14 +66,6 @@ fn onchina_error_code(status: StatusCode, message: &str) -> &'static str {
         "challenge account_id mismatch" => "ONCHINA_BIND_ACCOUNT_ID_MISMATCH",
         "signature verify failed" => "ONCHINA_BIND_SIGNATURE_VERIFY_FAILED",
         "当前注册局缺少机构主账户绑定" => "ONCHINA_REGISTRY_MAIN_ACCOUNT_MISSING",
-        "admin account_id already exists as federal admin" => {
-            "ONCHINA_ACCOUNT_ID_EXISTS_AS_FEDERAL_REGISTRY_ADMIN"
-        }
-        "admin account_id already exists as city admin" => {
-            "ONCHINA_ACCOUNT_ID_EXISTS_AS_CITY_REGISTRY_ADMIN"
-        }
-        "city admin city limit reached" => "ONCHINA_ADMIN_CITY_REGISTRY_CITY_LIMIT_REACHED",
-        "not an on-chain admin" => "ONCHINA_LOGIN_ADMIN_NOT_ONCHAIN",
         "security grant required" => "ONCHINA_ADMIN_SECURITY_GRANT_REQUIRED",
         _ if message.starts_with("insert qr sign request failed") => {
             "ONCHINA_LOGIN_CHALLENGE_CREATE_FAILED"

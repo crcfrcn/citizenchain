@@ -1,5 +1,6 @@
 //! 读取机构目录并管理本机GRANDPA密钥元数据。
 
+use codec::{DecodeAll, Encode};
 use libp2p_identity::PeerId;
 use nodedesktop::address::decode_hex_32_strict;
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_LARGE;
@@ -57,12 +58,12 @@ pub struct GrandpaPersistedStateBackup {
 
 #[derive(Debug, Clone)]
 /// 节点运行目录条目；机构简称只允许由 `CHINA_CB.cid_short_name` 派生，
-/// `institution-catalog.json` 不得再保存第二份名称。
+/// 节点目录不保存第二份名称或链上公钥副本。
 pub(crate) struct InstitutionCatalogEntry {
     pub cid_short_name: String,
     pub role: String,
     pub peer_id: String,
-    pub grandpa_public_key: String,
+    pub cid_number: String,
     pub domain: String,
 }
 
@@ -73,8 +74,7 @@ struct StoredInstitutionCatalogEntry {
     #[serde(default)]
     pub role: String,
     pub peer_id: String,
-    #[serde(rename = "grandpa_public_key")]
-    pub grandpa_public_key: String,
+    pub cid_number: String,
     /// 引导节点域名（如 `nrcgch.crcfrcn.com`），用于远程 RPC 查询。
     #[serde(default)]
     pub domain: String,
@@ -95,7 +95,7 @@ pub(crate) fn load_institution_catalog() -> Result<Vec<InstitutionCatalogEntry>,
         .ok_or_else(|| "初始化权威节点清单失败".to_string())
 }
 
-// 权威节点清单既被 bootnode 模块用于 PeerId 映射，也被 GRANDPA 模块用于公钥匹配，
+// 节点目录只按机构CID关联运行参数，GRANDPA公钥另从链上查询。
 // 加载时统一做 trim / 去重 / 格式校验，避免配置里的空格或脏数据影响运行时判断。
 fn parse_institution_catalog() -> Result<Vec<InstitutionCatalogEntry>, String> {
     let entries: Vec<StoredInstitutionCatalogEntry> = serde_json::from_str(INSTITUTION_CATALOG_SRC)
@@ -106,7 +106,7 @@ fn parse_institution_catalog() -> Result<Vec<InstitutionCatalogEntry>, String> {
 
     let mut seen_cid_short_names = HashSet::new();
     let mut seen_peer_ids = HashSet::new();
-    let mut seen_grandpa = HashSet::new();
+    let mut seen_cids = HashSet::new();
     let mut normalized_entries = Vec::with_capacity(entries.len());
     for (idx, entry) in entries.iter().enumerate() {
         let line = idx + 1;
@@ -122,27 +122,14 @@ fn parse_institution_catalog() -> Result<Vec<InstitutionCatalogEntry>, String> {
             return Err(format!("institution-catalog.json peerId 重复: {peer_id}"));
         }
 
-        let grandpa_public_key = nodedesktop::validation::normalize_public_key(
-            &entry.grandpa_public_key,
-        )
-        .map_err(|_| format!("institution-catalog.json 第 {line} 项 grandpa_public_key 无效"))?;
-        if !seen_grandpa.insert(grandpa_public_key.clone()) {
-            return Err(format!(
-                "institution-catalog.json GRANDPA 公钥重复: {}",
-                entry.grandpa_public_key
-            ));
+        if !seen_cids.insert(entry.cid_number.clone()) {
+            return Err("节点目录机构CID重复".into());
         }
-
-        // 以创世 GRANDPA 公钥连接节点运行参数与内置机构；简称只取正式的
-        // `cid_short_name`，目录顺序变化也不会造成机构名称错配。
+        // 节点运行参数只按稳定机构CID关联名称，不保存或匹配静态公钥副本。
         let institution = primitives::cid::china::china_cb::CHINA_CB
             .iter()
-            .find(|institution| {
-                format!("0x{}", hex::encode(institution.grandpa_key)) == grandpa_public_key
-            })
-            .ok_or_else(|| {
-                format!("institution-catalog.json 第 {line} 项 GRANDPA 公钥未匹配 CHINA_CB")
-            })?;
+            .find(|i| i.cid_number == entry.cid_number)
+            .ok_or_else(|| format!("节点目录第{line}项机构CID未匹配固定储委会"))?;
         let cid_short_name = institution.cid_short_name;
         if !seen_cid_short_names.insert(cid_short_name.to_string()) {
             return Err(format!(
@@ -164,7 +151,7 @@ fn parse_institution_catalog() -> Result<Vec<InstitutionCatalogEntry>, String> {
             cid_short_name: cid_short_name.to_string(),
             role: entry.role.clone(),
             peer_id: peer_id.to_string(),
-            grandpa_public_key,
+            cid_number: entry.cid_number.clone(),
             domain: entry.domain.trim().to_string(),
         });
     }
@@ -395,21 +382,13 @@ pub fn discard_rotation_candidate(
 
 /// 由机构 CID 定位正式机构简称，不依赖会被治理更换的 GRANDPA 公钥。
 pub fn cid_short_name_for_cid(actor_cid_number: &str) -> Result<String, String> {
-    let initial_public_key = primitives::cid::china::china_cb::CHINA_CB
-        .iter()
-        .find(|entry| entry.cid_number == actor_cid_number)
-        .map(|entry| format!("0x{}", hex::encode(entry.grandpa_key)))
-        .ok_or_else(|| "目标 CID 不是 NRC/PRC GRANDPA 权威机构".to_string())?;
     load_institution_catalog()?
         .into_iter()
         .find(|entry| {
-            matches!(entry.role.as_str(), "nrc" | "prc")
-                && entry
-                    .grandpa_public_key
-                    .eq_ignore_ascii_case(&initial_public_key)
+            matches!(entry.role.as_str(), "nrc" | "prc") && entry.cid_number == actor_cid_number
         })
         .map(|entry| entry.cid_short_name)
-        .ok_or_else(|| "institution-catalog 缺少该 CID 对应的 NRC/PRC 权威节点".to_string())
+        .ok_or_else(|| "节点目录中没有该储委会机构CID".into())
 }
 
 fn has_grandpa_key_in_keystore(app: &AppHandle, public_key: &str) -> Result<bool, String> {
@@ -421,27 +400,65 @@ fn has_grandpa_key_in_keystore(app: &AppHandle, public_key: &str) -> Result<bool
     ))
 }
 
-fn grandpa_institution_options() -> Result<Vec<(String, String)>, String> {
-    let out = load_institution_catalog()?
-        .into_iter()
-        .map(|entry| {
-            (
-                entry.cid_short_name,
-                entry.grandpa_public_key.to_ascii_lowercase(),
-            )
+/// 公钥唯一归属只从同一最终块的GrandpaKey正反索引闭环读取。
+fn registered_owner(
+    public_key: &str,
+    mut read: impl FnMut(&str) -> Result<Option<String>, String>,
+) -> Result<Option<String>, String> {
+    let normalized = nodedesktop::validation::normalize_public_key(public_key)?;
+    let public: [u8; 32] = hex::decode(normalized.trim_start_matches("0x"))
+        .map_err(|_| "GRANDPA公钥hex无效")?
+        .try_into()
+        .map_err(|_| "GRANDPA公钥长度无效")?;
+    let key = nodedesktop::storage::to_hex(&nodedesktop::storage::blake2_map(
+        b"GrandpaKey",
+        b"GrandpaKeyOwnerByKey",
+        &public.encode(),
+    ));
+    let Some(raw) = read(&key)? else {
+        return Ok(None);
+    };
+    let raw = hex::decode(raw.strip_prefix("0x").ok_or("公钥反向索引hex缺前缀")?)
+        .map_err(|e| e.to_string())?;
+    let cid =
+        Vec::<u8>::decode_all(&mut raw.as_slice()).map_err(|e| format!("公钥反向索引损坏:{e}"))?;
+    let cid = String::from_utf8(cid).map_err(|_| "公钥所属CID非UTF-8")?;
+    if cid.trim() != cid
+        || !primitives::cid::number::parse_cid_number_parts_bytes(cid.as_bytes()).is_ok_and(|p| {
+            p.institution == primitives::cid::code::NRC
+                || p.institution == primitives::cid::code::PRC
         })
-        .collect::<Vec<(String, String)>>();
-    if out.is_empty() {
-        return Err("未配置 GRANDPA 权威公钥".to_string());
+    {
+        return Err("公钥所属机构CID无效".into());
     }
-    Ok(out)
+    let key = nodedesktop::storage::to_hex(&nodedesktop::storage::blake2_map(
+        b"GrandpaKey",
+        b"CurrentGrandpaKeys",
+        &cid.as_bytes().to_vec().encode(),
+    ));
+    let raw = read(&key)?.ok_or("登记公钥正向索引缺失")?;
+    let raw = hex::decode(raw.strip_prefix("0x").ok_or("登记公钥hex缺前缀")?)
+        .map_err(|e| e.to_string())?;
+    let current =
+        <[u8; 32]>::decode_all(&mut raw.as_slice()).map_err(|e| format!("登记公钥损坏:{e}"))?;
+    if current != public {
+        return Err("公钥正反索引不一致".into());
+    }
+    Ok(Some(cid))
 }
-
 pub fn cid_short_name_by_grandpa_public_key(public_key: &str) -> Result<Option<String>, String> {
-    Ok(grandpa_institution_options()?
-        .into_iter()
-        .find(|(_, key)| key.eq_ignore_ascii_case(public_key))
-        .map(|(cid_short_name, _)| cid_short_name))
+    let at = rpc_post("chain_getFinalizedHead", serde_json::json!([]))?
+        .as_str()
+        .ok_or("最终块哈希缺失")?
+        .to_string();
+    let owner = registered_owner(public_key, |key| {
+        match rpc_post("state_getStorage", serde_json::json!([key, &at]))? {
+            Value::Null => Ok(None),
+            Value::String(s) => Ok(Some(s)),
+            _ => Err("登记公钥存储响应无效".into()),
+        }
+    })?;
+    owner.map(|cid| cid_short_name_for_cid(&cid)).transpose()
 }
 
 pub fn grandpa_public_key_from_private_hex(key_hex: &str) -> Result<String, String> {

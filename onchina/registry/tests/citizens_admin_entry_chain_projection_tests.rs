@@ -47,7 +47,7 @@ async fn recovery_lease_and_projection_commit_survive_revocation_failure_and_ret
     sandbox.db.with_client(|conn| {
         conn.execute("INSERT INTO signing(request_id,sign_purpose,account_id,call_data,nonce_value,signing_hash,context_json,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)", &[&session.request_id,&session.purpose,&session.account_id,&hex::encode(&session.call_data),&i64::from(session.nonce),&session.signing_hash,&session.context,&session.expires_at]).unwrap();
         // 没有当前管理员行，恢复依然只按已确认会话的原机构完成，不能用于发新交易。
-        assert_eq!(conn.query_one("SELECT COUNT(*) FROM admin",&[]).unwrap().get::<_,i64>(0),0);
+        assert!(conn.query_one("SELECT to_regclass(current_schema()||'.admin') IS NULL",&[]).unwrap().get::<_,bool>(0));
         Ok(())
     }).unwrap();
     let lease = SessionLease::acquire(&sandbox.db, &session.request_id)
@@ -121,7 +121,10 @@ async fn recovery_lease_and_projection_commit_survive_revocation_failure_and_ret
         output["id"].as_u64().unwrap()
     );
     assert!(origin_matches_binding(&session, &binding));
+    let mut another_assignment=chain_session_with_context(session.context.clone());another_assignment.context["origin_institution_cid"]="another-assignment".into();
+    assert!(origin_matches_binding(&another_assignment,&binding)); // 所选任职不改变宿主生命周期标识。
     let other = NodeInstitutionBinding {
+        binding_id:"rebound-node".into(),
         institution_cid_number: "different-institution".into(),
         ..binding.clone()
     };
@@ -133,29 +136,67 @@ async fn recovery_lease_and_projection_commit_survive_revocation_failure_and_ret
 #[test]
 fn archive_seed_and_nonce_are_passed_to_the_cid_protocol_unchanged() {
     let input = ValidatedCitizenInput {
-        cid_type: "CTZN".into(), family_name: "张".into(), given_name: "三".into(),
-        citizen_sex: "男".into(), citizen_birth_date: "2000-01-02".into(),
-        province_name: "广东省".into(), city_name: "荔湾市".into(),
-        province_code: "GD".into(), city_code: "001".into(), town_code: "001".into(),
-        birth_province_code: "GD".into(), birth_city_code: "001".into(),
-        birth_town_code: "002".into(), voting_eligible: false,
+        cid_type: "CTZN".into(),
+        family_name: "张".into(),
+        given_name: "三".into(),
+        citizen_sex: "男".into(),
+        citizen_birth_date: "2000-01-02".into(),
+        province_name: "广东省".into(),
+        city_name: "荔湾市".into(),
+        province_code: "GD".into(),
+        city_code: "001".into(),
+        town_code: "001".into(),
+        birth_province_code: "GD".into(),
+        birth_city_code: "001".into(),
+        birth_town_code: "002".into(),
+        voting_eligible: false,
     };
     let seed = cid_seed(&input);
-    assert_eq!(seed, "citizen-local-0x03961f7c25a3950ef62e7716a0e55054a60f330370ac82c65e44c88922913944");
+    assert_eq!(
+        seed,
+        "citizen-local-0x03961f7c25a3950ef62e7716a0e55054a60f330370ac82c65e44c88922913944"
+    );
     assert_eq!(seed.len(), 80);
     assert!(seed.starts_with("citizen-local-0x"));
-    assert_eq!(seed, local_citizen_cid_seed("张", "三", "男", "2000-01-02", "GD", "001", "001", "GD", "001", "002"));
+    assert_eq!(
+        seed,
+        local_citizen_cid_seed(
+            "张",
+            "三",
+            "男",
+            "2000-01-02",
+            "GD",
+            "001",
+            "001",
+            "GD",
+            "001",
+            "002"
+        )
+    );
     assert!(normalize_account_id(&seed).is_none());
     for nonce in [0u32, 1, 2, 999] {
         let cid = generate_citizen_cid_candidate(&input, &seed, nonce).unwrap();
-        let year = primitives::cid::number::parse_cid_number_parts(&cid).unwrap().year;
-        let seeded = if nonce == 0 { seed.clone() } else { format!("{seed}|n{nonce}") };
+        let year = primitives::cid::number::parse_cid_number_parts(&cid)
+            .unwrap()
+            .year;
+        let seeded = if nonce == 0 {
+            seed.clone()
+        } else {
+            format!("{seed}|n{nonce}")
+        };
         let expected = primitives::cid::generator::generate_cid_number(
             primitives::cid::generator::GenerateCidNumberInput {
-                public_key: &seeded, p1: "1", province_code: "GD", province_name: "广东省",
-                city_code: "000", city_name: "荔湾市", year, institution: "CTZN",
+                public_key: &seeded,
+                p1: "1",
+                province_code: "GD",
+                province_name: "广东省",
+                city_code: "000",
+                city_name: "荔湾市",
+                year,
+                institution: "CTZN",
             },
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(cid, expected, "nonce={nonce}");
     }
 }

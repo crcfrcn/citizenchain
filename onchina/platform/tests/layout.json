@@ -69,7 +69,6 @@
     ],
     "registry": [
       "address",
-      "admins",
       "citizens",
       "documents",
       "institutions",
@@ -79,7 +78,6 @@
     ],
     "registryweb": [
       "address",
-      "admins",
       "citizens",
       "controls",
       "education",
@@ -122,16 +120,15 @@
     "private/frontend/package.json",
     "private/workspace/main.rs",
     "registry/Cargo.toml",
-    "registry/admins/actions.rs",
-    "registry/admins/catalog.rs",
-    "registry/admins/governance.rs",
-    "registry/admins/mod.rs",
-    "registry/admins/repo.rs",
+    "registry/workspace/actions.rs",
+    "registry/institutions/roles.rs",
     "registry/institutions/registration.rs",
     "registry/workspace/main.rs",
     "registryweb/.npmrc",
     "registryweb/package-lock.json",
-    "registryweb/package.json"
+    "registryweb/package.json",
+    "platform/institutions/roles.rs",
+    "platform/institutions/governance.rs"
   ],
   "absentFiles": [
     "backend",
@@ -261,7 +258,27 @@
     "registryweb/welfare/types.ts",
     "src",
     "tests",
-    "tsconfig.json"
+    "tsconfig.json",
+    "platformweb/institutions/AdminsView.tsx",
+    "platformweb/institutions/AssignmentCard.tsx",
+    "platformweb/institutions/adminUtils.ts",
+    "registryweb/admins/FederalRegistryAdminSubTab.tsx",
+    "registry/admins/catalog.rs",
+    "registry/admins/city_registry.rs",
+    "registry/admins/model.rs",
+    "registry/admins/repo.rs",
+    "registry/tests/admins_repo.rs",
+    "registryweb/admins/ProvinceDetailView.tsx",
+    "registryweb/admins/AddCityRegistryAdminModal.tsx",
+    "registryweb/admins/cityRegistryAdminsApi.ts",
+    "registryweb/tests/admins.test.ts",
+    "registry/admins/actions.rs",
+    "registry/admins/governance.rs",
+    "registry/admins/mod.rs",
+    "platform/institutions/admins.rs",
+    "platform/institutions/admins_chain_roles.rs",
+    "platform/authentication/model.rs",
+    "platform/tests/institutions_admins_chain_roles_scale_contract_tests.rs"
   ],
   "functionOwners": {
     "insert_chain_sign_session": "platform/transactions/session.rs",
@@ -271,14 +288,8 @@
     "submit_chain_sign": "platform/transactions/handler.rs",
     "chain_resume_phase": "platform/transactions/handler.rs",
     "recheck_chain_submit_authorization": "platform/transactions/handler.rs",
-    "list_federal_registry_admins": "registry/admins/catalog.rs",
-    "list_city_registry_admins": "registry/admins/city_registry.rs",
-    "registry_target_scope": "registry/admins/repo.rs",
-    "require_chain_roster_action": "registry/admins/actions.rs",
-    "prepare_register_institution_admins": "registry/admins/governance.rs",
     "create_institution": "registry/institutions/registration.rs",
     "create_private_institution": "registry/institutions/registration.rs",
-    "list_own_institution_admins": "platform/institutions/mod.rs",
     "get_own_institution": "platform/institutions/mod.rs",
     "precheck_institution_create_scope": "registry/institutions/registration.rs",
     "allocate_citizen_id_conn": "registry/citizens/admin_entry.rs",
@@ -287,17 +298,18 @@
     "entity_projection_worker": "registry/projection/mod.rs",
     "private_type_code_from_institution_code": "platform/institutions/mod.rs",
     "parse_hex32": "platform/transactions/submit.rs",
-    "refresh_bound_institution": "platform/institutions/mod.rs"
+    "refresh_bound_institution": "platform/institutions/mod.rs",
+    "prepare_register_institution_roles": "registry/institutions/roles.rs",
+    "validate_current_assignment": "platform/authentication/login_guards.rs",
+    "parse_role_action": "platform/institutions/governance.rs"
   },
   "structOwners": {
     "ChainSignSession": "platform/transactions/session.rs",
     "ChainSubmitInput": "platform/transactions/handler.rs",
     "ChainSubmitOutput": "platform/transactions/handler.rs",
-    "PrepareRegisterInstitutionAdminsInput": "registry/admins/governance.rs",
-    "OwnInstitutionAdminRow": "platform/institutions/mod.rs",
-    "OwnInstitutionAdminListOutput": "platform/institutions/mod.rs",
     "ModuleDescription": "platform/modules/model.rs",
-    "ModuleCatalog": "platform/modules/mod.rs"
+    "ModuleCatalog": "platform/modules/mod.rs",
+    "PrepareRegisterInstitutionRolesInput": "registry/institutions/roles.rs"
   },
   "retiredPatterns": [
     "onchina/(?:src|backend|frontend)(?:/|\\b)",
@@ -373,11 +385,11 @@
   ],
   "constantOwners": {
     "SESSION_TTL_SECS": "platform/transactions/session.rs",
-    "PURPOSE_INSTITUTION_REGISTER_ADMINS": "registry/admins/governance.rs"
+    "PURPOSE_INSTITUTION_REGISTER_ROLES": "registry/institutions/roles.rs"
   },
   "constantValues": {
     "SESSION_TTL_SECS": "600",
-    "PURPOSE_INSTITUTION_REGISTER_ADMINS": "\"INSTITUTION_REGISTER_ADMINS\""
+    "PURPOSE_INSTITUTION_REGISTER_ROLES": "\"INSTITUTION_REGISTER_ROLES\""
   },
   "consumerRoots": [
     "runtime",

@@ -85,7 +85,7 @@ fn unit_code_updated_metadata() -> Vec<u8> {
 fn signed_transfer(amount: u128, remark: &[u8]) -> (Vec<sp_runtime::OpaqueExtrinsic>, AccountId32) {
     let pair = sr25519::Pair::from_seed(&[7u8; 32]);
     let payer_account_id = chain_signing::account_id_from_public(pair.public());
-    let call = RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+    let call = RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
         beneficiary_account_id: AccountId32::new([8u8; 32]),
         amount,
         remark: remark.to_vec().try_into().expect("remark fits"),
@@ -114,7 +114,7 @@ fn ordinary_remark_fee_and_historical_blocks_use_the_parent_metadata() {
         if legacy {
             meta.pallets
                 .iter_mut()
-                .find(|p| p.name == "OnchainTransaction")
+                .find(|p| p.name == "Onchain")
                 .unwrap()
                 .constants
                 .iter_mut()
@@ -142,7 +142,7 @@ fn ordinary_remark_fee_and_historical_blocks_use_the_parent_metadata() {
                 let events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
                     phase: Phase::ApplyExtrinsic(0),
                     topics: vec![],
-                    event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+                    event: RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid {
                         account_id: payer.clone(),
                         fee: actual,
                     }),
@@ -162,7 +162,7 @@ fn ordinary_remark_fee_and_historical_blocks_use_the_parent_metadata() {
                         let extra = EventRecord {
                             phase: Phase::ApplyExtrinsic(0),
                             topics: vec![],
-                            event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+                            event: RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid {
                                 account_id,
                                 fee,
                             }),
@@ -173,7 +173,8 @@ fn ordinary_remark_fee_and_historical_blocks_use_the_parent_metadata() {
                                 &body,
                                 |at| (at == key).then(|| duplicated.encode()),
                                 &metadata,
-                            ).is_err());
+                            )
+                            .is_err());
                             duplicated.reverse();
                         }
                     }
@@ -186,29 +187,39 @@ fn ordinary_remark_fee_and_historical_blocks_use_the_parent_metadata() {
 #[test]
 fn voting_keeps_legal_business_execution_fee_events() {
     for execution_fee in [50, 150] {
-    let pair = sr25519::Pair::from_seed(&[7; 32]);
-    let payer = chain_signing::account_id_from_public(pair.public());
-    let call = RuntimeCall::InternalVote(internalvote::pallet::Call::cast {
-        proposal_id: 7,
-        ticket_claim: internalvote::InternalVoteTicketClaim::Personal,
-        approve: true,
-    });
-    let body = vec![chain_signing::build_signed_extrinsic_local(
-        call, sp_core::H256::repeat_byte(1), 0, &pair,
-    ).into()];
-    let mut events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = [
-        (payer, primitives::fee_policy::FLAT_FEE),
-        (AccountId32::new([0x99; 32]), execution_fee),
-    ].into_iter().map(|(account_id, fee)| EventRecord {
-        phase: Phase::ApplyExtrinsic(0), topics: vec![],
-        event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid { account_id, fee }),
-    }).collect();
-    let key = storage_key::events();
-    let metadata = local_metadata();
-    for _ in 0..2 {
-        assert!(check_block(&body, |at| (at == key).then(|| events.encode()), &metadata).is_ok());
-        events.reverse();
-    }
+        let pair = sr25519::Pair::from_seed(&[7; 32]);
+        let payer = chain_signing::account_id_from_public(pair.public());
+        let call = RuntimeCall::InternalVote(internalvote::pallet::Call::cast {
+            proposal_id: 7,
+            ticket_claim: internalvote::InternalVoteTicketClaim::Personal,
+            approve: true,
+        });
+        let body = vec![chain_signing::build_signed_extrinsic_local(
+            call,
+            sp_core::H256::repeat_byte(1),
+            0,
+            &pair,
+        )
+        .into()];
+        let mut events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = [
+            (payer, primitives::fee_policy::FLAT_FEE),
+            (AccountId32::new([0x99; 32]), execution_fee),
+        ]
+        .into_iter()
+        .map(|(account_id, fee)| EventRecord {
+            phase: Phase::ApplyExtrinsic(0),
+            topics: vec![],
+            event: RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid { account_id, fee }),
+        })
+        .collect();
+        let key = storage_key::events();
+        let metadata = local_metadata();
+        for _ in 0..2 {
+            assert!(
+                check_block(&body, |at| (at == key).then(|| events.encode()), &metadata).is_ok()
+            );
+            events.reverse();
+        }
     }
 }
 
@@ -223,7 +234,7 @@ fn shared_fee_metadata_rejects_wrong_values_missing_duplicate_and_policy_rollbac
     let constants = &mut meta
         .pallets
         .iter_mut()
-        .find(|p| p.name == "OnchainTransaction")
+        .find(|p| p.name == "Onchain")
         .unwrap()
         .constants;
     let index = constants.iter().position(|c| c.name == "FLAT_FEE").unwrap();
@@ -236,7 +247,7 @@ fn shared_fee_metadata_rejects_wrong_values_missing_duplicate_and_policy_rollbac
     let constants = &mut meta
         .pallets
         .iter_mut()
-        .find(|p| p.name == "OnchainTransaction")
+        .find(|p| p.name == "Onchain")
         .unwrap()
         .constants;
     constants[index].name = "FLAT_FEE".into();
@@ -248,7 +259,7 @@ fn shared_fee_metadata_rejects_wrong_values_missing_duplicate_and_policy_rollbac
     let constants = &mut meta
         .pallets
         .iter_mut()
-        .find(|p| p.name == "OnchainTransaction")
+        .find(|p| p.name == "Onchain")
         .unwrap()
         .constants;
     constants[index].value = primitives::fee_policy::FLAT_FEE.encode();
@@ -262,7 +273,7 @@ fn shared_fee_metadata_rejects_wrong_values_missing_duplicate_and_policy_rollbac
     let constants = &mut meta
         .pallets
         .iter_mut()
-        .find(|p| p.name == "OnchainTransaction")
+        .find(|p| p.name == "Onchain")
         .unwrap()
         .constants;
     constants.pop();
@@ -284,7 +295,7 @@ fn actual_onchain_fee_event_must_match_fixed_formula() {
     let metadata = local_metadata();
     let good_events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
         phase: Phase::ApplyExtrinsic(0),
-        event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+        event: RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid {
             account_id: payer_account_id.clone(),
             fee: 150,
         }),
@@ -300,7 +311,7 @@ fn actual_onchain_fee_event_must_match_fixed_formula() {
 
     let bad_events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
         phase: Phase::ApplyExtrinsic(0),
-        event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+        event: RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid {
             account_id: payer_account_id,
             fee: 49,
         }),
@@ -320,7 +331,7 @@ fn actual_offchain_settlement_uses_recipient_rate_and_one_fen_minimum() {
     let metadata = local_metadata();
     let events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
         phase: Phase::ApplyExtrinsic(0),
-        event: RuntimeEvent::OffchainTransaction(offchain::pallet::Event::PaymentSettled {
+        event: RuntimeEvent::Offchain(offchain::pallet::Event::PaymentSettled {
             tx_id: sp_core::H256::repeat_byte(4),
             payer_account_id: AccountId32::new([5u8; 32]),
             payer_bank_cid: b"GD001-PRB0T-239565809-2026".to_vec().try_into().unwrap(),
@@ -350,7 +361,7 @@ fn actual_offchain_settlement_uses_recipient_rate_and_one_fen_minimum() {
 
     let wrong_events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
         phase: Phase::ApplyExtrinsic(0),
-        event: RuntimeEvent::OffchainTransaction(offchain::pallet::Event::PaymentSettled {
+        event: RuntimeEvent::Offchain(offchain::pallet::Event::PaymentSettled {
             tx_id: sp_core::H256::repeat_byte(4),
             payer_account_id: AccountId32::new([5u8; 32]),
             payer_bank_cid: b"GD001-PRB0T-239565809-2026".to_vec().try_into().unwrap(),
@@ -385,7 +396,7 @@ fn upgrade_block_events_use_parent_runtime_schema_without_skipping_fee_checks() 
     let events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![
         EventRecord {
             phase: Phase::ApplyExtrinsic(0),
-            event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+            event: RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid {
                 account_id: payer,
                 fee: 150,
             }),
@@ -413,7 +424,7 @@ fn upgrade_block_events_use_parent_runtime_schema_without_skipping_fee_checks() 
     assert!(check_block(&body, old_read, &old_metadata).is_ok());
 
     let mut wrong = events.clone();
-    wrong[0].event = RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+    wrong[0].event = RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid {
         account_id: AccountId32::new([0; 32]),
         fee: 49,
     });
@@ -463,7 +474,7 @@ fn both_ml_proofs_keep_the_actual_fixed_transfer_fee_guard() {
     ));
     let metadata = local_metadata();
     for first in [true, false] {
-        let call = RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+        let call = RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
             beneficiary_account_id: AccountId32::new([8; 32]),
             amount: 50_000,
             remark: Vec::new().try_into().unwrap(),
@@ -480,7 +491,7 @@ fn both_ml_proofs_keep_the_actual_fixed_transfer_fee_guard() {
         let events: Vec<EventRecord<RuntimeEvent, sp_core::H256>> = vec![EventRecord {
             phase: Phase::ApplyExtrinsic(0),
             topics: vec![],
-            event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+            event: RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid {
                 account_id: payer.clone(),
                 fee: 50,
             }),
@@ -503,7 +514,7 @@ fn legacy_metadata() -> [Vec<u8>; 2] {
     use frame_metadata::{v14, v15};
     use scale_info::meta_type;
     type Legacy = sp_runtime::generic::UncheckedExtrinsic<
-        runtime::Address,
+        runtime::TransactionAddress,
         RuntimeCall,
         runtime::Signature,
         runtime::TxExtension,
@@ -558,7 +569,7 @@ fn legacy_metadata() -> [Vec<u8>; 2] {
                 additional_signed: ext.implicit,
             })
             .collect();
-    let old14 = v14::RuntimeMetadataV14::new(
+    let mut old14 = v14::RuntimeMetadataV14::new(
         pallets.clone(),
         v14::ExtrinsicMetadata {
             ty: meta_type::<Legacy>(),
@@ -567,7 +578,7 @@ fn legacy_metadata() -> [Vec<u8>; 2] {
         },
         meta_type::<runtime::Runtime>(),
     );
-    let old15 = v15::RuntimeMetadataV15::new(
+    let mut old15 = v15::RuntimeMetadataV15::new(
         pallets
             .into_iter()
             .map(|p| v15::PalletMetadata {
@@ -583,7 +594,7 @@ fn legacy_metadata() -> [Vec<u8>; 2] {
             .collect(),
         v15::ExtrinsicMetadata {
             version: 4,
-            address_ty: meta_type::<runtime::Address>(),
+            address_ty: meta_type::<runtime::TransactionAddress>(),
             call_ty: meta_type::<RuntimeCall>(),
             signature_ty: meta_type::<runtime::Signature>(),
             extra_ty: meta_type::<runtime::TxExtension>(),
@@ -607,6 +618,25 @@ fn legacy_metadata() -> [Vec<u8>; 2] {
             map: BTreeMap::new(),
         },
     );
+    for types in [&mut old14.types, &mut old15.types] {
+        for ty in &mut types.types {
+            if matches!(
+                ty.ty.path.segments.last().map(String::as_str),
+                Some("RuntimeCall" | "RuntimeEvent")
+            ) {
+                if let scale_info::TypeDef::Variant(variants) = &mut ty.ty.type_def {
+                    for variant in &mut variants.variants {
+                        if variant.name == "Onchain" {
+                            variant.name = "OnchainTransaction".into();
+                        }
+                        if variant.name == "Offchain" {
+                            variant.name = "OffchainTransaction".into();
+                        }
+                    }
+                }
+            }
+        }
+    }
     [
         RuntimeMetadataPrefixed(frame_metadata::META_RESERVED, RuntimeMetadata::V14(old14))
             .encode(),
@@ -619,7 +649,7 @@ fn legacy_metadata() -> [Vec<u8>; 2] {
 fn historical_v4_uses_parent_metadata_and_keeps_every_fee_constraint() {
     let pair = sr25519::Pair::from_seed(&[7; 32]);
     let payer = chain_signing::account_id_from_public(pair.public());
-    let call = RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+    let call = RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
         beneficiary_account_id: AccountId32::new([8; 32]),
         amount: 50_000,
         remark: b"historical-v4".to_vec().try_into().unwrap(),
@@ -634,7 +664,7 @@ fn historical_v4_uses_parent_metadata_and_keeps_every_fee_constraint() {
     let signature = chain_signing::sign_material_with_pair(&material, &pair);
     let call_bytes = material.call.encode();
     let legacy = sp_runtime::generic::UncheckedExtrinsic::<
-        runtime::Address,
+        runtime::TransactionAddress,
         RuntimeCall,
         runtime::Signature,
         runtime::TxExtension,
@@ -704,10 +734,7 @@ fn historical_v4_uses_parent_metadata_and_keeps_every_fee_constraint() {
             let mut encoded = vec![EventRecord {
                 phase: Phase::ApplyExtrinsic(index),
                 topics: Vec::<sp_core::H256>::new(),
-                event: RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
-                    account_id,
-                    fee,
-                }),
+                event: RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid { account_id, fee }),
             }]
             .encode();
             assert_eq!(encoded[6], 4);
@@ -782,7 +809,7 @@ fn transaction_envelopes_and_metadata_fail_closed() {
 #[test]
 fn protected_call_cannot_omit_payer_or_use_undeclared_authentication() {
     let metadata = local_metadata();
-    let call = RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+    let call = RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
         beneficiary_account_id: AccountId32::new([8; 32]),
         amount: 50_000,
         remark: Vec::new().try_into().unwrap(),
@@ -811,4 +838,49 @@ fn protected_call_cannot_omit_payer_or_use_undeclared_authentication() {
         .type_params
         .retain(|param| param.name != "Call");
     assert!(decode_body(&body, &legacy.encode()).is_err());
+}
+
+#[test]
+fn duplicate_current_and_historical_fee_pallets_are_rejected() {
+    let mut metadata = nodeclient::codec::decode_runtime_metadata(&local_metadata()).unwrap();
+    let RuntimeMetadata::V16(meta) = &mut metadata else {
+        panic!("V16 required")
+    };
+    let mut duplicate = meta
+        .pallets
+        .iter()
+        .find(|p| p.name == "Onchain")
+        .unwrap()
+        .clone();
+    duplicate.name = "OnchainTransaction".into();
+    meta.pallets.push(duplicate);
+    assert!(remark_fee_enabled(&metadata, None).is_err());
+}
+
+#[test]
+fn historical_settlement_uses_only_metadata_storage_prefix_and_keeps_rate_limits() {
+    let mut metadata = nodeclient::codec::decode_runtime_metadata(&local_metadata()).unwrap();
+    let RuntimeMetadata::V16(meta) = &mut metadata else {
+        panic!("V16 required")
+    };
+    let pallet = meta
+        .pallets
+        .iter_mut()
+        .find(|p| p.name == "Offchain")
+        .unwrap();
+    pallet.name = "OffchainTransaction".into();
+    pallet.storage.as_mut().unwrap().prefix = "OffchainTransaction".into();
+    let metadata = RuntimeMetadataPrefixed(frame_metadata::META_RESERVED, metadata).encode();
+    let cid = b"fixture-bank";
+    let old = storage_key::rate_in(b"OffchainTransaction", cid);
+    assert_eq!(settlement_rate_key(&metadata, cid).unwrap(), old);
+    assert_ne!(old, storage_key::rate(cid));
+    let state = BTreeMap::from([(old.clone(), 11u32.encode())]);
+    assert!(check_imported_state(state.iter()).is_err());
+    assert!(
+        check_transition(&BTreeMap::from([(old, Some(11u32.encode()))]), |k| state
+            .get(k)
+            .cloned())
+        .is_err()
+    );
 }

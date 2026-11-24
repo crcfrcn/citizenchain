@@ -10,7 +10,7 @@ import type { AccountWithBalance, EligibleClearingBankCandidate, InstitutionDeta
 import { offchainApi } from "./api";
 import type { ClearingBankView } from "./types";
 import { ClearingBankDeclareNodePage } from "./node-register";
-import { ClearingBankAdminListPage } from "./admin-unlock";
+import { ClearingBankAssignmentsPage } from "./assignments";
 // 清算行 tab 主入口。视图状态机驱动机构查看/节点声明流程。
 //
 // 状态机:
@@ -19,10 +19,10 @@ import { ClearingBankAdminListPage } from "./admin-unlock";
 //   check-multisig               链上查 Institutions[cid_number]
 //                                  ├─ 已存在 → institution-detail
 //                                  └─ 不存在 → 提示去 onchina 控制台创建机构(节点不承接创建)
-//   institution-detail           机构详情 = 卡片栅格 + 折叠卡片(其他账户 / 管理员) + 节点信息
+//   institution-detail           机构详情 = 卡片栅格 + 折叠卡片(其他账户 / 岗位任职) + 节点信息
 //                                顶部按钮:未声明节点 → declare-node;已声明 → 内联展示节点信息
 //   other-accounts-list          子页:其他账户列表
-//   admin-list                   子页:管理员列表
+//   assignments                  子页:岗位任职
 //   declare-node                 多签 Active 但本机未声明节点 → 填 RPC + 自测 + 签名声明
 
 import { useEffect, useState, useCallback } from 'react';
@@ -126,13 +126,12 @@ export function ClearingBankSection() {
               otherAccounts: detail.otherAccounts,
             })
           }
-          onOpenAdminList={(detail) =>
+          onOpenAssignments={(detail) =>
             setView({
-              kind: 'admin-list',
+              kind: 'assignments',
               cidNumber: view.cidNumber,
-              admins: detail.admins,
+              roles: detail.roles,
               threshold: detail.threshold,
-              adminsLen: detail.adminsLen,
             })
           }
           onDeclareNode={(cidNumber, cidFullName) =>
@@ -149,12 +148,11 @@ export function ClearingBankSection() {
         />
       )}
 
-      {view.kind === 'admin-list' && (
-        <ClearingBankAdminListPage
+      {view.kind === 'assignments' && (
+        <ClearingBankAssignmentsPage
           cidNumber={view.cidNumber}
-          admins={view.admins}
+          roles={view.roles}
           threshold={view.threshold}
-          adminsLen={view.adminsLen}
           onBack={() => setView({ kind: 'institution-detail', cidNumber: view.cidNumber })}
         />
       )}
@@ -214,16 +212,16 @@ function EmptyView({
 
   return (
     <>
-      <div className="admin-list-header">
+      <div className="institution-list-header">
         <h2>清算行</h2>
         <button className="primary-button" onClick={onAdd}>+ 添加清算行</button>
       </div>
       {knownCids.length > 0 && (
-        <div className="admin-grid">
+        <div className="institution-grid">
           {knownCids.map((s) => (
             <div
               key={s.cidNumber}
-              className="metric-card admin-card"
+              className="metric-card institution-card"
               role="button"
               tabIndex={0}
               onClick={() => onOpen(s)}
@@ -231,10 +229,10 @@ function EmptyView({
                 if (e.key === 'Enter') onOpen(s);
               }}
             >
-              <span className="admin-card-index">→</span>
+              <span className="institution-card-index">→</span>
               <div>
                 <strong>{s.cidFullName}</strong>
-                <code className="admin-card-address" style={{ marginLeft: 8 }}><IdentityCidText value={s.cidNumber} /></code>
+                <code className="institution-card-address" style={{ marginLeft: 8 }}><IdentityCidText value={s.cidNumber} /></code>
               </div>
             </div>
           ))}
@@ -286,7 +284,7 @@ function CheckMultisigView({
       ) : missing ? (
         <div className="no-data">
           <IdentityCidText value={cidFullName || cidNumber} /> 链上尚未创建机构多签。机构创建已迁至 onchina
-          控制台,请由对应机构管理员在 onchina 完成创建并经投票生效后,再回本页声明清算行节点。
+          控制台,请由对应机构岗位人员在 onchina 完成创建并经投票生效后,再回本页声明清算行节点。
         </div>
       ) : (
         <p>正在判定 <IdentityCidText value={cidFullName || cidNumber} /> 链上多签状态…</p>

@@ -3,24 +3,24 @@ use super::*;
 #[test]
 fn default_phase_is_genesis() {
     new_test_ext().execute_with(|| {
-        assert_eq!(GenesisPallet::phase(), pallet::ChainPhase::Genesis);
+        assert_eq!(Genesis::phase(), pallet::ChainPhase::Genesis);
     });
 }
 
 #[test]
 fn default_developer_upgrade_enabled() {
     new_test_ext().execute_with(|| {
-        assert!(GenesisPallet::developer_upgrade_enabled());
+        assert!(Genesis::developer_upgrade_enabled());
     });
 }
 
 #[test]
 fn developer_upgrade_check_trait_reads_storage() {
     new_test_ext().execute_with(|| {
-        assert!(<GenesisPallet as DeveloperUpgradeCheck>::is_enabled());
+        assert!(<Genesis as DeveloperUpgradeCheck>::is_enabled());
 
         pallet::DeveloperUpgradeEnabled::<Test>::put(false);
-        assert!(!<GenesisPallet as DeveloperUpgradeCheck>::is_enabled());
+        assert!(!<Genesis as DeveloperUpgradeCheck>::is_enabled());
     });
 }
 
@@ -31,9 +31,9 @@ fn storage_can_be_switched_to_operation() {
         pallet::Phase::<Test>::put(pallet::ChainPhase::Operation);
         pallet::DeveloperUpgradeEnabled::<Test>::put(false);
 
-        assert_eq!(GenesisPallet::phase(), pallet::ChainPhase::Operation);
-        assert!(!GenesisPallet::developer_upgrade_enabled());
-        assert!(!<GenesisPallet as DeveloperUpgradeCheck>::is_enabled());
+        assert_eq!(Genesis::phase(), pallet::ChainPhase::Operation);
+        assert!(!Genesis::developer_upgrade_enabled());
+        assert!(!<Genesis as DeveloperUpgradeCheck>::is_enabled());
     });
 }
 
@@ -57,8 +57,8 @@ fn genesis_config_initializes_declarations() {
     .expect("genesis config should assimilate");
 
     sp_io::TestExternalities::new(storage).execute_with(|| {
-        assert_eq!(GenesisPallet::citizens_declaration().to_vec(), citizens);
-        assert_eq!(GenesisPallet::country_declaration().to_vec(), country);
-        assert_eq!(GenesisPallet::citizen_max(), citizen_max);
+        assert_eq!(Genesis::citizens_declaration().to_vec(), citizens);
+        assert_eq!(Genesis::country_declaration().to_vec(), country);
+        assert_eq!(Genesis::citizen_max(), citizen_max);
     });
 }

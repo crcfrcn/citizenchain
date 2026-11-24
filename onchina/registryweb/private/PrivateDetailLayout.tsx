@@ -19,7 +19,7 @@ import { DocsLibrary } from '@gmb/onchina-platform/documents/Library';
 import { notice } from '@gmb/onchina-platform/controls/notice';
 import { InstitutionDetailNavLayout } from '@gmb/onchina-platform/workspace/DetailLayout';
 import { OperationRecords } from '../government/OperationRecords';
-import { InstitutionAdministratorsPanel } from '../admins/AddCityRegistryAdminModal';
+import { InstitutionConfigurationPanel } from '../controls/Configuration';
 // 私权机构详情页布局 — 共享详情壳承载标题、左侧 tab 和右侧业务内容。
 //
 // 机构信息 tab:
@@ -746,7 +746,7 @@ export const PrivateDetailLayout: React.FC<Props> = ({
       </Card>
   );
 
-  const governanceSection = <InstitutionAdministratorsPanel auth={auth} cidNumber={inst.cidNumber} canWrite={canWrite} onSubmitted={onReload} />;
+  const governanceSection = <InstitutionConfigurationPanel auth={auth} cidNumber={inst.cidNumber} canWrite={canWrite} onSubmitted={onReload} />;
 
   return (
     <>

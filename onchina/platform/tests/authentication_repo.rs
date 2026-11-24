@@ -1,4 +1,4 @@
-//! 验证会话上下文复用、设置完成事务和管理员编号并发分配。
+//! 验证会话上下文复用、设置完成事务和所选人员岗位约束。
 
 use super::*;
 
@@ -27,11 +27,6 @@ fn ready_session_reads_verified_context_without_admin_lookup_or_chain() {
     let stored = serde_json::to_value(&issued).unwrap();
     assert!(!stored.as_object().unwrap().contains_key("token"));
     assert_eq!(stored["setupRequired"], false);
-    assert!(sandbox
-        .db
-        .with_client(|conn| get_admin_by_account_id_conn(conn, &session.account_id))
-        .unwrap()
-        .is_none());
     delete_admin_session(&sandbox.db, &session.token).unwrap();
     assert_eq!(
         crate::authentication::login::require_admin_any(&state, &headers)
@@ -58,7 +53,7 @@ fn setup_gate_and_activity_update_preserve_atomic_completion() {
         .with_client(|conn| {
             {
                 let mut tx = conn.transaction().map_err(|error| error.to_string())?;
-                complete_passkey_setup_conn(&mut tx, &old.account_id, &old.candidate_id)?;
+                complete_passkey_setup_conn(&mut tx, &old.context())?;
                 // 未提交则设置阶段不能开放。
             }
             assert!(
@@ -66,7 +61,7 @@ fn setup_gate_and_activity_update_preserve_atomic_completion() {
                     .unwrap()
                     .setup_required
             );
-            complete_passkey_setup_conn(conn, &old.account_id, &old.candidate_id)?;
+            complete_passkey_setup_conn(conn, &old.context())?;
             old.last_active_at = Utc::now();
             touch_admin_session_conn(conn, &old)?;
             let current = get_admin_session_conn(conn, &old.token)?.unwrap();
@@ -111,111 +106,27 @@ fn old_or_expired_session_cannot_bypass_setup() {
 }
 
 #[test]
-#[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
-fn concurrent_admin_id_allocation_is_unique_and_overflow_is_explicit() {
-    let sandbox = crate::database::IsolatedTestDb::new();
-    let handles = (0..8)
-        .map(|_| {
-            let db = sandbox.db.clone();
-            std::thread::spawn(move || {
-                (0..16)
-                    .map(|_| db.with_client(next_admin_id_conn).unwrap())
-                    .collect::<Vec<_>>()
-            })
-        })
-        .collect::<Vec<_>>();
-    let ids = handles
-        .into_iter()
-        .flat_map(|handle| handle.join().unwrap())
-        .collect::<std::collections::BTreeSet<_>>();
-    assert_eq!(ids.len(), 128);
-    assert_eq!(ids.first(), Some(&1));
-    assert_eq!(ids.last(), Some(&128));
-    sandbox
-        .db
-        .with_client(|conn| {
-            conn.execute(
-                "UPDATE sequence SET last_value=9223372036854775807 WHERE seq_key='admin_id'",
-                &[],
-            )
-            .unwrap();
-            assert!(next_admin_id_conn(conn).is_err());
-            Ok(())
-        })
-        .unwrap();
-}
-
-#[test]
-fn frg_role_province_cannot_be_overwritten_by_institution_location() {
-    let institution_location = Some((Some("中枢省".to_string()), Some("锦程市".to_string()), None));
-    let scope = authorization_scope_from_sources("FRG", Some(*b"GZ"), institution_location)
-        .expect("FRG role province must resolve");
-
-    assert_eq!(scope, (Some("贵州省".to_string()), None, None));
-}
-
-#[test]
-fn frg_authorization_fails_without_role_province() {
-    let result = authorization_scope_from_sources("FRG", None, None);
-    assert_eq!(
-        result.unwrap_err(),
-        format!("{SCOPE_ERROR_PREFIX}FRG authorization requires frg_province_code")
-    );
-}
-
-/// 作用域类错误必须带 `scope:` 前缀,否则会被当成数据库故障、报成
-/// 「请稍后重试」——而这类错误重试永远不会成功。
-#[test]
-fn scope_errors_are_prefixed_for_classification() {
-    for result in [
-        authorization_scope_from_sources("FRG", None, None),
-        authorization_scope_from_sources("FRG", Some(*b"??"), None),
-        authorization_scope_from_sources("SFGY", None, None),
-    ] {
-        let message = result.expect_err("这些前置条件都不满足,必须失败");
-        assert!(
-            message.starts_with(SCOPE_ERROR_PREFIX),
-            "作用域错误缺少 scope: 前缀,会被误判成数据库故障: {message}"
-        );
-    }
-}
-
-/// 非 Tier1 机构给出作用域后即通过,不再要求本地投影命中。
-#[test]
-fn non_tier1_accepts_scope_derived_without_projection() {
-    let derived_from_cid = Some((Some("贵州省".to_string()), Some("绥阳市".to_string()), None));
-    let scope = authorization_scope_from_sources("SFGY", None, derived_from_cid)
-        .expect("私权机构作用域可由机构 CID 派生");
-    assert_eq!(
-        scope,
-        (Some("贵州省".to_string()), Some("绥阳市".to_string()), None)
-    );
-}
-
-/// 机构 CID 的 R5 = 省2 + 市3,私权机构也能解出——这是缺投影时的兜底真源。
-#[test]
-fn private_institution_cid_yields_province_and_city() {
-    let (province, city) =
-        cid_scope_codes(b"GZ018-SFGYR-201206100-2026").expect("私权机构 CID 必须能解出省市码");
+fn private_cid_has_scope_and_person_cid_does_not() {
+    use primitives::cid::number::cid_scope_codes;
+    let (province, city) = cid_scope_codes(b"GZ018-SFGYR-201206100-2026").unwrap();
     assert_eq!(&province, b"GZ");
     assert_eq!(&city, b"018");
+    assert!(cid_scope_codes(crate::testing::person_cid().as_bytes()).is_err());
 }
 
-/// 自然人 CID 去地域化,传进来必须 fail-closed,不得把号段误读成区划码。
-#[test]
-fn person_cid_scope_is_rejected() {
-    assert!(cid_scope_codes(b"CN001-CTZN-000000001-2026").is_err());
-}
-
-fn login_membership(cid: &str) -> crate::chain_runtime::ActiveAdminMembership {
-    crate::chain_runtime::ActiveAdminMembership {
+fn login_membership(cid: &str) -> crate::chain_runtime::ActiveMembership {
+    crate::chain_runtime::ActiveMembership {
         institution_code: *b"FRG\0",
         cid_number: cid.into(),
+        person_cid: crate::testing::person_cid(),
+        role_code: "REGISTRAR".into(),
+        role_name: "登记员".into(),
+        town_code: vec![],
         frg_province_code: Some(*b"GZ"),
     }
 }
 
-fn login_binding(member: &crate::chain_runtime::ActiveAdminMembership) -> NodeInstitutionBinding {
+fn login_binding(member: &crate::chain_runtime::ActiveMembership) -> NodeInstitutionBinding {
     NodeInstitutionBinding {
         binding_id: uuid::Uuid::new_v4().to_string(),
         candidate_id: member.candidate_id(),
@@ -230,7 +141,7 @@ fn login_binding(member: &crate::chain_runtime::ActiveAdminMembership) -> NodeIn
 
 fn create_test_login(
     db: &crate::Db,
-    memberships: &[crate::chain_runtime::ActiveAdminMembership],
+    memberships: &[crate::chain_runtime::ActiveMembership],
 ) -> axum::response::Response {
     crate::authentication::login::create_login_request(
         db,
@@ -259,7 +170,7 @@ fn login_response_body(response: axum::response::Response) -> serde_json::Value 
 
 #[test]
 #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
-fn login_checks_exact_binding_before_creating_a_challenge() {
+fn login_accepts_each_current_assignment_without_changing_host_binding() {
     use axum::http::StatusCode;
     let sandbox = crate::database::IsolatedTestDb::new();
     let member = login_membership("ZS001-FRG07-249474503-2026");
@@ -269,18 +180,18 @@ fn login_checks_exact_binding_before_creating_a_challenge() {
         .with_client(|conn| upsert_active_node_binding_conn(conn, &binding))
         .unwrap();
     let foreign = login_membership("ZS001-FRG07-249474504-2026");
-    let wrong_code = crate::chain_runtime::ActiveAdminMembership {
+    let wrong_code = crate::chain_runtime::ActiveMembership {
         institution_code: *b"CREG",
         ..member.clone()
     };
-    let other_province = crate::chain_runtime::ActiveAdminMembership {
+    let other_province = crate::chain_runtime::ActiveMembership {
         frg_province_code: Some(*b"GD"),
         ..member.clone()
     };
     for (memberships, expected) in [
         (vec![], StatusCode::FORBIDDEN),
-        (vec![foreign.clone()], StatusCode::FORBIDDEN),
-        (vec![wrong_code], StatusCode::FORBIDDEN),
+        (vec![foreign.clone()], StatusCode::OK),
+        (vec![wrong_code], StatusCode::OK),
         (vec![member.clone()], StatusCode::OK),
         (vec![foreign, member.clone()], StatusCode::OK),
         // FRG的省任职限定登录后作用域，不改变同一机构CID的节点归属。
@@ -307,7 +218,7 @@ fn login_checks_exact_binding_before_creating_a_challenge() {
             .unwrap();
         if expected == StatusCode::FORBIDDEN {
             assert_eq!(count, 0);
-            assert_eq!(body["errorCode"], "ONCHINA_LOGIN_ADMIN_NOT_ONCHAIN");
+            assert_eq!(body["code"], 2002);
             assert!(body.get("data").is_none());
         } else {
             assert_eq!(count, 1);
@@ -351,7 +262,7 @@ fn login_checks_exact_binding_before_creating_a_challenge() {
             .unwrap();
         assert_eq!(
             create_test_login(&sandbox.db, &[member.clone()]).status(),
-            StatusCode::FORBIDDEN
+            StatusCode::OK
         );
         assert_eq!(
             sandbox
@@ -361,7 +272,7 @@ fn login_checks_exact_binding_before_creating_a_challenge() {
                     .unwrap()
                     .get::<_, i64>(0)))
                 .unwrap(),
-            0
+            1
         );
     }
 }
@@ -426,13 +337,13 @@ fn first_binding_login_remains_available_and_failed_storage_returns_no_qr() {
         &sandbox.db,
         &[login_membership("ZS001-FRG07-249474503-2026")],
     );
-    assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(login_response_body(response).get("data").is_none());
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(login_response_body(response)["data"]["challengeId"].is_string());
 }
 
 #[test]
 #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
-fn login_waits_for_binding_lock_and_rejects_a_concurrent_rebind() {
+fn login_waits_for_host_lock_without_treating_host_as_authorization() {
     use axum::http::StatusCode;
     let sandbox = crate::database::IsolatedTestDb::new();
     let member = login_membership("ZS001-FRG07-249474503-2026");
@@ -469,7 +380,7 @@ fn login_waits_for_binding_lock_and_rejects_a_concurrent_rebind() {
                     receiver
                         .recv_timeout(std::time::Duration::from_secs(5))
                         .unwrap(),
-                    StatusCode::FORBIDDEN
+                    StatusCode::OK
                 );
                 worker.join().unwrap();
                 Ok(())
@@ -484,43 +395,77 @@ fn login_waits_for_binding_lock_and_rejects_a_concurrent_rebind() {
                 .unwrap()
                 .get::<_, i64>(0)))
             .unwrap(),
-        0
+        1
     );
 }
 
-
 #[test]
-fn wallet_revision_and_namespace_are_mandatory_and_old_sessions_never_revive(){
-    use crate::authentication::login::{AdminAuthContext,AdminSession};
-    let mut ctx=AdminAuthContext{wallet_revision:"0".into(),wallet_namespace:crate::chain_runtime::AdminPallet::PublicAdmins,account_id:format!("0x{}","11".repeat(32)),institution_cid_number:"original".into(),institution_code:"FRG".into(),admin_level:None,family_name:String::new(),given_name:String::new(),scope_province_name:None,scope_city_name:None,scope_town_name:None,cid_short_name:None};
-    let mut live=crate::chain_runtime::OnChainAdmin{wallet_revision:0,wallet_namespace:ctx.wallet_namespace,account_id:ctx.account_id.clone(),role_account_id:[0x11;32],cid_number:String::new(),family_name:String::new(),given_name:String::new()};
-    assert!(ctx.matches_wallet(&live));live.wallet_revision=2;assert!(!ctx.matches_wallet(&live));
-    ctx.wallet_revision="2".into();assert!(ctx.matches_wallet(&live));live.wallet_namespace=crate::chain_runtime::AdminPallet::PrivateAdmins;assert!(!ctx.matches_wallet(&live));
-    let now=chrono::Utc::now().timestamp_millis();
-    let mut raw=serde_json::json!({"accountId":ctx.account_id,"institutionCode":"FRG","candidateId":"candidate","institutionCidNumber":"original","adminLevel":null,"familyName":"","givenName":"","scopeProvinceName":null,"scopeCityName":null,"scopeTownName":null,"cidShortName":null,"capabilities":crate::modules::capability::EMPTY,"workspace":{"workspace_kind":"registry","workspace_title":"fixture","workspace_sections":[],"workspace_modules":[]},"setupRequired":false,"expiresAt":now+60000,"lastActiveAt":now});
-    assert!(serde_json::from_value::<AdminSession>(raw.clone()).is_err());
-    raw["walletRevision"]="0".into();assert!(serde_json::from_value::<AdminSession>(raw.clone()).is_err());
-    raw["walletNamespace"]="PublicAdmins".into();assert!(serde_json::from_value::<AdminSession>(raw.clone()).is_ok());
-    raw["walletRevision"]=0.into();assert!(serde_json::from_value::<AdminSession>(raw).is_err());
+fn person_role_and_binding_are_mandatory_session_fields() {
+    let now = Utc::now().timestamp_millis();
+    let raw = serde_json::json!({"bindingRevision":"1","personCid":crate::testing::person_cid(),"roleCode":"REGISTRAR","accountId":format!("0x{}","11".repeat(32)),"institutionCode":"FRG","candidateId":"candidate","institutionCidNumber":"original","adminLevel":null,"familyName":"","givenName":"","scopeProvinceName":null,"scopeCityName":null,"scopeTownName":null,"cidShortName":null,"capabilities":crate::modules::capability::EMPTY,"workspace":{"workspace_kind":"registry","workspace_title":"fixture","workspace_sections":[],"workspace_modules":[]},"setupRequired":false,"expiresAt":now+60000,"lastActiveAt":now});
+    assert!(serde_json::from_value::<AdminSession>(raw.clone()).is_ok());
+    for field in ["personCid", "roleCode", "bindingRevision"] {
+        let mut missing = raw.clone();
+        missing.as_object_mut().unwrap().remove(field);
+        assert!(serde_json::from_value::<AdminSession>(missing).is_err());
+    }
+    let mut retired = raw;
+    retired["walletRevision"] = "0".into();
+    assert!(serde_json::from_value::<AdminSession>(retired).is_err());
 }
 
 #[tokio::test]
 #[ignore = "使用独立onchina_test数据库和显式权威快照验证真实Router"]
-async fn protected_http_rejects_retired_readded_wallet_and_cross_scope_session(){
+async fn protected_http_rejects_changed_person_binding_role_and_scope() {
     use tower::ServiceExt;
-    let sandbox=crate::database::IsolatedTestDb::new();
-    let(state,_,session)=crate::testing::session_fixture(&sandbox.db,false);
-    let app=crate::build_routes(state);
-    let call=|token:&str|axum::http::Request::builder().uri("/api/admin/auth/check").header("authorization",format!("Bearer {token}")).body(axum::body::Body::empty()).unwrap();
-    assert_eq!(app.clone().oneshot(call(&session.token)).await.unwrap().status(),axum::http::StatusCode::OK);
-    for mutation in ["version","wallet","namespace","province","institution"] {
-        let mut actual=session.context();
-        match mutation {"version"=>actual.wallet_revision="2".into(),"wallet"=>actual.account_id=format!("0x{}","22".repeat(32)),"namespace"=>actual.wallet_namespace=crate::chain_runtime::AdminPallet::PrivateAdmins,"province"=>actual.scope_province_name=Some("广东省".into()),_=>actual.institution_cid_number="another-institution".into()}
-        *sandbox.db.wallet_snapshot.lock().unwrap()=Some(actual);
-        assert_eq!(app.clone().oneshot(call(&session.token)).await.unwrap().status(),axum::http::StatusCode::UNAUTHORIZED,"{mutation}");
+    let sandbox = crate::database::IsolatedTestDb::new();
+    let (state, _, session) = crate::testing::session_fixture(&sandbox.db, false);
+    let app = crate::build_routes(state);
+    let call = |token: &str| {
+        axum::http::Request::builder()
+            .uri("/api/admin/auth/check")
+            .header("authorization", format!("Bearer {token}"))
+            .body(axum::body::Body::empty())
+            .unwrap()
+    };
+    assert_eq!(
+        app.clone()
+            .oneshot(call(&session.token))
+            .await
+            .unwrap()
+            .status(),
+        axum::http::StatusCode::OK
+    );
+    for mutation in ["version", "wallet", "role", "province", "institution"] {
+        let mut actual = session.context();
+        match mutation {
+            "version" => actual.binding_revision = "2".into(),
+            "wallet" => actual.account_id = format!("0x{}", "22".repeat(32)),
+            "role" => actual.role_code = "OTHER".into(),
+            "province" => actual.scope_province_name = Some("广东省".into()),
+            _ => actual.institution_cid_number = "another-institution".into(),
+        }
+        *sandbox.db.role_snapshot.lock().unwrap() = Some(actual);
+        assert_eq!(
+            app.clone()
+                .oneshot(call(&session.token))
+                .await
+                .unwrap()
+                .status(),
+            axum::http::StatusCode::UNAUTHORIZED,
+            "{mutation}"
+        );
     }
-    let mut current=session.clone();current.token="returned-wallet-session".into();current.wallet_revision="2".into();
-    *sandbox.db.wallet_snapshot.lock().unwrap()=Some(current.context());
-    sandbox.db.with_client(|conn|insert_admin_session_conn(conn,&current)).unwrap();
-    assert_eq!(app.oneshot(call(&current.token)).await.unwrap().status(),axum::http::StatusCode::OK);
+    let mut current = session.clone();
+    current.token = "returned-wallet-session".into();
+    current.binding_revision = "2".into();
+    *sandbox.db.role_snapshot.lock().unwrap() = Some(current.context());
+    sandbox
+        .db
+        .with_client(|conn| insert_admin_session_conn(conn, &current))
+        .unwrap();
+    assert_eq!(
+        app.oneshot(call(&current.token)).await.unwrap().status(),
+        axum::http::StatusCode::OK
+    );
 }

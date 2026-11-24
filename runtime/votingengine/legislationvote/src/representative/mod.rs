@@ -243,7 +243,7 @@ impl<T: Config> Pallet<T> {
                         ))
                     }
                 };
-                let voters = T::InstitutionRoleProvider::active_accounts_for_role(
+                let voters = T::InstitutionRoleProvider::active_persons_for_role(
                     role_subject.cid_number.as_slice(),
                     role_subject.role_code.as_slice(),
                 );
@@ -347,7 +347,7 @@ impl<T: Config> Pallet<T> {
         );
         let representative_subject = AuthorizationSubject::Institution(representative_body.clone());
         // 按该提案冻结的实际钱包去重，版本取自同一不可变快照，不能继承或重置旧票。
-        let voter_account_id =
+        let person_cid =
             <engingcore::Pallet<T>>::resolve_snapshot_voter(
             proposal_id,
             &representative_subject,
@@ -356,7 +356,7 @@ impl<T: Config> Pallet<T> {
         .ok_or(engingcore::Error::<T>::NoPermission)?;
         let ticket = engingcore::types::InstitutionVoteTicket {
             role_subject: representative_body,
-            voter_account_id,
+            person_cid,
         };
         let vote_key = (meta.current_body, ticket);
         ensure!(

@@ -86,8 +86,8 @@ export type ProposalFullInfo = MultisigTransferProposalDetails & {
 };
 
 // 原提案的完整票据身份；版本使用字符串，避免JS整数精度丢失。
-export type FrozenVoteBinding = { genesisHash: string; proposalId: string; cidNumber: string; roleCode: string; accountId: string; walletRevision: string };
-export type FrozenVoter = { accountId: string; walletRevision: string | null; vote: boolean | null; voteError: string | null };
+export type FrozenVoteBinding = { genesisHash: string; proposalId: string; cidNumber: string; roleCode: string; accountId: string; personCid: string; bindingRevision: string };
+export type FrozenVoter = { personCid:string|null; accountId: string|null; bindingRevision: string | null; vote: boolean | null; voteError: string | null };
 export type FrozenRoleSnapshot = { cidNumber: string; roleCode: string; error: string | null; voters: FrozenVoter[] };
-export type FrozenVoteView = { genesisHash: string; blockHash: string; blockNumber: string; endBlock: string; kind: number; stage: number; status: number; actorCidNumber: string | null; scopeError: string | null; roles: FrozenRoleSnapshot[] };
+export type FrozenVoteView = { proposalId:string; genesisHash: string; blockHash: string; blockNumber: string; endBlock: string; kind: number; stage: number; status: number; actorCidNumber: string | null; scopeError: string | null; roles: FrozenRoleSnapshot[] };
 export type ProposalVoteSubmitResult = { txHash: string | null; observed: boolean };

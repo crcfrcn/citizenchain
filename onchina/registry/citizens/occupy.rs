@@ -37,7 +37,7 @@ use sp_crypto_hashing::blake2_256;
 
 pub(crate) const CITIZEN_IDENTITY_PALLET_INDEX: u8 = 10;
 pub(crate) const OCCUPY_CID_CALL_INDEX: u8 = 6;
-const ADMIN_REBIND_CID_CALL_INDEX: u8 = 7;
+const REGISTRAR_REBIND_CID_CALL_INDEX: u8 = 7;
 const REVOKE_CID_CALL_INDEX: u8 = 8;
 /// 发号碰撞重试上限(对齐 n9 桶 1000 次重试死规则)。
 const CID_GENERATE_MAX_RETRY: u32 = 1000;
@@ -337,11 +337,11 @@ fn verify_occupy_signature(account_id: &str, authorization: &[u8], signature_hex
     sr25519::Pair::verify(&signature, message, &public)
 }
 
-/// admin_rebind_cid_account_id(actor_cid_number, actor_role_code, cid_number, new_account_id,
+/// registrar_rebind_cid(actor_cid_number, actor_role_code, cid_number, new_account_id,
 /// expected_binding_revision, expires_at, new_account_signature)
 ///
 /// `new_account_signature` = 新账户对 `CidRebindAuthorization` 的签名,BoundedVec。
-fn encode_admin_rebind_cid_account_id_call(
+fn encode_registrar_rebind_cid_call(
     actor_cid_number: &str,
     actor_role_code: &str,
     cid_number: &str,
@@ -352,7 +352,7 @@ fn encode_admin_rebind_cid_account_id_call(
 ) -> Vec<u8> {
     let mut out = Vec::new();
     out.push(CITIZEN_IDENTITY_PALLET_INDEX);
-    out.push(ADMIN_REBIND_CID_CALL_INDEX);
+    out.push(REGISTRAR_REBIND_CID_CALL_INDEX);
     append_bounded(&mut out, actor_cid_number.as_bytes());
     append_bounded(&mut out, actor_role_code.as_bytes());
     append_bounded(&mut out, cid_number.as_bytes());
@@ -364,7 +364,7 @@ fn encode_admin_rebind_cid_account_id_call(
 }
 
 /// 验新账户换绑签名；authorization 锁定链、旧/新账户、revision 与过期时间。
-fn verify_admin_rebind_signature(
+fn verify_registrar_rebind_signature(
     account_id: &str,
     authorization: &[u8],
     signature_hex: &str,
@@ -376,7 +376,7 @@ fn verify_admin_rebind_signature(
         return false;
     };
     let message = primitives::sign::signing_message(
-        primitives::sign::OP_SIGN_CID_ADMIN_REBIND,
+        primitives::sign::OP_SIGN_CID_REGISTRAR_REBIND,
         authorization,
     );
     let public = sr25519::Public::from_raw(account_id_bytes);
@@ -574,7 +574,7 @@ pub(crate) struct SubmitCitizenRebindInput {
     pub(crate) request_id: String,
     /// 新钱包账户(0x 小写 hex),换绑后 CID 绑定的新 account_id。
     pub(crate) new_account_id: String,
-    /// 新账户对 CidRebindAuthorization 的换绑授权签名(域 OP_SIGN_CID_ADMIN_REBIND)。
+    /// 新账户对 CidRebindAuthorization 的换绑授权签名(域 OP_SIGN_CID_REGISTRAR_REBIND)。
     pub(crate) new_account_signature: String,
     /// 可选当前账户签名对；同时提供才表示客户端已完成此前私有数据交接预演。
     pub(crate) current_account_id: Option<String>,
@@ -1044,7 +1044,7 @@ pub(crate) async fn prepare_citizen_rebind(
         Ok(value) => value,
         Err(resp) => return resp,
     };
-    // 链上写(admin_rebind_cid_account_id extrinsic)硬规则 = passkey + 冷签:强制 passkey 断言(冷签在段3)。
+    // 链上写(registrar_rebind_cid extrinsic)硬规则 = passkey + 冷签:强制 passkey 断言(冷签在段3)。
     // 注册局强制换绑不以当前账户签名为权限前提；passkey 是注册局侧操作者身份加固，不可省。
     let rebind_grant_payload = serde_json::json!({
         "cidNumber": cid_number,
@@ -1175,7 +1175,7 @@ pub(crate) async fn prepare_citizen_rebind(
 }
 
 /// 换绑第二段:复核 finalized 当前账户/revision 未变化 → 验新账户换绑签名 →
-/// 构造 admin_rebind_cid_account_id call → prepare_signing → 会话转正。
+/// 构造 registrar_rebind_cid call → prepare_signing → 会话转正。
 pub(crate) async fn submit_citizen_rebind(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1368,7 +1368,7 @@ pub(crate) async fn submit_citizen_rebind(
         }
     };
     // 新钱包签名锁定链、当前/新账户、revision 与过期时间；当前账户签名只决定数据是否可交接。
-    if !verify_admin_rebind_signature(
+    if !verify_registrar_rebind_signature(
         account_id_hex.as_str(),
         &authorization,
         input.new_account_signature.as_str(),
@@ -1387,7 +1387,7 @@ pub(crate) async fn submit_citizen_rebind(
     );
 
     let actor_cid_number = ctx.institution_cid_number.clone();
-    let call = encode_admin_rebind_cid_account_id_call(
+    let call = encode_registrar_rebind_cid_call(
         &actor_cid_number,
         actor_role_code.as_str(),
         cid_number.as_str(),
@@ -1411,7 +1411,7 @@ pub(crate) async fn submit_citizen_rebind(
     let issued_at = Utc::now();
     let action = onchina::institutions::chain_action_code(
         CITIZEN_IDENTITY_PALLET_INDEX,
-        ADMIN_REBIND_CID_CALL_INDEX,
+        REGISTRAR_REBIND_CID_CALL_INDEX,
     );
     let sign_request = match onchina::qr::build_sign_request_bytes(
         session.request_id.as_str(),

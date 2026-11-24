@@ -45,7 +45,7 @@ fn propose_emergency(
         0,
         GrandpaKeyChangeKind::EmergencyRecovery,
     );
-    GrandpaKeyChange::propose_emergency_grandpa_key_recovery(
+    GrandpaKey::propose_emergency_grandpa_key_recovery(
         RuntimeOrigin::signed(who),
         cb_cid(node_index),
         committee_role(),
@@ -70,7 +70,7 @@ fn schedule_routine(
         proof_nonce,
         GrandpaKeyChangeKind::RoutineRotation,
     );
-    GrandpaKeyChange::schedule_grandpa_key_rotation(
+    GrandpaKey::schedule_grandpa_key_rotation(
         RuntimeOrigin::signed(who),
         cb_cid(node_index),
         committee_role(),
@@ -86,7 +86,7 @@ fn schedule_routine(
 fn weak_small_order_new_key_is_rejected_before_signature_check() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            GrandpaKeyChange::propose_emergency_grandpa_key_recovery(
+            GrandpaKey::propose_emergency_grandpa_key_recovery(
                 RuntimeOrigin::signed(prc_admin(0)),
                 prc_cid(),
                 committee_role(),
@@ -161,7 +161,7 @@ fn emergency_recovery_schedules_after_internal_threshold_and_updates_only_after_
         assert!(ReservedGrandpaKeys::<Test>::get(new_public_key).is_none());
         assert!(System::events().iter().any(|record| matches!(
             &record.event,
-            RuntimeEvent::GrandpaKeyChange(Event::<Test>::GrandpaKeyActivated {
+            RuntimeEvent::GrandpaKey(Event::<Test>::GrandpaKeyActivated {
                 change_kind: GrandpaKeyChangeKind::EmergencyRecovery,
                 ..
             })
@@ -210,7 +210,7 @@ fn routine_rotation_uses_call_one_without_creating_a_vote() {
         );
         assert!(System::events().iter().any(|record| matches!(
             &record.event,
-            RuntimeEvent::GrandpaKeyChange(Event::<Test>::GrandpaKeyActivated {
+            RuntimeEvent::GrandpaKey(Event::<Test>::GrandpaKeyActivated {
                 change_kind: GrandpaKeyChangeKind::RoutineRotation,
                 ..
             })
@@ -232,7 +232,7 @@ fn routine_rotation_requires_both_old_and_new_private_key_signatures() {
         );
 
         assert_noop!(
-            GrandpaKeyChange::schedule_grandpa_key_rotation(
+            GrandpaKey::schedule_grandpa_key_rotation(
                 RuntimeOrigin::signed(who.clone()),
                 prc_cid(),
                 committee_role(),
@@ -245,7 +245,7 @@ fn routine_rotation_requires_both_old_and_new_private_key_signatures() {
             Error::<Test>::InvalidOldKeySignature
         );
         assert_noop!(
-            GrandpaKeyChange::schedule_grandpa_key_rotation(
+            GrandpaKey::schedule_grandpa_key_rotation(
                 RuntimeOrigin::signed(who),
                 prc_cid(),
                 committee_role(),
@@ -283,7 +283,7 @@ fn proof_nonce_and_expiry_prevent_replay() {
             GrandpaKeyChangeKind::EmergencyRecovery,
         );
         assert_noop!(
-            GrandpaKeyChange::propose_emergency_grandpa_key_recovery(
+            GrandpaKey::propose_emergency_grandpa_key_recovery(
                 RuntimeOrigin::signed(who),
                 prc_cid(),
                 committee_role(),
@@ -310,7 +310,7 @@ fn routine_rotation_rejects_non_member_and_wrong_institution() {
             GrandpaKeyChangeKind::RoutineRotation,
         );
         assert_noop!(
-            GrandpaKeyChange::schedule_grandpa_key_rotation(
+            GrandpaKey::schedule_grandpa_key_rotation(
                 RuntimeOrigin::signed(outsider),
                 prc_cid(),
                 committee_role(),
@@ -325,7 +325,7 @@ fn routine_rotation_rejects_non_member_and_wrong_institution() {
 
         let invalid_cid: CidNumber = b"invalid-cid".to_vec().try_into().unwrap();
         assert_noop!(
-            GrandpaKeyChange::propose_emergency_grandpa_key_recovery(
+            GrandpaKey::propose_emergency_grandpa_key_recovery(
                 RuntimeOrigin::signed(prc_admin(0)),
                 invalid_cid,
                 committee_role(),
@@ -373,7 +373,7 @@ fn key_owned_by_another_institution_cannot_be_reused() {
         let who = prc_admin(0);
         let other_key = grandpa_public_key(0);
         assert_noop!(
-            GrandpaKeyChange::propose_emergency_grandpa_key_recovery(
+            GrandpaKey::propose_emergency_grandpa_key_recovery(
                 RuntimeOrigin::signed(who),
                 prc_cid(),
                 committee_role(),
@@ -438,7 +438,7 @@ fn non_active_catalog_key_cannot_be_rotated_or_recovered() {
             GrandpaKeyChangeKind::EmergencyRecovery,
         );
         assert_noop!(
-            GrandpaKeyChange::propose_emergency_grandpa_key_recovery(
+            GrandpaKey::propose_emergency_grandpa_key_recovery(
                 RuntimeOrigin::signed(who),
                 cb_cid(node_index),
                 committee_role(),

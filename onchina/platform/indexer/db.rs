@@ -235,8 +235,8 @@ mod tests;
 pub mod government {
     //! 公权机构链上投影服务。
     //!
-    //! 公权机构唯一真源是链上 `PublicManage::Institutions` 与
-    //! `PublicManage::InstitutionAccounts`。OnChina PostgreSQL 只保存查询缓存:
+    //! 公权机构唯一真源是链上 `PublicEntity::Institutions` 与
+    //! `PublicEntity::InstitutionAccounts`。OnChina PostgreSQL 只保存查询缓存:
     //! 启动或显式同步时全量读取链上 storage,只把链上存在的机构投影到本地。
     //! 行政区 `china.sqlite` 仅用于校验/补充省市镇索引,不得反向生成机构。
 
@@ -378,7 +378,7 @@ pub mod government {
 
     /// 检查本地公权机构投影是否已经对应当前链 finalized head。
     ///
-    /// 本地 PostgreSQL 只是链上 `PublicManage` 的查询缓存。启动时先读取链锚点,
+    /// 本地 PostgreSQL 只是链上 `PublicEntity` 的查询缓存。启动时先读取链锚点,
     /// 只有 genesis/finalized head/count 都匹配时才跳过全量同步;任一不匹配就重新读链。
     pub(crate) fn chain_projection_matches_current_head_blocking(db: &Db) -> Result<bool, String> {
         let chain_genesis_hash = chain_runtime::cached_chain_genesis_hash_hex()
@@ -556,7 +556,9 @@ pub mod government {
                 Some(String::from_utf8(value.cid_number).map_err(|_| {
                     format!("chain institution {cid_number} legal representative cid must be utf-8")
                 })?),
-                Some(format!("0x{}", hex::encode(value.account_id))),
+                value
+                    .account_id
+                    .map(|account| format!("0x{}", hex::encode(account))),
             ),
             None => (None, None, None, None),
         };

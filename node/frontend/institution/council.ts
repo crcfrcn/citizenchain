@@ -1,4 +1,4 @@
-// 封装机构治理、管理员激活及余额订阅，并定义公开响应模型。
+// 封装机构治理、本机岗位授权及余额订阅，并定义公开响应模型。
 
 import { invoke } from "../client/tauri";
 import type { ProposalDisplayMeta, ProposalFullInfo, ProposalListItem, ProposalPageResult, UserVoteStatus } from "../proposal/types";
@@ -20,34 +20,8 @@ export const councilApi = {
 
 
 
-// ── 管理员匹配（提案发起/投票签名流程共用） ──
-
-export type AdminSignerMatch = {
-  accountId: string;
-  accountLabel: string;
-  /// 当前机构内可供选择的任职岗位；同一账户可拥有多个岗位票据。
-  roleAssignments?: InstitutionRoleAssignmentInfo[];
-};
-
-
-// ── 管理员激活 ──
-
-export type ActivatedAdmin = {
-  accountId: string;
-  cidNumber: string;
-  institutionCode: number[];
-  kind: number;
-  activatedAtMs: number;
-};
-
-
-export type ActivateRequestResult = {
-  requestJson: string;
-  requestId: string;
-  expectedPayloadHash: string;
-  payloadHex: string;
-};
-
+export type {RoleAccess,RoleSigner,RoleAccessRequest,InstitutionRoleInfo,InstitutionAssignmentInfo} from './assignments';
+import type {InstitutionRoleInfo} from './assignments';
 
 // ── 机构 ──
 
@@ -71,31 +45,6 @@ export type GovernanceOverview = {
 };
 
 
-export type InstitutionRoleAssignmentInfo = {
-  roleCode: string;
-  roleName: string;
-  termRequired: boolean;
-  termStart: number;
-  termEnd: number;
-  assignmentSource: number;
-  assignmentSourceLabel: string;
-  assignmentSourceRef: string;
-};
-
-
-export type InstitutionAdminInfo = {
-  accountId: string;
-  familyName: string;
-  givenName: string;
-  assignments: InstitutionRoleAssignmentInfo[];
-};
-
-
-export type AdminInfo = InstitutionAdminInfo & {
-  balanceFen: string | null;
-};
-
-
 export type InstitutionDetail = {
   cidFullName: string;
   cidShortName: string;
@@ -106,7 +55,7 @@ export type InstitutionDetail = {
   orgTypeLabel: string;
   mainAccountId: string;
   balanceFen: string | null;
-  admins: AdminInfo[];
+  roles: InstitutionRoleInfo[];
   internalThreshold: number;
   jointVoteWeight: number;
   stakeAccountId: string | null;

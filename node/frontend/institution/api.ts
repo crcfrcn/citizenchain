@@ -1,4 +1,4 @@
-// 封装机构资料、账户及管理员状态的只读原生命令。
+// 封装机构资料、账户及岗位人员状态的只读原生命令。
 
 import { invoke } from "../client/tauri";
 import type { EligibleClearingBankCandidate, InstitutionDetail, InstitutionProposalPage } from "./types";

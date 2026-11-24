@@ -1,4 +1,4 @@
-//! 冻结受保护机构的治理岗位、席位和管理员结构规格。
+//! 冻结受保护机构的治理岗位及席位规格。
 
 extern crate alloc;
 
@@ -12,8 +12,8 @@ use crate::cid::code::{
     PROVINCE_CODE_INFOS,
 };
 use crate::count_const::{
-    FRG_PROVINCE_GROUP_ADMIN_COUNT, NJD_ADMIN_COUNT, NRC_ADMIN_COUNT, PRB_ADMIN_COUNT,
-    PRC_ADMIN_COUNT,
+    FRG_COMMISSIONER_SEATS, NJD_JUDICIAL_SEATS, NRC_COMMITTEE_SEATS, PRB_DIRECTOR_SEATS,
+    PRC_COMMITTEE_SEATS,
 };
 use crate::institution_constraints::{
     ROLE_CODE_LEGAL_REPRESENTATIVE, ROLE_NAME_LEGAL_REPRESENTATIVE,
@@ -85,7 +85,7 @@ pub struct FixedInstitution {
     pub main_account: [u8; 32],
     /// 机构 CID = entity 岗位与任职双映射的第一层键。
     pub cid_number: &'static str,
-    /// 固定管理员总数(仅允许等长换人)。
+    /// 纳入治理组的固定岗位席位总数。
     pub expected_len: u32,
 }
 
@@ -104,14 +104,14 @@ pub fn fixed_institutions() -> Vec<FixedInstitution> {
                 code: NRC,
                 main_account: node.main_account,
                 cid_number: node.cid_number,
-                expected_len: NRC_ADMIN_COUNT,
+                expected_len: NRC_COMMITTEE_SEATS,
             });
         } else if code == PRC {
             out.push(FixedInstitution {
                 code: PRC,
                 main_account: node.main_account,
                 cid_number: node.cid_number,
-                expected_len: PRC_ADMIN_COUNT,
+                expected_len: PRC_COMMITTEE_SEATS,
             });
         }
     }
@@ -121,7 +121,7 @@ pub fn fixed_institutions() -> Vec<FixedInstitution> {
                 code: PRB,
                 main_account: node.main_account,
                 cid_number: node.cid_number,
-                expected_len: PRB_ADMIN_COUNT,
+                expected_len: PRB_DIRECTOR_SEATS,
             });
         }
     }
@@ -131,12 +131,12 @@ pub fn fixed_institutions() -> Vec<FixedInstitution> {
                 code: NJD,
                 main_account: node.main_account,
                 cid_number: node.cid_number,
-                expected_len: NJD_ADMIN_COUNT,
+                expected_len: NJD_JUDICIAL_SEATS,
             });
         }
     }
     // FRG 是一个机构；43 个省专员岗位的 5 人席位由 entity 任职表达，
-    // admins 账户集合在 publicadmin 中聚合为 215 人，不再生成虚拟省组账户。
+    // 43 个省专员岗位各有五席，任职由公权实体按人员 CID 记录。
     out.push(federal_registry_institution());
     out
 }
@@ -167,15 +167,15 @@ pub fn fixed_role_specs(code: InstitutionCode) -> Vec<FixedRoleSpec> {
             role_code: ROLE_CODE_COMMITTEE_MEMBER,
             role_name: ROLE_NAME_COMMITTEE_MEMBER,
             seats: if code == NRC {
-                NRC_ADMIN_COUNT
+                NRC_COMMITTEE_SEATS
             } else {
-                PRC_ADMIN_COUNT
+                PRC_COMMITTEE_SEATS
             },
         }],
         PRB => vec![FixedRoleSpec {
             role_code: ROLE_CODE_DIRECTOR,
             role_name: ROLE_NAME_DIRECTOR,
-            seats: PRB_ADMIN_COUNT,
+            seats: PRB_DIRECTOR_SEATS,
         }],
         NJD => vec![
             FixedRoleSpec {
@@ -205,7 +205,7 @@ pub fn fixed_role_specs(code: InstitutionCode) -> Vec<FixedRoleSpec> {
         roles.push(FixedRoleSpec {
             role_code: ROLE_CODE_LEGAL_REPRESENTATIVE,
             role_name: ROLE_NAME_LEGAL_REPRESENTATIVE,
-            seats: 0,
+            seats: 1,
         });
     }
     roles
@@ -217,12 +217,12 @@ pub fn fixed_role_specs(code: InstitutionCode) -> Vec<FixedRoleSpec> {
 /// 独立复核同一清单。FRG 的 43 个省专员岗位按稳定省码逐一匹配。
 pub fn fixed_role_seats(code: InstitutionCode, role_code: &[u8]) -> Option<u32> {
     if role_code == ROLE_CODE_LEGAL_REPRESENTATIVE {
-        return Some(0);
+        return Some(1);
     }
     if code == FRG {
         return PROVINCE_CODE_INFOS.iter().find_map(|province| {
             (province_commissioner_role_code(province.province_code) == role_code)
-                .then_some(FRG_PROVINCE_GROUP_ADMIN_COUNT)
+                .then_some(FRG_COMMISSIONER_SEATS)
         });
     }
     fixed_role_specs(code)
@@ -243,8 +243,8 @@ pub fn fixed_role_seats_by_identity(
 
 /// 查询受保护创世岗位允许的有效任职人数区间。
 ///
-/// 普通固定岗位必须保持协议席位数；`LR / 法定代表人` 是每个机构唯一且永久存在的
-/// 岗位，但任职允许在空缺和一人之间依法切换。阈值不属于岗位，不在此处表达。
+/// 普通固定岗位必须保持协议席位数。每个机构永久设有一个法定代表人岗位（LR），
+/// 该岗位有一席，任职允许在空缺和一人之间依法切换。这里校验任职人数，投票阈值另行确定。
 pub fn fixed_role_assignment_bounds_by_identity(
     code: InstitutionCode,
     cid_number: &[u8],
@@ -258,7 +258,7 @@ pub fn fixed_role_assignment_bounds_by_identity(
     }
 }
 
-/// 联邦注册局固定机构规格。FRG 只有一个管理员账户，省级边界由 43 个岗位表达。
+/// 联邦注册局固定机构规格，43 个省专员岗位分别承担辖区权限。
 pub fn federal_registry_institution() -> FixedInstitution {
     let node = CHINA_ZF
         .iter()
@@ -268,7 +268,7 @@ pub fn federal_registry_institution() -> FixedInstitution {
         code: FRG,
         main_account: node.main_account,
         cid_number: node.cid_number,
-        expected_len: PROVINCE_CODE_INFOS.len() as u32 * FRG_PROVINCE_GROUP_ADMIN_COUNT,
+        expected_len: PROVINCE_CODE_INFOS.len() as u32 * FRG_COMMISSIONER_SEATS,
     }
 }
 
@@ -276,6 +276,6 @@ pub fn federal_registry_institution() -> FixedInstitution {
 pub fn frg_province_groups() -> Vec<(ProvinceCode, u32)> {
     PROVINCE_CODE_INFOS
         .iter()
-        .map(|p| (p.province_code, FRG_PROVINCE_GROUP_ADMIN_COUNT))
+        .map(|p| (p.province_code, FRG_COMMISSIONER_SEATS))
         .collect()
 }

@@ -1,10 +1,10 @@
-//! 验证管理员签名原文包含执行者CID且字段顺序固定。
+//! 验证操作签名原文包含执行者CID且字段顺序固定。
 
 use super::*;
 
 #[test]
-fn canonical_admin_payload_includes_actor_cid_number_in_fixed_order() {
-    let text = signed_payload_text(AdminSignedPayload {
+fn canonical_operation_payload_includes_actor_cid_number_in_fixed_order() {
+    let text = signed_payload_text(OperationPayload {
         domain: "onchina_admin_governance",
         qr_proto: "QR_V1",
         action_id: "action-1",

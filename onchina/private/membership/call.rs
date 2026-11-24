@@ -1,4 +1,4 @@
-//! `SquarePost::propose_set_platform_price` 唯一 call-data 编码器。
+//! `Square::propose_set_platform_price` 唯一 call-data 编码器。
 
 use codec::Encode;
 

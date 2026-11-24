@@ -52,7 +52,7 @@ mod runtime {
     #[runtime::pallet_index(1)]
     pub type Balances = pallet_balances;
     #[runtime::pallet_index(2)]
-    pub type FullnodeIssuance = super;
+    pub type FullnodeIssue = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]

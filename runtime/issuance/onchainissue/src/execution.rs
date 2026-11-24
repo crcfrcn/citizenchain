@@ -56,7 +56,7 @@ pub fn execute_transfer<T: Config>(
 
 /// 关闭资产(调 pallet_assets::start_destroy + 销毁余额 + emit AssetClosed)。
 ///
-/// ADR-011 第 8.1 节：必须由 with_transaction 包裹，保证 OnchainIssuance::Assets.state 与
+/// ADR-011 第 8.1 节：必须由 with_transaction 包裹，保证 OnchainIssue::Assets.state 与
 /// pallet_assets::Asset.status 原子同步。
 pub fn execute_close<T: Config>(_proposal: CloseProposal) -> DispatchResult {
     // 业务未实装(ADR-011 任务卡 A)。返回 Err 而非 Ok:执行入口必须 fail-closed,

@@ -7,6 +7,7 @@ extern crate alloc;
 use codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use frame_support::{ensure, pallet_prelude::*, traits::StorageVersion, Blake2_128Concat};
 use frame_system::pallet_prelude::*;
+#[cfg(feature = "runtime-benchmarks")]
 use primitives::cid::china::china_cb::CHINA_CB;
 use scale_info::TypeInfo;
 use engingcore::{
@@ -29,7 +30,7 @@ mod recovery;
 mod rotation;
 pub mod weights;
 
-const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
 #[derive(
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen,
@@ -142,33 +143,29 @@ pub mod pallet {
 
     #[pallet::genesis_config]
     pub struct GenesisConfig<T: Config> {
+        /// 宿主预设从冻结链规传入登记，测试提供显式夹具。
+        pub registered_keys: Vec<(CidNumber, [u8; 32])>,
         pub _phantom: core::marker::PhantomData<T>,
     }
 
     impl<T: Config> Default for GenesisConfig<T> {
         fn default() -> Self {
-            Self {
-                _phantom: Default::default(),
-            }
+            Self { registered_keys: Vec::new(), _phantom: Default::default() }
         }
     }
 
     #[pallet::genesis_build]
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
-            for node in CHINA_CB.iter() {
-                let actor_cid_number: CidNumber = node
-                    .cid_number
-                    .as_bytes()
-                    .to_vec()
-                    .try_into()
-                    .expect("genesis: CHINA_CB cid_number 超过长度上限");
+            for (cid, key) in &self.registered_keys {
                 assert!(
-                    !GrandpaKeyOwnerByKey::<T>::contains_key(node.grandpa_key),
-                    "duplicated initial grandpa key in CHINA_CB"
+                    !CurrentGrandpaKeys::<T>::contains_key(cid)
+                        && !GrandpaKeyOwnerByKey::<T>::contains_key(key),
+                    "GRANDPA 初始登记重复"
                 );
-                CurrentGrandpaKeys::<T>::insert(actor_cid_number.clone(), node.grandpa_key);
-                GrandpaKeyOwnerByKey::<T>::insert(node.grandpa_key, actor_cid_number);
+                Pallet::<T>::validate_public_key(*key).expect("GRANDPA 初始登记公钥有效");
+                CurrentGrandpaKeys::<T>::insert(cid, key);
+                GrandpaKeyOwnerByKey::<T>::insert(key, cid);
             }
         }
     }

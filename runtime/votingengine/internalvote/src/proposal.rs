@@ -1,9 +1,34 @@
-//! 内部投票提案创建、机构岗位/个人管理员资格快照和互斥登记。
+//! 机构内部投票提案创建、岗位快照和业务登记；个人提案归personal.rs。
 
 use super::*;
 use engingcore::InstitutionRoleProvider;
 
+fn is_valid_institution_context(institution_code: InstitutionCode, cid_number: &[u8]) -> bool {
+    !is_personal_code(&institution_code)
+        && is_valid_governance_code(&institution_code)
+        && institution_code_from_cid_number(core::str::from_utf8(cid_number).unwrap_or_default())
+            == Some(institution_code)
+}
+
+fn active_institution_threshold<T: Config>(
+    institution_code: InstitutionCode,
+    cid_number: &CidNumber,
+) -> Option<u32> {
+    <T as engingcore::Config>::InternalVoteProvider::institution_threshold(
+        institution_code,
+        cid_number.as_slice(),
+    )
+}
+
 impl<T: Config> Pallet<T> {
+    pub(crate) fn institution_threshold(
+        institution_code: InstitutionCode,
+        cid_number: &[u8],
+    ) -> Option<u32> {
+        let cid_number = CidNumber::try_from(cid_number.to_vec()).ok()?;
+        active_institution_threshold::<T>(institution_code, &cid_number)
+    }
+
     /// 创建机构内部提案。机构身份只使用 CID，账户只在确有资产执行时写入。
     pub fn do_create_institution_proposal(
         who: T::AccountId,
@@ -11,30 +36,6 @@ impl<T: Config> Pallet<T> {
         actor_cid_number: sp_std::vec::Vec<u8>,
         execution_account_id: Option<T::AccountId>,
         subject_cid_numbers: sp_std::vec::Vec<sp_std::vec::Vec<u8>>,
-        vote_plan: &VotePlanOf<T::AccountId>,
-    ) -> Result<u128, DispatchError> {
-        Self::do_create_institution_proposal_with_mutex(
-            who,
-            institution_code,
-            actor_cid_number,
-            execution_account_id,
-            subject_cid_numbers,
-            InternalProposalMutexKind::Regular,
-            InternalProposalRole::General,
-            vote_plan,
-        )
-    }
-
-    // 内部投票必须逐字段绑定主体、互斥类型、岗位和投票计划，不能合并为影子载荷。
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn do_create_institution_proposal_with_mutex(
-        who: T::AccountId,
-        institution_code: InstitutionCode,
-        actor_cid_number: sp_std::vec::Vec<u8>,
-        execution_account_id: Option<T::AccountId>,
-        subject_cid_numbers: sp_std::vec::Vec<sp_std::vec::Vec<u8>>,
-        mutex_kind: InternalProposalMutexKind,
-        role: InternalProposalRole,
         vote_plan: &VotePlanOf<T::AccountId>,
     ) -> Result<u128, DispatchError> {
         ensure!(
@@ -66,7 +67,7 @@ impl<T: Config> Pallet<T> {
         };
 
         with_transaction(|| {
-            let id = match Self::allocate_and_lock(&proposal, mutex_kind) {
+            let id = match Self::allocate_and_lock(&proposal, InternalProposalMutexKind::Regular) {
                 Ok(id) => id,
                 Err(err) => return TransactionOutcome::Rollback(Err(err)),
             };
@@ -79,7 +80,7 @@ impl<T: Config> Pallet<T> {
                         ))
                     }
                 };
-                let voters = T::InstitutionRoleProvider::active_accounts_for_role(
+                let voters = T::InstitutionRoleProvider::active_persons_for_role(
                     role_subject.cid_number.as_slice(),
                     role_subject.role_code.as_slice(),
                 );
@@ -113,7 +114,13 @@ impl<T: Config> Pallet<T> {
             if let Err(err) = threshold_check {
                 return TransactionOutcome::Rollback(Err(err));
             }
-            Self::finish_proposal_create(id, proposal, end, threshold, role)
+            Self::finish_proposal_create(
+                id,
+                proposal,
+                end,
+                threshold,
+                InternalProposalRole::General,
+            )
         })
     }
 
@@ -157,277 +164,68 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// 创建个人多签普通内部提案。
-    pub fn do_create_personal_proposal(
+    pub(crate) fn create_institution(
         who: T::AccountId,
-        personal_account_id: T::AccountId,
+        institution_code: InstitutionCode,
+        actor_cid_number: sp_std::vec::Vec<u8>,
+        execution_account_id: Option<T::AccountId>,
+        subject_cid_numbers: sp_std::vec::Vec<sp_std::vec::Vec<u8>>,
+        vote_plan: engingcore::types::VotePlanOf<T::AccountId>,
+        data: sp_std::vec::Vec<u8>,
     ) -> Result<u128, DispatchError> {
-        ensure!(
-            is_personal_admin::<T>(personal_account_id.clone(), &who),
-            engingcore::Error::<T>::NoPermission
-        );
-        Self::do_create_active_personal_proposal(
-            who,
-            personal_account_id,
-            InternalProposalMutexKind::Regular,
-            InternalProposalRole::General,
-            false,
-        )
-    }
-
-    /// 创建个人多签注销提案，要求当前管理员全员通过。
-    pub fn do_create_personal_lifecycle_proposal(
-        who: T::AccountId,
-        personal_account_id: T::AccountId,
-    ) -> Result<u128, DispatchError> {
-        ensure!(
-            is_personal_admin::<T>(personal_account_id.clone(), &who),
-            engingcore::Error::<T>::NoPermission
-        );
-        Self::do_create_active_personal_proposal(
-            who,
-            personal_account_id,
-            InternalProposalMutexKind::Regular,
-            InternalProposalRole::PersonalClose,
-            true,
-        )
-    }
-
-    /// 创建个人多签管理员变更提案；新阈值只在提案执行成功后激活。
-    pub fn do_create_personal_admin_change_proposal(
-        who: T::AccountId,
-        personal_account_id: T::AccountId,
-        new_admins_len: u32,
-        new_threshold: u32,
-    ) -> Result<u128, DispatchError> {
-        Self::ensure_dynamic_threshold(new_admins_len, new_threshold)?;
-        ensure!(
-            is_personal_admin::<T>(personal_account_id.clone(), &who),
-            engingcore::Error::<T>::NoPermission
-        );
-        let proposal_id = Self::do_create_active_personal_proposal(
-            who,
-            personal_account_id.clone(),
-            InternalProposalMutexKind::AdminSetMutationExclusive,
-            InternalProposalRole::PersonalAdminChange,
-            false,
-        )?;
-        PendingPersonalAdminChangeThresholds::<T>::insert(
-            proposal_id,
-            PendingPersonalAdminChangeThreshold {
-                personal_account_id,
-                new_admins_len,
-                new_threshold,
-            },
-        );
-        Ok(proposal_id)
-    }
-
-    /// 创建待注册个人多签提案。待注册管理员由调用方在同一事务中提供并锁定。
-    pub fn do_create_personal_account_create_proposal(
-        who: T::AccountId,
-        personal_account_id: T::AccountId,
-        admins: sp_std::vec::Vec<T::AccountId>,
-        dynamic_threshold: u32,
-    ) -> Result<u128, DispatchError> {
-        ensure!(
-            !admins.is_empty(),
-            engingcore::Error::<T>::MissingAdminSnapshot
-        );
-        ensure!(
-            admins.iter().any(|admin| admin == &who),
-            engingcore::Error::<T>::NoPermission
-        );
-        for i in 0..admins.len() {
-            for j in i.saturating_add(1)..admins.len() {
-                ensure!(
-                    admins[i] != admins[j],
-                    engingcore::Error::<T>::InvalidInstitution
-                );
-            }
-        }
-        let admins_len = admins.len() as u32;
-        Self::ensure_dynamic_threshold(admins_len, dynamic_threshold)?;
-        let bounded_admins: BoundedVec<
-            T::AccountId,
-            <T as engingcore::Config>::MaxAdminsPerInstitution,
-        > = admins
-            .try_into()
-            .map_err(|_| engingcore::Error::<T>::InvalidInstitution)?;
-
-        let now = <frame_system::Pallet<T>>::block_number();
-        let end = now.saturating_add(Self::internal_stage_duration());
-        let proposal = Proposal {
-            kind: PROPOSAL_KIND_INTERNAL,
-            stage: STAGE_INTERNAL,
-            status: engingcore::STATUS_VOTING,
-            internal_code: Some(engingcore::types::PMUL),
-            actor_cid_number: None,
-            execution_account_id: Some(personal_account_id.clone()),
-            subject_cid_numbers: ProposalSubjectCidNumbers::default(),
-            start: now,
-            end,
-        };
-
         with_transaction(|| {
-            let id = match Self::allocate_and_lock(&proposal, InternalProposalMutexKind::Regular) {
-                Ok(id) => id,
-                Err(err) => return TransactionOutcome::Rollback(Err(err)),
-            };
-            AdminSnapshot::<T>::insert(
-                id,
-                ProposalSubject::PersonalAccount(personal_account_id),
-                bounded_admins,
-            );
-            PendingPersonalThresholds::<T>::insert(id, dynamic_threshold);
-            Self::finish_proposal_create(
-                id,
-                proposal,
-                end,
-                admins_len,
-                InternalProposalRole::PersonalCreate,
-            )
-        })
-    }
-
-    fn do_create_active_personal_proposal(
-        who: T::AccountId,
-        personal_account_id: T::AccountId,
-        mutex_kind: InternalProposalMutexKind,
-        role: InternalProposalRole,
-        force_all_admin_threshold: bool,
-    ) -> Result<u128, DispatchError> {
-        let now = <frame_system::Pallet<T>>::block_number();
-        let end = now.saturating_add(Self::internal_stage_duration());
-        let proposal = Proposal {
-            kind: PROPOSAL_KIND_INTERNAL,
-            stage: STAGE_INTERNAL,
-            status: engingcore::STATUS_VOTING,
-            internal_code: Some(engingcore::types::PMUL),
-            actor_cid_number: None,
-            execution_account_id: Some(personal_account_id.clone()),
-            subject_cid_numbers: ProposalSubjectCidNumbers::default(),
-            start: now,
-            end,
-        };
-
-        with_transaction(|| {
-            let id = match Self::allocate_and_lock(&proposal, mutex_kind) {
-                Ok(id) => id,
-                Err(err) => return TransactionOutcome::Rollback(Err(err)),
-            };
-            if let Err(err) = <engingcore::Pallet<T>>::snapshot_personal_admins(
-                id,
-                personal_account_id.clone(),
-                false,
-            ) {
-                return TransactionOutcome::Rollback(Err(err));
-            }
-            let subject = ProposalSubject::PersonalAccount(personal_account_id.clone());
-            if !<engingcore::Pallet<T>>::is_admin_in_snapshot(id, subject.clone(), &who) {
+            if sp_io::hashing::blake2_256(&data) != vote_plan.business_object_hash {
                 return TransactionOutcome::Rollback(Err(
-                    engingcore::Error::<T>::NoPermission.into()
+                    engingcore::Error::<T>::InvalidVotePlan.into()
                 ));
             }
-            let snapshot_size = match Self::snapshot_admins_len_or_missing(id, subject) {
-                Ok(size) => size,
+            let proposal_id = match Self::do_create_institution_proposal(
+                who.clone(),
+                institution_code,
+                actor_cid_number,
+                execution_account_id,
+                subject_cid_numbers,
+                &vote_plan,
+            ) {
+                Ok(id) => id,
                 Err(err) => return TransactionOutcome::Rollback(Err(err)),
             };
-            let threshold = if force_all_admin_threshold {
-                snapshot_size
-            } else {
-                match ActivePersonalThresholds::<T>::get(personal_account_id) {
-                    Some(threshold) => threshold,
-                    None => {
-                        return TransactionOutcome::Rollback(Err(
-                            Error::<T>::MissingDynamicThreshold.into(),
-                        ))
-                    }
-                }
-            };
-            let threshold_check = if force_all_admin_threshold {
-                Self::ensure_all_admin_threshold(snapshot_size, threshold)
-            } else {
-                Self::ensure_dynamic_threshold(snapshot_size, threshold)
-            };
-            if let Err(err) = threshold_check {
+            if let Err(err) =
+                engingcore::Pallet::<T>::bind_vote_plan(proposal_id, vote_plan.clone())
+            {
                 return TransactionOutcome::Rollback(Err(err));
             }
-            Self::finish_proposal_create(id, proposal, end, threshold, role)
+            match Self::register_institution_data(
+                who,
+                proposal_id,
+                vote_plan.proposal_owner.as_slice(),
+                data,
+            ) {
+                Ok(id) => TransactionOutcome::Commit(Ok(id)),
+                Err(err) => TransactionOutcome::Rollback(Err(err)),
+            }
         })
     }
-
-    fn allocate_and_lock(
-        proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
-        mutex_kind: InternalProposalMutexKind,
-    ) -> Result<u128, DispatchError> {
-        let id = <engingcore::Pallet<T>>::allocate_proposal_id()?;
-        engingcore::limit::try_add_active_proposals::<T>(proposal.subject_keys(), id)?;
-        for subject in proposal.subject_keys() {
-            <engingcore::Pallet<T>>::acquire_internal_proposal_mutex(id, subject, mutex_kind)?;
-        }
-        Ok(id)
-    }
-
-    fn finish_proposal_create(
-        id: u128,
-        proposal: Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
-        end: frame_system::pallet_prelude::BlockNumberFor<T>,
-        threshold: u32,
-        role: InternalProposalRole,
-    ) -> TransactionOutcome<Result<u128, DispatchError>> {
-        InternalThresholdSnapshot::<T>::insert(id, threshold);
-        InternalProposalRoles::<T>::insert(id, role);
-        Proposals::<T>::insert(id, proposal);
-        if let Err(err) = <engingcore::Pallet<T>>::schedule_proposal_expiry(id, end) {
-            return TransactionOutcome::Rollback(Err(err));
-        }
-        <engingcore::Pallet<T>>::emit_proposal_created(
-            id,
-            PROPOSAL_KIND_INTERNAL,
-            STAGE_INTERNAL,
-            end,
-        );
-        TransactionOutcome::Commit(Ok(id))
-    }
-
-    pub(crate) fn register_data_and_auto_approve(
+    fn register_institution_data(
         who: T::AccountId,
         proposal_id: u128,
         module_tag: &[u8],
         data: sp_std::vec::Vec<u8>,
     ) -> Result<u128, DispatchError> {
-        let now = <frame_system::Pallet<T>>::block_number();
-        <engingcore::Pallet<T>>::register_proposal_data(proposal_id, module_tag, data, now)?;
-        let proposal =
-            Proposals::<T>::get(proposal_id).ok_or(engingcore::Error::<T>::ProposalNotFound)?;
-        let ticket_claim = if proposal.actor_cid_number.is_some() {
-            let vote_plan = engingcore::ProposalVotePlans::<T>::get(proposal_id)
-                .ok_or(engingcore::Error::<T>::InvalidVotePlan)?;
-            let proposer_role = match vote_plan.proposer_subject {
-                AuthorizationSubject::Institution(role_subject) => role_subject,
-                AuthorizationSubject::PersonalMultisig(_) => {
-                    return Err(engingcore::Error::<T>::InvalidVotePlan.into())
-                }
-            };
-            let subject = AuthorizationSubject::Institution(proposer_role.clone());
-            <engingcore::Pallet<T>>::is_subject_voter_in_snapshot(proposal_id, subject, &who)
-                .then_some(InternalVoteTicketClaim::InstitutionRole(
-                    proposer_role.role_code,
-                ))
-        } else if let Some(personal_account_id) = proposal.execution_account_id {
-            <engingcore::Pallet<T>>::is_admin_in_snapshot(
-                proposal_id,
-                ProposalSubject::PersonalAccount(personal_account_id),
-                &who,
-            )
-            .then_some(InternalVoteTicketClaim::Personal)
-        } else {
-            None
+        let now = frame_system::Pallet::<T>::block_number();
+        engingcore::Pallet::<T>::register_proposal_data(proposal_id, module_tag, data, now)?;
+        let vote_plan = engingcore::ProposalVotePlans::<T>::get(proposal_id)
+            .ok_or(engingcore::Error::<T>::InvalidVotePlan)?;
+        let proposer_role = match vote_plan.proposer_subject {
+            AuthorizationSubject::Institution(role) => role,
+            AuthorizationSubject::PersonalMultisig(_) => {
+                return Err(engingcore::Error::<T>::InvalidVotePlan.into())
+            }
         };
-        // 发起岗位可以只有 Propose 而没有 Vote；只有发起账户也在冻结选民快照中时才自动记首票。
-        if let Some(ticket_claim) = ticket_claim {
-            Self::do_internal_vote(who, proposal_id, ticket_claim, true)?;
+        let subject = AuthorizationSubject::Institution(proposer_role.clone());
+        // 机构Propose权限与Vote权限分别校验；只有冻结选民才自动投首票。
+        if engingcore::Pallet::<T>::is_subject_voter_in_snapshot(proposal_id, subject, &who) {
+            Self::vote_institution(who, proposal_id, proposer_role.role_code, true)?;
         }
         Ok(proposal_id)
     }

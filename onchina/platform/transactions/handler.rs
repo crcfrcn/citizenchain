@@ -242,18 +242,30 @@ async fn recheck_chain_submit_authorization(
     ctx: &AdminAuthContext,
     session: &ChainSignSession,
 ) -> Result<(), axum::response::Response> {
-    validate_institution_write(&session.call_data)
-        .map_err(|e| api_error(StatusCode::GONE, 1005, e))?;
-    if session.context["origin_wallet_revision"].as_str() != Some(ctx.wallet_revision.as_str())
-        || session.context["origin_wallet_namespace"] != serde_json::json!(ctx.wallet_namespace)
+    if let Some((actor, role)) = validate_institution_write(&session.call_data)
+        .map_err(|e| api_error(StatusCode::GONE, 1005, e))?
+    {
+        if actor != ctx.institution_cid_number.as_bytes() || role != ctx.role_code.as_bytes() {
+            return Err(api_error(
+                StatusCode::FORBIDDEN,
+                1003,
+                "原调用的机构或岗位与当前会话不一致",
+            ));
+        }
+    }
+    if session.context["origin_binding_revision"].as_str() != Some(ctx.binding_revision.as_str())
+        || session.context["origin_person_cid"].as_str() != Some(ctx.person_cid.as_str())
+        || session.context["origin_role_code"].as_str() != Some(ctx.role_code.as_str())
+        || session.context["origin_institution_cid"].as_str()
+            != Some(ctx.institution_cid_number.as_str())
     {
         return Err(api_error(
             StatusCode::CONFLICT,
             1005,
-            "original signing wallet version changed",
+            "原人员绑定或所选岗位已变化",
         ));
     }
-    crate::authentication::login::validate_current_wallet(state, ctx).await?;
+    crate::authentication::login::validate_current_assignment(state, ctx).await?;
     recheck_business_submit_authorization(state, ctx, session).await
 }
 
@@ -263,9 +275,6 @@ async fn recheck_business_submit_authorization(
     ctx: &AdminAuthContext,
     session: &ChainSignSession,
 ) -> Result<(), axum::response::Response> {
-    if session.purpose == crate::institutions::PURPOSE_INSTITUTION_WALLET {
-        return crate::institutions::recheck_institution_wallet(state, ctx, session).await;
-    }
     if let Some(owner) = state.modules.owner_of_purpose(&session.purpose) {
         if state.modules.local_owns(&owner) {
             return state
@@ -285,7 +294,35 @@ async fn recheck_business_submit_authorization(
         ));
     }
     if builtin_purposes().contains(&session.purpose.as_str()) && state.modules.local.is_none() {
-        return Ok(());
+        let (index, action) = match session.purpose.as_str() {
+            crate::institutions::PURPOSE_INSTITUTION_GOVERNANCE => (
+                8,
+                entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
+            ),
+            crate::institutions::PURPOSE_INSTITUTION_ADD_ACCOUNT => {
+                (7, entitybase::business_action::ACTION_INSTITUTION_CLOSE)
+            }
+            crate::institutions::PURPOSE_INSTITUTION_CLOSE_ACCOUNT => {
+                (1, entitybase::business_action::ACTION_INSTITUTION_CLOSE)
+            }
+            _ => return Err(api_error(StatusCode::GONE, 1005, "未知机构业务")),
+        };
+        if !matches!(session.call_data.first(), Some(30) | Some(31))
+            || session.call_data.get(1) != Some(&index)
+        {
+            return Err(api_error(
+                StatusCode::GONE,
+                1005,
+                "会话用途与机构调用不一致",
+            ));
+        }
+        return crate::authentication::login::validate_selected_permission(
+            state,
+            ctx,
+            None,
+            Some(action),
+        )
+        .await;
     }
     Err(api_error(
         StatusCode::SERVICE_UNAVAILABLE,
@@ -373,15 +410,12 @@ pub(crate) async fn submit_chain_sign(
         delete_session_best_effort(&state, session.request_id.as_str(), "expired");
         return api_error(StatusCode::GONE, 1005, "冷签会话已过期,请重新发起");
     }
-    // A rotated-in wallet may only observe or project this exact institution's previous signed attempt.
-    // Any resubmission still passes wallet_call's original actor check below.
-    let wallet_recovery = has_chain_attempt
-        && session.purpose == crate::institutions::PURPOSE_INSTITUTION_WALLET
-        && session.context["walletInput"]["mode"].as_str() == Some("SELF")
-        && session.context["walletInput"]["newWallet"].as_str() == Some(ctx.account_id.as_str())
+    // 同一人员的新绑定只能核对已有链上尝试，不能提交或重签原钱包调用。
+    let person_recovery = has_chain_attempt
+        && session.context["origin_person_cid"].as_str() == Some(ctx.person_cid.as_str())
         && session.context["origin_institution_cid"].as_str()
             == Some(ctx.institution_cid_number.as_str());
-    if !same_account_id(session.account_id.as_str(), ctx.account_id.as_str()) && !wallet_recovery {
+    if !same_account_id(session.account_id.as_str(), ctx.account_id.as_str()) && !person_recovery {
         if !has_chain_attempt {
             delete_session_best_effort(&state, session.request_id.as_str(), "actor mismatch");
         }
@@ -641,14 +675,6 @@ async fn finish_finalized_session(
         Ok(output) => output,
         Err(response) => return response,
     };
-    if session.purpose == crate::institutions::PURPOSE_INSTITUTION_WALLET {
-        // The transaction is already final. Cleanup failures never resubmit it; the periodic sweep retries.
-        if let Err(error) =
-            crate::authentication::login::revoke_stale_admin_sessions_once(&state.db).await
-        {
-            tracing::warn!(%error, "finalized institutional wallet session cleanup deferred");
-        }
-    }
     // 已完成事务后才清理短期会话；清理失败也不会再次执行投影。
     delete_session_best_effort(state, &session.request_id, "completed");
     if let Some(citizen) = &citizen_output {
@@ -721,7 +747,6 @@ pub fn commit_projection(
 pub(crate) fn builtin_purposes() -> Vec<&'static str> {
     vec![
         crate::institutions::PURPOSE_INSTITUTION_GOVERNANCE,
-        crate::institutions::PURPOSE_INSTITUTION_WALLET,
         crate::institutions::PURPOSE_INSTITUTION_ADD_ACCOUNT,
         crate::institutions::PURPOSE_INSTITUTION_CLOSE_ACCOUNT,
     ]
@@ -731,21 +756,7 @@ pub fn origin_matches_binding(
     session: &ChainSignSession,
     binding: &crate::authentication::login::NodeInstitutionBinding,
 ) -> bool {
-    session
-        .context
-        .get("origin_binding_id")
-        .and_then(|value| value.as_str())
-        .is_some_and(|id| !id.is_empty())
-        && session
-            .context
-            .get("origin_institution_cid")
-            .and_then(|value| value.as_str())
-            == Some(binding.institution_cid_number.as_str())
-        && session
-            .context
-            .get("origin_institution_code")
-            .and_then(|value| value.as_str())
-            == Some(binding.institution_code.as_str())
+    session.context["origin_binding_id"].as_str() == Some(binding.binding_id.as_str())
 }
 
 /// 后台只恢复已留有提交/最终确认锚点的会话；不需要原管理员仍在职，不会代替用户签名或重提。
@@ -833,38 +844,55 @@ pub mod tests;
 #[path = "../tests/transactions_support.rs"]
 pub mod test_support;
 
-/// 精确解码机构call8/9，不以界面文案或管理员名册差集决定权限。
-fn validate_institution_write(call: &[u8]) -> Result<(), &'static str> {
+/// 仅接受现行机构ABI；旧钱包操作及旧枚举布局不能广播或重提。
+fn validate_institution_write(call: &[u8]) -> Result<Option<(Vec<u8>, Vec<u8>)>, &'static str> {
     use codec::DecodeAll;
     if !matches!(call.first(), Some(30) | Some(31)) {
-        return Ok(());
+        return Ok(None);
     }
-    match call.get(1) {
+    let payload = call.get(2..).ok_or("机构调用损坏")?;
+    let claim = match call.get(1) {
         Some(8) => {
-            let (_, action, _, _): (
+            let (_, action, actor, role): (
                 Vec<u8>,
-                entitybase::InstitutionGovernanceAction<[u8; 32]>,
+                entitybase::InstitutionGovernanceAction,
                 Vec<u8>,
                 Vec<u8>,
-            ) = DecodeAll::decode_all(&mut &call[2..]).map_err(|_| "机构治理调用损坏")?;
-            if !action.allowed_in_governance() {
-                return Err("完整名单动作0、2已停用，不得广播或重提");
+            ) = DecodeAll::decode_all(&mut &*payload).map_err(|_| "机构治理调用损坏")?;
+            if action.role_mutations.is_empty()
+                && action.assignment_changes.is_empty()
+                && action.legal_representative_change.is_none()
+            {
+                return Err("治理内容为空");
             }
+            Some((actor, role))
         }
         Some(9) => {
-            let (_, action, _, _, _, _): (
+            let (_, action, actor, role, _, _): (
                 Vec<u8>,
-                entitybase::InstitutionGovernanceAction<[u8; 32]>,
+                entitybase::InstitutionRoleRegistration,
                 Vec<u8>,
                 Vec<u8>,
                 [u8; 32],
                 Option<u32>,
-            ) = DecodeAll::decode_all(&mut &call[2..]).map_err(|_| "登记调用损坏")?;
-            if !action.allowed_in_registration() {
-                return Err("登记只接收专用钱包维护或纯岗位配置");
+            ) = DecodeAll::decode_all(&mut &*payload).map_err(|_| "岗位登记调用损坏")?;
+            if action.role_mutations.is_empty() && action.assignment_changes.is_empty() {
+                return Err("岗位登记内容为空");
             }
+            Some((actor, role))
         }
-        _ => {}
-    }
-    Ok(())
+        Some(7) => {
+            let (cid, _, role): (Vec<u8>, Vec<Vec<u8>>, Vec<u8>) =
+                DecodeAll::decode_all(&mut &*payload).map_err(|_| "新增账户调用损坏")?;
+            Some((cid, role))
+        }
+        Some(1) => {
+            let (cid, role, _, _): (Vec<u8>, Vec<u8>, [u8; 32], [u8; 32]) =
+                DecodeAll::decode_all(&mut &*payload).map_err(|_| "关闭账户调用损坏")?;
+            Some((cid, role))
+        }
+        Some(10) => return Err("机构管理员钱包调用已删除"),
+        _ => None,
+    };
+    Ok(claim)
 }

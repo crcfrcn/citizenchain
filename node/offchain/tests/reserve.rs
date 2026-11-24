@@ -51,10 +51,7 @@ fn bank_total_deposits_key_layout_stable() {
     let encoded = bank.encode();
     let expected_len = 16 + 16 + 16 + encoded.len();
     assert_eq!(key.0.len(), expected_len);
-    assert_eq!(
-        &key.0[..16],
-        &sp_io::hashing::twox_128(b"OffchainTransaction")
-    );
+    assert_eq!(&key.0[..16], &sp_io::hashing::twox_128(b"Offchain"));
     assert_eq!(
         &key.0[16..32],
         &sp_io::hashing::twox_128(b"BankTotalDeposits")

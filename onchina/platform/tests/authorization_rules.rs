@@ -64,8 +64,9 @@ fn ctx(
     town: Option<&str>,
 ) -> AdminAuthContext {
     AdminAuthContext {
-        wallet_revision: "0".into(),
-        wallet_namespace: crate::chain_runtime::AdminPallet::PublicAdmins,
+        binding_revision: "1".into(),
+        person_cid: crate::testing::person_cid(),
+        role_code: "REGISTRAR".into(),
         account_id: "0x1111111111111111111111111111111111111111111111111111111111111111"
             .to_string(),
         institution_cid_number: "LN001-FRG0G-000000001-2026".to_string(),

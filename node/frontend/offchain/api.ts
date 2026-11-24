@@ -2,7 +2,7 @@
 
 import { invoke } from "../client/tauri";
 import type { VoteSignRequestResult, VoteSubmitResult } from "../client/signing";
-import type { ClearingBankNodeOnChainInfo, ConnectivityTestReport, DecryptAdminRequestResult, DecryptedAdminInfo } from "./types";
+import type { ClearingBankNodeOnChainInfo, ConnectivityTestReport, ClearingDecryptRequest, ClearingDecryptInfo } from "./types";
 
 
 // 清算行 offchain 网络专用 Tauri API。机构身份只读命令归同目录 institution/api.ts。
@@ -24,6 +24,7 @@ export const offchainApi = {
   buildRegisterClearingBankRequest: (
     signerPublicKey: string,
     actorCidNumber: string,
+    actorRoleCode: string,
     peerId: string,
     rpcDomain: string,
     rpcPort: number,
@@ -31,6 +32,7 @@ export const offchainApi = {
     invoke<VoteSignRequestResult>('build_register_clearing_bank_request', {
       signerPublicKey,
       actorCidNumber: actorCidNumber,
+      actorRoleCode,
       peerId: peerId,
       rpcDomain: rpcDomain,
       rpcPort: rpcPort,
@@ -41,6 +43,7 @@ export const offchainApi = {
     expectedPublicKey: string,
     expectedPayloadHash: string,
     actorCidNumber: string,
+    actorRoleCode: string,
     peerId: string,
     rpcDomain: string,
     rpcPort: number,
@@ -53,6 +56,7 @@ export const offchainApi = {
       expectedPublicKey,
       expectedPayloadHash: expectedPayloadHash,
       actorCidNumber: actorCidNumber,
+      actorRoleCode,
       peerId: peerId,
       rpcDomain: rpcDomain,
       rpcPort: rpcPort,
@@ -64,12 +68,14 @@ export const offchainApi = {
   buildUpdateClearingBankEndpointRequest: (
     signerPublicKey: string,
     actorCidNumber: string,
+    actorRoleCode: string,
     newDomain: string,
     newPort: number,
   ) =>
     invoke<VoteSignRequestResult>('build_update_clearing_bank_endpoint_request', {
       signerPublicKey,
       actorCidNumber: actorCidNumber,
+      actorRoleCode,
       newDomain: newDomain,
       newPort: newPort,
     }),
@@ -79,6 +85,7 @@ export const offchainApi = {
     expectedPublicKey: string,
     expectedPayloadHash: string,
     actorCidNumber: string,
+    actorRoleCode: string,
     newDomain: string,
     newPort: number,
     signNonce: number,
@@ -90,6 +97,7 @@ export const offchainApi = {
       expectedPublicKey,
       expectedPayloadHash: expectedPayloadHash,
       actorCidNumber: actorCidNumber,
+      actorRoleCode,
       newDomain: newDomain,
       newPort: newPort,
       signNonce: signNonce,
@@ -97,10 +105,11 @@ export const offchainApi = {
       responseJson: responseJson,
     }),
 
-  buildUnregisterClearingBankRequest: (signerPublicKey: string, actorCidNumber: string) =>
+  buildUnregisterClearingBankRequest: (signerPublicKey: string, actorCidNumber: string, actorRoleCode: string) =>
     invoke<VoteSignRequestResult>('build_unregister_clearing_bank_request', {
       signerPublicKey,
       actorCidNumber: actorCidNumber,
+      actorRoleCode,
     }),
 
   submitUnregisterClearingBank: (
@@ -108,6 +117,7 @@ export const offchainApi = {
     expectedPublicKey: string,
     expectedPayloadHash: string,
     actorCidNumber: string,
+    actorRoleCode: string,
     signNonce: number,
     signBlockNumber: number,
     responseJson: string,
@@ -117,33 +127,34 @@ export const offchainApi = {
       expectedPublicKey,
       expectedPayloadHash: expectedPayloadHash,
       actorCidNumber: actorCidNumber,
+      actorRoleCode,
       signNonce: signNonce,
       signBlockNumber: signBlockNumber,
       responseJson: responseJson,
     }),
 
-  buildDecryptAdminRequest: (signerPublicKey: string, cidNumber: string) =>
-    invoke<DecryptAdminRequestResult>('build_decrypt_admin_request', {
+  buildClearingDecryptRequest: (signerPublicKey: string, cidNumber: string) =>
+    invoke<ClearingDecryptRequest>('build_clearing_decrypt_request', {
       signerPublicKey,
       cidNumber: cidNumber,
     }),
 
-  verifyAndDecryptAdmin: (
+  verifyClearingDecrypt: (
     requestId: string,
     signerPublicKey: string,
     expectedPayloadHash: string,
     responseJson: string,
   ) =>
-    invoke<DecryptedAdminInfo>('verify_and_decrypt_admin', {
+    invoke<ClearingDecryptInfo>('verify_clearing_decrypt', {
       requestId: requestId,
       signerPublicKey,
       expectedPayloadHash: expectedPayloadHash,
       responseJson: responseJson,
     }),
 
-  listDecryptedAdmins: (cidNumber: string) =>
-    invoke<DecryptedAdminInfo[]>('list_decrypted_admins', { cidNumber: cidNumber }),
+  listClearingDecrypt: (cidNumber: string) =>
+    invoke<ClearingDecryptInfo[]>('list_clearing_decrypt', { cidNumber: cidNumber }),
 
-  lockDecryptedAdmin: (signerPublicKey: string) =>
-    invoke<void>('lock_decrypted_admin', { signerPublicKey }),
+  lockClearingDecrypt: (signerPublicKey: string) =>
+    invoke<void>('lock_clearing_decrypt', { signerPublicKey }),
 };

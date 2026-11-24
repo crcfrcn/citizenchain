@@ -4,7 +4,8 @@ import type { LegProposalState } from '../proposals/types';
 
 /** 单个席位(议员)对当前提案的投票态(true 赞成 / false 反对 / null 未投)。 */
 export interface SeatView {
-  accountId: string;
+  accountId: string|null;
+  personCid:string;
   ticketId: string;
   roleCode: string;
   name: string;

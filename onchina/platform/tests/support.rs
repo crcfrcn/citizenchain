@@ -10,7 +10,7 @@ pub fn router_for(module: Arc<dyn modules::model::ModuleBusiness>) -> Router {
     })
 }
 
-/// 真实隔离库内签发一份登录快照；不建本地管理员行，显式注入当前钱包权威快照；本地行不授予资格。
+/// 真实隔离库内签发一份登录快照；不建本地管理员行，显式注入当前人员岗位权威快照；本地行不授予资格。
 #[cfg(test)]
 pub(crate) fn session_fixture(
     db: &Db,
@@ -30,7 +30,7 @@ pub(crate) fn session_fixture(
         status: "ACTIVE".into(),
     };
     let session: AdminSession = serde_json::from_value(serde_json::json!({
-        "walletRevision":"0","walletNamespace":"PublicAdmins","accountId":actor,"institutionCode":"FRG","candidateId":"fixture-candidate",
+        "bindingRevision":"1","personCid":person_cid(),"roleCode":"REGISTRAR","accountId":actor,"institutionCode":"FRG","candidateId":"fixture-candidate",
         "institutionCidNumber":institution,"adminLevel":"NATIONAL","familyName":"测","givenName":"试",
         "scopeProvinceName":"贵州省","scopeCityName":null,"scopeTownName":null,"cidShortName":"联邦注册局",
         "capabilities":modules::capability::EMPTY,
@@ -46,7 +46,28 @@ pub(crate) fn session_fixture(
         authentication::repo::insert_admin_session_conn(conn, &session)
     })
     .unwrap();
-    *db.wallet_snapshot.lock().unwrap()=Some(session.context());
+    *db.role_snapshot.lock().unwrap() = Some(session.context());
+    *db.role_permissions.lock().unwrap() = [
+        (b"ins-reg".to_vec(), 0),
+        (b"pub-mgmt".to_vec(), 3),
+        (b"cit-id".to_vec(), 0),
+    ]
+    .into_iter()
+    .map(
+        |(module_tag, action_code)| entitybase::RoleBusinessPermission {
+            role_subject: entitybase::RoleSubject {
+                cid_number: session.institution_cid_number.as_bytes().to_vec(),
+                role_code: session.role_code.as_bytes().to_vec(),
+            },
+            business_action_id: entitybase::BusinessActionId {
+                module_tag,
+                action_code,
+            },
+            operation: entitybase::RolePermissionOperation::Propose,
+        },
+    )
+    .collect();
+
     let mut headers = HeaderMap::new();
     headers.insert("authorization", "Bearer fixture-session".parse().unwrap());
     (
@@ -64,4 +85,24 @@ pub(crate) fn session_fixture(
 #[cfg(test)]
 pub(super) fn local_module() -> Option<Arc<dyn modules::model::ModuleBusiness>> {
     None
+}
+
+/// 仅测试使用的规范人员CID；不写入或推导生产身份。
+pub fn person_cid() -> String {
+    person_for("CTZN", "onchina-person-fixture")
+}
+pub fn person_for(kind: &str, tag: &str) -> String {
+    primitives::cid::generator::generate_cid_number(
+        primitives::cid::generator::GenerateCidNumberInput {
+            public_key: tag,
+            p1: "1",
+            province_code: "GD",
+            province_name: "广东省",
+            city_code: "001",
+            city_name: "荔湾市",
+            year: 2026,
+            institution: kind,
+        },
+    )
+    .expect("valid synthetic person CID")
 }

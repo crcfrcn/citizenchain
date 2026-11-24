@@ -16,11 +16,9 @@ pub(crate) fn registry_sections(capabilities: CapabilitySet) -> Vec<WorkspaceSec
             WorkspaceSectionKind::Display,
             "显示",
             vec![action(
-                "view_own_admins".to_string(),
-                "本机构管理员",
-                capabilities.view_own_admins
-                    || capabilities.view_city_registry
-                    || capabilities.view_federal_registry,
+                "view_institution_profile".to_string(),
+                "本机构信息",
+                true,
             )],
         ),
         section(
@@ -34,3 +32,6 @@ pub(crate) fn registry_sections(capabilities: CapabilitySet) -> Vec<WorkspaceSec
         ),
     ]
 }
+
+#[path = "actions.rs"]
+pub(crate) mod actions;

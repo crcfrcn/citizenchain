@@ -6,7 +6,7 @@ use super::*;
 fn post_derives_category_and_storage_until_from_execution_state() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            SquarePost::publish_post(
+            Square::publish_post(
                 RuntimeOrigin::signed(account(4)),
                 b"sqp_unbound_001".to_vec(),
                 SquarePostType::Document,
@@ -16,7 +16,7 @@ fn post_derives_category_and_storage_until_from_execution_state() {
             Error::<Test>::CitizenIdentityUnavailable
         );
         assert_noop!(
-            SquarePost::publish_post(
+            Square::publish_post(
                 RuntimeOrigin::signed(visitor_account()),
                 b"sqp_no_membership".to_vec(),
                 SquarePostType::Document,
@@ -26,7 +26,7 @@ fn post_derives_category_and_storage_until_from_execution_state() {
             Error::<Test>::PlatformMembershipRequired
         );
         set_active_platform_member(visitor_account());
-        assert_ok!(SquarePost::publish_post(
+        assert_ok!(Square::publish_post(
             RuntimeOrigin::signed(visitor_account()),
             b"sqp_normal_001".to_vec(),
             SquarePostType::Article,
@@ -46,7 +46,7 @@ fn post_derives_category_and_storage_until_from_execution_state() {
             1
         );
         set_active_platform_member(verified_account());
-        assert_ok!(SquarePost::publish_post(
+        assert_ok!(Square::publish_post(
             RuntimeOrigin::signed(verified_account()),
             b"sqp_campaign_002".to_vec(),
             SquarePostType::Video,
@@ -62,7 +62,7 @@ fn post_derives_category_and_storage_until_from_execution_state() {
         assert_eq!(campaign_post.post_category, SquarePostCategory::Campaign);
         assert!(matches!(
             System::events().last().map(|record| &record.event),
-            Some(RuntimeEvent::SquarePost(Event::SquarePostPublished {
+            Some(RuntimeEvent::Square(Event::SquarePostPublished {
                 post_type: SquarePostType::Video,
                 post_category: SquarePostCategory::Campaign,
                 storage_until: 1_800_000_000_000,
@@ -83,7 +83,7 @@ fn cancelled_platform_membership_keeps_paid_period_publish_rights() {
                 .expect("membership exists")
                 .subscription_status = SubscriptionStatus::Cancelled;
         });
-        assert_ok!(SquarePost::publish_post(
+        assert_ok!(Square::publish_post(
             RuntimeOrigin::signed(visitor_account()),
             b"sqp_cancelled_paid".to_vec(),
             SquarePostType::Document,
@@ -93,7 +93,7 @@ fn cancelled_platform_membership_keeps_paid_period_publish_rights() {
 
         set_now(1_800_000_000_000);
         assert_noop!(
-            SquarePost::publish_post(
+            Square::publish_post(
                 RuntimeOrigin::signed(visitor_account()),
                 b"sqp_cancelled_expired".to_vec(),
                 SquarePostType::Document,

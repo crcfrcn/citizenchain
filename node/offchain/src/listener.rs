@@ -185,7 +185,7 @@ fn system_events_storage_key() -> StorageKey {
 pub fn convert_event(ev: runtime::RuntimeEvent) -> Option<OffchainChainEvent> {
     use offchain::pallet::Event as OffchainEvent;
     match ev {
-        runtime::RuntimeEvent::OffchainTransaction(inner) => match inner {
+        runtime::RuntimeEvent::Offchain(inner) => match inner {
             OffchainEvent::Deposited {
                 user,
                 bank_cid,

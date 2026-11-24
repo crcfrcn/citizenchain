@@ -17,7 +17,7 @@ fn native_scope_query_over_legacy_capacity_is_read_only_and_meets_budget() {
         let state = sp_io::storage::root(sp_runtime::StateVersion::V1);
         let start = std::time::Instant::now();
         for _ in 0..50 {
-            let actual = std::hint::black_box(LegislationYuan::list_laws(Tier::Municipal, region));
+            let actual = std::hint::black_box(Legislation::list_laws(Tier::Municipal, region));
             assert_eq!(actual, ids);
         }
         let average = start.elapsed().as_nanos() / 50;

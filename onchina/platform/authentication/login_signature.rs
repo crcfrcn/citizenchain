@@ -1,11 +1,9 @@
-//! 解析账户公钥、验证管理员登录签名并清理过期挑战。
+//! 解析账户公钥、验证岗位人员登录签名并清理过期挑战。
 
 use hex::FromHex;
 use schnorrkel::{signing_context, PublicKey as Sr25519PublicKey, Signature as Sr25519Signature};
 
-use crate::*;
-
-/// 校验管理员签名钱包对**规范文本**的 sr25519 / ML-DSA 签名。
+/// 校验签名钱包对**规范文本**的 sr25519 / ML-DSA 签名。
 ///
 /// 只接受一种编码。此前还额外接受 `<Bytes>{message}</Bytes>` 包裹形式,
 /// 即同一条逻辑消息有两种合法字节 —— 而全仓**没有任何一端产生**这种包裹
@@ -19,19 +17,19 @@ pub(crate) fn verify_admin_signature(
     verify_admin_signature_bytes(account_id, message.as_bytes(), signature_text)
 }
 
-/// 校验管理员使用的签名钱包对原始字节的 sr25519 / ML-DSA 签名。
+/// 校验岗位人员使用的签名钱包对原始字节的 sr25519 / ML-DSA 签名。
 ///
 /// 登录、机构接收证明和既有治理动作共用底层验签，消息域由调用方固定。
 /// - 扫码登录:`verify_admin_signature` 传管道分隔的登录原文
 ///   (`QR_V1|k|id|system|expires|principal`,与冷端 `signature_message.dart` 同源);
 /// - 治理动作:`action_sign::verify_account_signature` 传
-///   `signing_message(OP_SIGN_ONCHINA_ADMIN, payload)` 的 32 字节摘要。
+///   `signing_message(OP_SIGN_ONCHINA_CONFIRM, payload)` 的 32 字节摘要。
 pub(crate) fn verify_admin_signature_bytes(
     account_id: &str,
     message: &[u8],
     signature_text: &str,
 ) -> bool {
-    // 机构新钱包首次登录也可携带ML-DSA公钥信封；签名原文不变。
+    // 当前绑定钱包首次登录也可携带ML-DSA公钥信封；签名原文不变。
     if let Ok(wire) = hex::decode(signature_text.trim_start_matches("0x")) {
         if let Ok((public, signature)) = chain_signing::mldsa::decode_pq_signature(&wire) {
             if let Some(account) = parse_account_id_bytes(account_id) {
@@ -116,22 +114,4 @@ pub(super) fn extract_domain_from_origin(origin: &str) -> Option<String> {
         return None;
     }
     Some(url.host_str()?.to_string())
-}
-
-/// 返回管理员链上姓、名；本地异常空值分别收敛为“管理”“员”。
-pub fn admin_person_names(admin: &AdminUser) -> (String, String) {
-    let family_name = admin.family_name.trim();
-    let given_name = admin.given_name.trim();
-    (
-        if family_name.is_empty() {
-            "管理".to_string()
-        } else {
-            family_name.to_string()
-        },
-        if given_name.is_empty() {
-            "员".to_string()
-        } else {
-            given_name.to_string()
-        },
-    )
 }

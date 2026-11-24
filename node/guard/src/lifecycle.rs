@@ -22,11 +22,11 @@ use sp_crypto_hashing::blake2_128;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-const CITIZEN_IDENTITY_PALLET: &[u8] = b"CitizenIdentity";
+const CITIZEN_IDENTITY_PALLET: &[u8] = b"Identity";
 
-const PUBLIC_MANAGE_PALLET: &[u8] = b"PublicManage";
+const PUBLIC_MANAGE_PALLET: &[u8] = b"PublicEntity";
 
-const PRIVATE_MANAGE_PALLET: &[u8] = b"PrivateManage";
+const PRIVATE_MANAGE_PALLET: &[u8] = b"PrivateEntity";
 
 const CODE_KEY: &[u8] = b":code";
 
@@ -113,23 +113,7 @@ struct CitizenCidRecord {
     revoked_at: Option<u32>,
 }
 
-#[derive(Clone, Debug, Decode, Encode, Eq, PartialEq)]
-struct InstitutionRecord {
-    cid_full_name: Vec<u8>,
-    cid_short_name: Vec<u8>,
-    town_code: Vec<u8>,
-    legal_representative: Option<InstitutionLegalRepresentative>,
-    institution_code: InstitutionCode,
-    created_at: u32,
-}
-
-#[derive(Clone, Debug, Decode, Encode, Eq, PartialEq)]
-struct InstitutionLegalRepresentative {
-    family_name: Vec<u8>,
-    given_name: Vec<u8>,
-    cid_number: Vec<u8>,
-    account: [u8; 32],
-}
+type InstitutionRecord = entitybase::InstitutionInfo<u32, Vec<u8>, Vec<u8>>;
 
 #[derive(Clone, Debug, Decode, Encode, Eq, PartialEq)]
 struct RegisteredInstitution {
@@ -425,7 +409,12 @@ fn validate_institution_record(
     if let Some(representative) = &record.legal_representative {
         if representative.family_name.is_empty()
             || representative.given_name.is_empty()
-            || representative.cid_number.is_empty()
+            || !std::str::from_utf8(&representative.person_cid).is_ok_and(|s| s.trim() == s)
+            || !primitives::cid::number::parse_cid_number_parts_bytes(&representative.person_cid)
+                .is_ok_and(|p| {
+                    p.institution == *b"CTZN"
+                        || namespace == Namespace::Private && p.institution == *b"NATP"
+                })
         {
             return Err(
                 crate::guard::cid_lifecycle::GuardError::InstitutionLegalRepresentativeInvalid,
@@ -1008,6 +997,68 @@ where
 }
 
 impl GenesisReference {
+    /// 冻结块0的机构记录只提取不可变身份，不恢复旧任职或钱包授权。
+    pub(crate) fn from_frozen(state: &crate::guard::GenesisState) -> Result<Self, GuardError> {
+        if !state.is_frozen() {
+            return Err(GuardError::StorageValueDecodeFailed("未经验证的冻结输入"));
+        }
+        // 原始块0的法代字段包含账户；严格消费其历史SCALE，账户不进入任何资格判断。
+        #[derive(Decode)]
+        struct FrozenRepresentative {
+            _family_name: Vec<u8>,
+            _given_name: Vec<u8>,
+            _cid_number: Vec<u8>,
+            _account: [u8; 32],
+        }
+        #[derive(Decode)]
+        struct FrozenInstitution {
+            _full_name: Vec<u8>,
+            _short_name: Vec<u8>,
+            town_code: Vec<u8>,
+            _representative: Option<FrozenRepresentative>,
+            institution_code: InstitutionCode,
+            created_at: u32,
+        }
+        let mut institutions = BTreeMap::new();
+        for pallet in [b"PublicManage".as_slice(), b"PrivateManage".as_slice()] {
+            let prefix = nodedesktop::storage::prefix(pallet, b"Institutions");
+            for key in state.keys().iter().filter(|k| k.starts_with(&prefix)) {
+                let cid = parse_vec_map_key(key, &prefix, "冻结Institutions")?;
+                let raw = state
+                    .read(key)
+                    .ok_or(GuardError::GenesisInstitutionDeleted)?;
+                let record: FrozenInstitution = decode_exact(&raw, "冻结Institutions")?;
+                let code = parse_cid(&cid)?;
+                if code != record.institution_code {
+                    return Err(GuardError::GenesisInstitutionChanged);
+                }
+                // UNIN在实体迁移后由私权命名空间拥有；不可变字段仍取冻结原值。
+                let namespace = if is_private_legal_code(&code) || is_unincorporated_code(&code) {
+                    Namespace::Private
+                } else {
+                    Namespace::Public
+                };
+                if institutions
+                    .insert(
+                        (namespace.id(), cid),
+                        GenesisInstitutionIdentity {
+                            institution_code: code,
+                            town_code: record.town_code,
+                            created_at: record.created_at,
+                        },
+                    )
+                    .is_some()
+                {
+                    return Err(GuardError::CrossNamespaceDuplicate);
+                }
+            }
+        }
+        if institutions.is_empty() {
+            return Err(GuardError::GenesisInstitutionDeleted);
+        }
+        Ok(Self { institutions })
+    }
+
     pub fn from_genesis<F>(keys: &[Vec<u8>], read: F) -> Result<Self, GuardError>
     where
         F: Fn(&[u8]) -> Option<Vec<u8>>,

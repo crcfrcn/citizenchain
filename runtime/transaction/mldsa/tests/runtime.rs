@@ -3,10 +3,10 @@
 
 use codec::{Decode, Encode};
 #[cfg(feature = "operation")]
-use runtime::{GenesisPallet, Mldsa};
+use runtime::{Genesis, Mldsa};
 use frame_support::traits::Currency;
 use runtime::{
-    AccountId, Address, Balances, CheckNonStakeSender, Executive, Runtime,
+    AccountId, TransactionAddress, Balances, CheckNonStakeSender, Executive, Runtime,
     RuntimeCall, RuntimeGenesisConfig, System, TxExtension, UncheckedExtrinsic,
 };
 use sp_core::{sr25519, Pair};
@@ -51,7 +51,7 @@ fn extra(nonce: u32) -> TxExtension {
 fn pq_transaction(child: &[u8; 32], nonce: u32, first: bool, corrupt: bool) -> UncheckedExtrinsic {
     let public = mldsa::public_key(child);
     let account = mldsa::account_id(&public);
-    let call = RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+    let call = RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
         beneficiary_account_id: AccountId::new([0x69; 32]),
         amount: 1,
         remark: Vec::new().try_into().unwrap(),
@@ -175,12 +175,12 @@ fn sr_uses_only_v5_and_is_rejected_in_operation() {
 fn operation_upgrade_switches_once_without_rewriting_accounts() {
     use frame_support::traits::OnRuntimeUpgrade;
     new_test_ext().execute_with(|| {
-        assert_eq!(GenesisPallet::phase(), ::genesis::ChainPhase::Genesis);
+        assert_eq!(Genesis::phase(), ::genesis::ChainPhase::Genesis);
         let account = AccountId::new([0x61; 32]);
         let _ = Balances::make_free_balance_be(&account, 100_000);
         Mldsa::on_runtime_upgrade();
-        assert_eq!(GenesisPallet::phase(), ::genesis::ChainPhase::Operation);
-        assert!(!GenesisPallet::developer_upgrade_enabled());
+        assert_eq!(Genesis::phase(), ::genesis::ChainPhase::Operation);
+        assert!(!Genesis::developer_upgrade_enabled());
         assert_eq!(Balances::free_balance(&account), 100_000);
         let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
         Mldsa::on_runtime_upgrade();
@@ -197,7 +197,7 @@ fn no_outer_signature_or_unregistered_native_pipeline_is_accepted() {
         let malformed: UncheckedExtrinsic = generic::UncheckedExtrinsic::from_parts(
             call.clone(),
             Preamble::Signed(
-                Address::Id(AccountId::new(pair.public().0)),
+                TransactionAddress::Id(AccountId::new(pair.public().0)),
                 pair.sign(b"reject").into(),
                 extra(0),
             ),
@@ -231,7 +231,7 @@ fn sr_v5_transfer_keeps_the_original_amount_fee_nonce_and_key_storage() {
         let source = AccountId::new(pair.public().0); let recipient = AccountId::new([0x69; 32]);
         let _ = Balances::make_free_balance_be(&source, 100_000);
         let _ = Balances::make_free_balance_be(&recipient, 1_000);
-        let call = RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+        let call = RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
             beneficiary_account_id: recipient.clone(), amount: 1, remark: Vec::new().try_into().unwrap(),
         });
         let transaction = chain_signing::build_signed_extrinsic_local(call, System::block_hash(0), 0, &pair);

@@ -39,7 +39,7 @@ mod runtime {
     pub type Balances = pallet_balances;
 
     #[runtime::pallet_index(2)]
-    pub type SquarePost = super;
+    pub type Square = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -87,7 +87,7 @@ fn set_now(value: u64) {
 fn initialize_at(value: u64) {
     set_now(value);
     // 续费在 on_initialize 处理，余额变化必须落在 NodeGuard 的 finalize 前状态。
-    <SquarePost as Hooks<u64>>::on_initialize(System::block_number());
+    <Square as Hooks<u64>>::on_initialize(System::block_number());
 }
 
 pub struct TestCitizenIdentity;
@@ -152,11 +152,7 @@ impl entitybase::InstitutionMultisigQuery<AccountId32> for MockInstitutionQuery 
     fn lookup_org(_addr: &AccountId32) -> Option<primitives::cid::code::InstitutionCode> {
         None
     }
-    fn lookup_admin_config(
-        _addr: &AccountId32,
-    ) -> Option<primitives::multisig::MultisigConfigSnapshot<AccountId32>> {
-        None
-    }
+
     fn account_exists(_addr: &AccountId32) -> bool {
         false
     }
@@ -202,19 +198,17 @@ impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestRoles {
         operation: entitybase::RolePermissionOperation,
     ) -> bool {
         Self::role_has_permission(subject, action, operation)
-            && primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ASSIGNMENTS
+            && foundation_wallet() == *who
+            && primitives::cid::china::citizenchain::CITIZENCHAIN_FIXED_ROLES
                 .iter()
-                .any(|assignment| {
-                    AccountId32::new(assignment.account_id) == *who
-                        && assignment.role_code == subject.role_code.as_slice()
-                })
+                .any(|role| role.role_code == subject.role_code.as_slice())
     }
     fn role_subjects_with_permission(
         cid: &[u8],
         action: &entitybase::BusinessActionId<Vec<u8>>,
         operation: entitybase::RolePermissionOperation,
     ) -> Vec<entitybase::RoleSubject<Vec<u8>, Vec<u8>>> {
-        let mut subjects = primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ASSIGNMENTS
+        let mut subjects = primitives::cid::china::citizenchain::CITIZENCHAIN_FIXED_ROLES
             .iter()
             .map(|assignment| entitybase::RoleSubject {
                 cid_number: cid.to_vec(),
@@ -297,7 +291,7 @@ impl engingcore::InternalVoteEngine<AccountId32> for TestVotes {
 
 impl crate::pallet::Config for Test {
     type RuntimeEvent = RuntimeEvent;
-    type CitizenIdentity = TestCitizenIdentity;
+    type Identity = TestCitizenIdentity;
     type Currency = Balances;
     type TimeProvider = MockTime;
     type InstitutionAccountQuery = MockInstitutionQuery;
@@ -487,14 +481,16 @@ mod subscription;
 
 mod property;
 
+fn foundation_wallet() -> AccountId32 {
+    AccountId32::new(sp_io::hashing::blake2_256(b"test-square-foundation-person"))
+}
+
 #[test]
 fn price_proposal_records_the_plan_and_preserves_current_price() {
     use entitybase::InstitutionRoleAuthorizationQuery;
     new_test_ext().execute_with(|| {
         setup_platform();
-        let caller = AccountId32::new(
-            primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ADMINS[0].account_id,
-        );
+        let caller = foundation_wallet();
         let action = entitybase::BusinessActionId {
             module_tag: crate::MODULE_TAG.to_vec(),
             action_code: entitybase::business_action::ACTION_PLATFORM_PRICE,
@@ -509,7 +505,7 @@ fn price_proposal_records_the_plan_and_preserves_current_price() {
         .unwrap()
         .role_code;
         let previous = PlatformPrice::<Test>::get(MembershipLevel::Freedom);
-        assert_ok!(SquarePost::propose_set_platform_price(
+        assert_ok!(Square::propose_set_platform_price(
             RuntimeOrigin::signed(caller),
             bounded_cid_number(PLATFORM_CID),
             role.try_into().unwrap(),
@@ -531,10 +527,10 @@ fn price_proposal_records_the_plan_and_preserves_current_price() {
 fn unauthorized_price_proposal_does_not_create_a_vote_request() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            SquarePost::propose_set_platform_price(
+            Square::propose_set_platform_price(
                 RuntimeOrigin::signed(subscriber_account_id()),
                 bounded_cid_number(PLATFORM_CID),
-                primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ASSIGNMENTS[0]
+                primitives::cid::china::citizenchain::CITIZENCHAIN_FIXED_ROLES[0]
                     .role_code
                     .to_vec()
                     .try_into()

@@ -22,7 +22,7 @@ fn native_transfer_dispatch_meets_declared_budget_and_preserves_balances() {
         let count = 1_000u128;
         let started = std::time::Instant::now();
         for _ in 0..count {
-            assert_ok!(OnchainTransaction::transfer_with_remark(
+            assert_ok!(Onchain::transfer_with_remark(
                 RuntimeOrigin::signed(from.clone()),
                 to.clone(),
                 1,
@@ -57,7 +57,7 @@ fn full_genesis_initialization_meets_budget_and_preserves_fixed_catalog() {
             publicentity::Institutions::<Runtime>::iter().count(),
             EXPECTED_PUBLIC_INSTITUTIONS
         );
-        assert_eq!(GenesisPallet::phase(), ::genesis::ChainPhase::Genesis);
+        assert_eq!(Genesis::phase(), ::genesis::ChainPhase::Genesis);
     });
     eprintln!("完整内存初始化：{elapsed}ns，上限{budget}ns");
     assert!(elapsed <= budget, "完整内存初始化超过声明预算");
@@ -80,7 +80,7 @@ fn report_native_measurements_without_invented_budget() {
                 publicentity::Institutions::<Runtime>::iter().count(),
                 EXPECTED_PUBLIC_INSTITUTIONS
             );
-            assert_eq!(GenesisPallet::phase(), ::genesis::ChainPhase::Genesis);
+            assert_eq!(Genesis::phase(), ::genesis::ChainPhase::Genesis);
         });
         genesis_times.push(genesis_ns);
         new_test_ext().execute_with(|| {
@@ -90,7 +90,7 @@ fn report_native_measurements_without_invented_budget() {
             let issuance = Balances::total_issuance();
             let remark = onchain::pallet::TransferRemarkOf::<Runtime>::try_from(b"performance".to_vec()).unwrap();
             let started = std::time::Instant::now();
-            for _ in 0..1000 { assert_ok!(OnchainTransaction::transfer_with_remark(RuntimeOrigin::signed(from.clone()),to.clone(),1,remark.clone())); }
+            for _ in 0..1000 { assert_ok!(Onchain::transfer_with_remark(RuntimeOrigin::signed(from.clone()),to.clone(),1,remark.clone())); }
             let average = started.elapsed().as_nanos()/1000;
             assert_eq!(Balances::free_balance(from),999_000); assert_eq!(Balances::free_balance(to),1_001_000); assert_eq!(Balances::total_issuance(),issuance);
             transfer.push(average);
@@ -132,7 +132,7 @@ fn report_operation_registration_measurements() {
             for sample in 0..3 {
                 sp_io::storage::start_transaction();
                 let (ns,work)=publicentity::benchmarks::measure_operation_registration::<Runtime>(n,r,p,a);
-                assert_eq!(GenesisPallet::phase(),::genesis::ChainPhase::Operation);
+                assert_eq!(Genesis::phase(),::genesis::ChainPhase::Operation);
                 // ABI元组由真实identity存储类型读取，不能只靠手工编码夹具自证。
                 let bound=identity::CidByAccountId::<Runtime>::iter().find(|(_,cid)|cid.as_slice().starts_with(b"CN001-CTZN")).unwrap();
                 assert_eq!(identity::AccountIdByCid::<Runtime>::get(&bound.1),Some(bound.0.clone()));
@@ -171,10 +171,10 @@ fn operation_binding_proof_bounds_come_from_current_runtime_metadata() {
     eprintln!("IDENTITY_PROOF_PER_CITIZEN_BYTES={proof_per_citizen}");
     // 直接核对Runtime元数据与正式权重的增长量；元数据变更不得静默低估证明。
     for (low, high) in [
-        (<publicentity::weights::SubstrateWeight<Runtime> as publicentity::weights::WeightInfo>::register_institution_admins(2, 2, 4, 2),
-         <publicentity::weights::SubstrateWeight<Runtime> as publicentity::weights::WeightInfo>::register_institution_admins(128, 2, 4, 2)),
-        (<privateentity::weights::SubstrateWeight<Runtime> as privateentity::weights::WeightInfo>::register_institution_admins(2, 2, 4, 2),
-         <privateentity::weights::SubstrateWeight<Runtime> as privateentity::weights::WeightInfo>::register_institution_admins(128, 2, 4, 2)),
+        (<publicentity::weights::SubstrateWeight<Runtime> as publicentity::weights::WeightInfo>::register_institution_roles(2, 2, 4, 2),
+         <publicentity::weights::SubstrateWeight<Runtime> as publicentity::weights::WeightInfo>::register_institution_roles(128, 2, 4, 2)),
+        (<privateentity::weights::SubstrateWeight<Runtime> as privateentity::weights::WeightInfo>::register_institution_roles(2, 2, 4, 2),
+         <privateentity::weights::SubstrateWeight<Runtime> as privateentity::weights::WeightInfo>::register_institution_roles(128, 2, 4, 2)),
     ] {
         assert!(high.proof_size() - low.proof_size() >= u64::from(proof_per_citizen) * 126);
         assert!(high.ref_time() >= 28_494_000_000, "不得低于本轮最慢Operation实测耗时");

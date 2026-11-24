@@ -732,72 +732,110 @@ pub(crate) fn read_frozen_vote_view(
         }
         let key = nodeclient::query::double_map_key(
             "VotingEngine",
-            "VoterSnapshot",
+            "RoleVoters",
             &pid.to_le_bytes(),
-            &subject.encode(),
+            &role.encode(),
         );
-        let list = read(&key)?;
-        let Some(list) = list else {
-            roles.push(FrozenRoleSnapshot {
-                cid_number: cid,
-                role_code: code,
-                error: Some("原冻结名单不存在或已按原规则清理".into()),
-                voters: vec![],
-            });
-            continue;
-        };
-        let wallets = Vec::<[u8; 32]>::decode_all(&mut &decode_hex_storage(&list)?[..])
-            .map_err(|e| format!("原冻结名单损坏: {e}"))?;
-        if wallets.is_empty()
-            || wallets.len() > 1989
-            || wallets
-                .iter()
-                .collect::<std::collections::BTreeSet<_>>()
-                .len()
-                != wallets.len()
-        {
-            return Err("原冻结名单为空、重复或超限".into());
-        }
-        let key = nodeclient::query::double_map_key(
-            "VotingEngine",
-            "FrozenWalletVersions",
-            &pid.to_le_bytes(),
-            &subject.encode(),
-        );
-        let versions = read(&key)?
-            .map(|v| {
-                Vec::<([u8; 32], u64)>::decode_all(&mut &decode_hex_storage(&v)?[..])
-                    .map_err(|e| format!("冻结版本损坏: {e}"))
-            })
-            .transpose()?;
-        let complete = versions.as_ref().is_some_and(|v| {
-            v.len() == wallets.len() && v.iter().zip(&wallets).all(|((w, _), r)| w == r)
-        });
-        let error = if complete {
-            None
-        } else {
-            Some("历史冻结版本资料缺失或错配，需按创建事实核实补齐".into())
-        };
         let mut voters = Vec::new();
-        for (index, wallet) in wallets.into_iter().enumerate() {
-            let vote_key =
-                crate::tally::institution_vote_key(pid, proposal.kind, &cid, &code, &wallet)?;
-            let (vote, vote_error) = match read(&vote_key)
-                .and_then(|raw| crate::tally::decode_option_vote(raw.as_deref()))
+        let mut error = None;
+        if let Some(raw) = read(&key)? {
+            let persons = Vec::<Vec<u8>>::decode_all(&mut decode_hex_storage(&raw)?.as_slice())
+                .map_err(|e| format!("冻结人员CID损坏:{e}"))?;
+            if persons.is_empty()
+                || persons.len() > 1989
+                || persons.windows(2).any(|pair| pair[0] >= pair[1])
             {
-                Ok(v) => (v, None),
-                Err(e) => (None, Some(e)),
-            };
-            voters.push(FrozenVoter {
-                account_id: format!("0x{}", hex::encode(wallet)),
-                wallet_revision: if complete {
-                    Some(versions.as_ref().unwrap()[index].1.to_string())
-                } else {
-                    None
-                },
-                vote,
-                vote_error,
-            });
+                return Err("冻结人员集合为空、重复、未排序或超限".into());
+            }
+            for person in persons {
+                if !nodeinstitution::storage::person_allowed(
+                    &person,
+                    nodeinstitution::storage::EntityPallet::Public,
+                ) {
+                    return Err("公权冻结人员CID无效".into());
+                }
+                let person = String::from_utf8(person).map_err(|_| "人员CID损坏")?;
+                let binding = nodeinstitution::storage::person_binding(&person, &mut read)?;
+                let key = crate::tally::institution_vote_key(
+                    pid,
+                    proposal.kind,
+                    &cid,
+                    &code,
+                    person.as_bytes(),
+                )?;
+                let (vote, vote_error) = match read(&key)
+                    .and_then(|raw| crate::tally::decode_option_vote(raw.as_deref()))
+                {
+                    Ok(v) => (v, None),
+                    Err(e) => (None, Some(e)),
+                };
+                voters.push(FrozenVoter {
+                    person_cid: Some(person),
+                    account_id: binding.as_ref().map(|b| b.0.clone()),
+                    binding_revision: binding.map(|b| b.1),
+                    vote,
+                    vote_error,
+                });
+            }
+        } else if proposal.status != 0 {
+            // 仅终态历史读取原始钱包布局，绝不将其转换为人员CID或新投票资格。
+            let key = nodeclient::query::double_map_key(
+                "VotingEngine",
+                "VoterSnapshot",
+                &pid.to_le_bytes(),
+                &subject.encode(),
+            );
+            if let Some(raw) = read(&key)? {
+                let wallets =
+                    Vec::<[u8; 32]>::decode_all(&mut decode_hex_storage(&raw)?.as_slice())
+                        .map_err(|e| format!("历史原钱包快照损坏:{e}"))?;
+                if wallets.is_empty()
+                    || wallets.len() > 1989
+                    || wallets
+                        .iter()
+                        .collect::<std::collections::BTreeSet<_>>()
+                        .len()
+                        != wallets.len()
+                {
+                    return Err("历史钱包快照无效".into());
+                }
+                for wallet in wallets {
+                    let mut ticket = if proposal.kind == 0 {
+                        vec![1]
+                    } else {
+                        Vec::new()
+                    };
+                    ticket.extend((role.clone(), wallet).encode());
+                    let (pallet, item) = if proposal.kind == 0 {
+                        ("InternalVote", "InternalVotesByTicket")
+                    } else {
+                        ("JointVote", "JointVotesByTicket")
+                    };
+                    let key = nodeclient::query::double_map_key(
+                        pallet,
+                        item,
+                        &pid.to_le_bytes(),
+                        &ticket,
+                    );
+                    let (vote, vote_error) = match read(&key)
+                        .and_then(|raw| crate::tally::decode_option_vote(raw.as_deref()))
+                    {
+                        Ok(v) => (v, None),
+                        Err(e) => (None, Some(e)),
+                    };
+                    voters.push(FrozenVoter {
+                        person_cid: None,
+                        account_id: Some(format!("0x{}", hex::encode(wallet))),
+                        binding_revision: None,
+                        vote,
+                        vote_error,
+                    });
+                }
+            } else {
+                error = Some("历史快照已按原规则清理或缺失".into())
+            }
+        } else {
+            error = Some("冻结人员快照缺失，不能取得机构投票资格".into())
         }
         roles.push(FrozenRoleSnapshot {
             cid_number: cid,
@@ -807,6 +845,7 @@ pub(crate) fn read_frozen_vote_view(
         });
     }
     Ok(FrozenVoteView {
+        proposal_id: pid.to_string(),
         genesis_hash: genesis.into(),
         block_hash: at.into(),
         block_number: height.to_string(),

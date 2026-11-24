@@ -1,5 +1,4 @@
 // 展示私权机构工作台和会员价格，提供统一调价提案入口。
-import { InstitutionWalletGovernancePanel } from '@gmb/onchina-platform/institutions/GovernanceReview';
 
 import { IdentityCidText } from '@gmb/onchina-platform/codes/identityCid';
 import { RolesView } from '@gmb/onchina-platform/institutions/RolesView';
@@ -8,7 +7,6 @@ import { RepresentativeView } from '@gmb/onchina-platform/institutions/Represent
 import { InstitutionDetailNavLayout } from '@gmb/onchina-platform/workspace/DetailLayout';
 import { Empty, Alert, Button, Card, Input, Radio, Space, Spin, Typography } from "antd";
 import type { AdminAuth } from "@gmb/onchina-platform/authentication/types";
-import { OwnInstitutionAdminsView } from "@gmb/onchina-platform/institutions/AdminsView";
 import { AccountManageSection } from "@gmb/onchina-platform/accounts/AccountManageSection";
 import { OwnInstitutionInfoPanel } from "@gmb/onchina-platform/institutions/InfoPanel";
 import { WorkspaceShell } from "@gmb/onchina-platform/workspace/WorkspaceShell";
@@ -41,7 +39,6 @@ function PrivateOperations({ auth }: PrivateInstitutionWorkspaceProps) {
   const showPlatformPrice = auth.workspace?.workspace_modules.includes('platform_membership_price');
   return <InstitutionDetailNavLayout items={[
     {key:'accounts',label:'账户管理',content:<AccountManageSection auth={auth}/>},
-    {key:'governance',label:'机构治理',content:<InstitutionWalletGovernancePanel auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'roles',label:'岗位管理',content:<RolesView auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'assignments',label:'任职管理',content:<AssignmentsView auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'representative',label:'法定代表人',content:<RepresentativeView auth={auth} cidNumber={auth.institutionCidNumber}/>},
@@ -53,9 +50,6 @@ function PrivateDisplay({ auth }: PrivateInstitutionWorkspaceProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <OwnInstitutionInfoPanel auth={auth} />
-      {auth.capabilities?.canViewOwnAdmins ? (
-        <OwnInstitutionAdminsView layout="table" />
-      ) : null}
     </div>
   );
 }

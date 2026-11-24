@@ -24,7 +24,7 @@ engingcore = { path = "../../votingengine/engingcore", default-features = false 
 entitybase = { path = "../../entity/entitybase", default-features = false }
 publicentity = { path = "../../entity/publicentity", default-features = false }
 privateentity = { path = "../../entity/privateentity", default-features = false }
-personalentity = { path = "../../entity/personalentity", default-features = false }
+personal = { path = "../../misc/personal", default-features = false }
 onchain = { path = "../onchain", default-features = false }
 
 [features]
@@ -44,7 +44,7 @@ std = [
     "entitybase/std",
     "publicentity/std",
     "privateentity/std",
-    "personalentity/std",
+    "personal/std",
     "onchain/std",
 ]
 runtime-benchmarks = [
@@ -55,8 +55,7 @@ runtime-benchmarks = [
 try-runtime = []
 
 [dev-dependencies]
-adminbase = { path = "../../admins/adminbase", default-features = true }
-publicadmin = { path = "../../admins/publicadmin", default-features = true }
-privateadmin = { path = "../../admins/privateadmin", default-features = true }
-personaladmin = { path = "../../admins/personaladmin", default-features = true }
+
+
+
 internalvote = { path = "../../votingengine/internalvote", default-features = false }

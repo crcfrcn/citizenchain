@@ -116,10 +116,10 @@ impl Institution {
 pub struct LegalRepresentative {
     pub family_name: String,
     pub given_name: String,
-    /// 必须指向正常状态公民的 cid_number。
+    /// 人员CID；公权只CTZN，私权允许CTZN或NATP。
     pub cid_number: String,
-    /// 由注册局公民记录派生，不接受机构表单另填。
-    pub account_id: String,
+    /// 从identity当前绑定派生；不存在有效绑定时为None。
+    pub account_id: Option<String>,
 }
 
 /// 内部 SQL 账户投影，保留完整 SELECT 列布局；HTTP 只使用真实链账户 DTO。
@@ -166,20 +166,6 @@ pub const VALID_DOC_TYPES: &[&str] =
 
 // ─── 请求/响应 DTO ──────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateInstitutionAdminInput {
-    /// 管理员姓；缺失时先查公民资料，仍缺失则使用“管理”。
-    #[serde(default)]
-    pub family_name: Option<String>,
-    /// 管理员名；缺失时先查公民资料，仍缺失则使用“员”。
-    #[serde(default)]
-    pub given_name: Option<String>,
-    /// 机构初始管理员账户 ID。
-    pub account_id: String,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
@@ -212,10 +198,6 @@ pub struct CreateInstitutionInput {
     /// 合伙类型。private_type=PARTNERSHIP 时必传,其它类型不接收。
     #[serde(default)]
     pub partnership_kind: Option<String>,
-    /// 旧创建输入中的初始管理员集合；公私权按目标类型编码。
-    /// 机构治理阈值不得再由管理员人数推导，恢复创建前须另立方案。
-    #[serde(default)]
-    pub admins: Vec<CreateInstitutionAdminInput>,
 }
 
 /// 机构详情页提交的可编辑字段。私权类型由身份 ID 机构码决定,创建后不允许改。
@@ -379,10 +361,10 @@ pub struct ParentInstitutionRow {
 pub struct InstitutionDetailOutput {
     pub institution: Institution,
     pub accounts: Vec<crate::institutions::ChainAccountRow>,
-    /// 创建该机构的登录管理员姓(按 creator_account_id 账户反查 admins)
+    /// 创建该机构的登录管理员姓(仅显示业务记录中实际保存的历史资料)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub creator_family_name: Option<String>,
-    /// 创建该机构的登录管理员名(按 creator_account_id 账户反查 admins)
+    /// 创建该机构的登录管理员名(仅显示业务记录中实际保存的历史资料)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub creator_given_name: Option<String>,
     /// 创建者角色:"FEDERAL_REGISTRY" / "CITY_REGISTRY"

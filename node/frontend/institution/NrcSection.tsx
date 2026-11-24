@@ -1,9 +1,9 @@
-// 组合国家储委会机构列表、管理员及详情页面。
+// 组合国家储委会机构列表、岗位任职及详情页面。
 
-import { AdminListPage } from "./index";
+import { AssignmentsPage } from "./index";
 import { InstitutionDetailPage } from "./InstitutionDetailPage";
 import { ProposalDetailPage } from "../proposal/ProposalDetailPage";
-import type { AdminSignerMatch } from "./council";
+import type { RoleSigner } from "./council";
 // 国家储委会顶级 Section：直接渲染国家储委会机构详情页（单机构，无列表层）。
 // 机构详情负责发起提案，本层保留其他子页导航。
 import { useState } from 'react';
@@ -13,17 +13,17 @@ const NRC_CID_NUMBER = 'LN001-NRC0G-944805165-2026';
 
 type NrcView =
   | { page: 'detail' }
-  | { page: 'admin-list' }
-  | { page: 'proposal-detail'; proposalId: string; adminSigners: AdminSignerMatch[]; cidNumber?: string };
+  | { page: 'assignments' }
+  | { page: 'proposal-detail'; proposalId: string; roleSigners: RoleSigner[]; cidNumber?: string };
 
 export function NrcSection() {
   const [view, setView] = useState<NrcView>({ page: 'detail' });
 
   const backToDetail = () => setView({ page: 'detail' });
 
-  if (view.page === 'admin-list') {
+  if (view.page === 'assignments') {
     return (
-      <AdminListPage
+      <AssignmentsPage
         cidNumber={NRC_CID_NUMBER}
         accountRef={{ cidNumber: NRC_CID_NUMBER, institutionCode: 'NRC' }}
         onBack={backToDetail}
@@ -35,7 +35,7 @@ export function NrcSection() {
     return (
       <ProposalDetailPage
         proposalId={view.proposalId}
-        adminSigners={view.adminSigners}
+        roleSigners={view.roleSigners}
         cidNumber={view.cidNumber}
         onBack={backToDetail}
       />
@@ -48,9 +48,9 @@ export function NrcSection() {
       cidNumber={NRC_CID_NUMBER}
       onBack={backToDetail}
       hideBackButton
-      onOpenAdminList={() => setView({ page: 'admin-list' })}
-      onSelectProposal={(proposalId, adminSigners, sid) =>
-        setView({ page: 'proposal-detail', proposalId, adminSigners, cidNumber: sid })
+      onOpenAssignments={() => setView({ page: 'assignments' })}
+      onSelectProposal={(proposalId, roleSigners, sid) =>
+        setView({ page: 'proposal-detail', proposalId, roleSigners, cidNumber: sid })
       }
     />
   );

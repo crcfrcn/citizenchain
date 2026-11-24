@@ -18,11 +18,6 @@ pub(crate) fn judicial_sections(capabilities: CapabilitySet) -> Vec<WorkspaceSec
             "显示",
             vec![
                 action("view_institution_profile".to_string(), "本机构信息", true),
-                action(
-                    "view_own_admins".to_string(),
-                    "本机构管理员",
-                    capabilities.view_own_admins,
-                ),
             ],
         ),
         section(

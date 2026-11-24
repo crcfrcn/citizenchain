@@ -1,12 +1,12 @@
 //! 完整机构调用基准：setup只准备所属临时状态，计时内执行真实注册局/岗位授权。
 #![cfg(feature = "runtime-benchmarks")]
 use crate::{pallet::*, Call, Config, InstitutionAccountInfo, Pallet, RegisteredInstitution};
-use adminbase::{Admin, InstitutionAdminLifecycle, InstitutionAdminQuery as _};
+
 extern crate alloc;
 use alloc::format;
-use codec::Encode;
+use engingcore::CitizenIdentityReader as _;
 use entitybase::{
-    BusinessActionId, InstitutionAdminAssignment, InstitutionAssignmentSource,
+    BusinessActionId, InstitutionAssignment, InstitutionAssignmentSource,
     InstitutionAssignmentStatus, InstitutionRole, InstitutionRoleStatus, RoleBusinessPermission,
     RolePermissionOperation, RoleSubject,
 };
@@ -29,12 +29,23 @@ pub struct Registry<AccountId> {
 pub trait BenchmarkSetup: Config {
     fn registry() -> Registry<Self::AccountId>;
 }
+struct FixturePerson<AccountId> {
+    account_id: AccountId,
+    cid_number: engingcore::CidNumber,
+}
+
+fn fixture_person<T: Config>(account_id: T::AccountId) -> FixturePerson<T::AccountId> {
+    T::CitizenIdentityReader::benchmark_seed_identity(&account_id, &engingcore::PopulationScope::Country);
+    let cid_number = T::CitizenIdentityReader::person_cid(&account_id).expect("基准人员必须有有效绑定");
+    FixturePerson { account_id, cid_number }
+}
+
 struct Fixture<T: Config> {
     registry: Registry<T::AccountId>,
     cid: CidNumberOf<T>,
     caller: T::AccountId,
     role: crate::institution::role::RoleCodeOf,
-    admins: InstitutionAdminsInputOf<T>,
+    people: Vec<FixturePerson<T::AccountId>>,
 }
 fn prepare<T: BenchmarkSetup>() -> Fixture<T> {
     frame_system::Pallet::<T>::set_block_number(1u32.into());
@@ -56,22 +67,9 @@ fn prepare<T: BenchmarkSetup>() -> Fixture<T> {
     .unwrap();
     let cid: CidNumberOf<T> = number.into_bytes().try_into().unwrap();
     let role: crate::institution::role::RoleCodeOf = b"BENCHMARK_ROLE".to_vec().try_into().unwrap();
-    let count = <T as Config>::MaxAdmins::get();
-    let mut admins: InstitutionAdminsInputOf<T> = (0..count)
-        .map(|i| Admin {
-            account_id: account("entity-admin", i, 0),
-            cid_number: Default::default(),
-            family_name: vec![b'F'; adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
-                .try_into()
-                .unwrap(),
-            given_name: vec![b'G'; adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
-                .try_into()
-                .unwrap(),
-        })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap();
-    let caller = admins[0].account_id.clone();
+    let count = <T as Config>::MaxRoleEntries::get();
+    let people = (0..count).map(|i| fixture_person::<T>(account("entity-person", i, 0))).collect::<Vec<_>>();
+    let caller = people[0].account_id.clone();
     Institutions::<T>::insert(
         &cid,
         crate::InstitutionInfo {
@@ -83,14 +81,7 @@ fn prepare<T: BenchmarkSetup>() -> Fixture<T> {
             created_at: 1u32.into(),
         },
     );
-    <T as Config>::AdminLifecycle::benchmark_set_institution_admins(
-        crate::MODULE_TAG,
-        cid.to_vec(),
-        *b"CGOV",
-        adminbase::AdminAccountKind::PublicInstitution,
-        admins.to_vec(),
-    )
-    .unwrap();
+
     InstitutionGovernanceThresholds::<T>::insert(&cid, count / 2 + 1);
     InstitutionRoles::<T>::insert(
         &cid,
@@ -101,13 +92,14 @@ fn prepare<T: BenchmarkSetup>() -> Fixture<T> {
             role_name: b"Benchmark".to_vec().try_into().unwrap(),
             term_required: false,
             role_status: InstitutionRoleStatus::Active,
+                    seats: T::MaxRoleEntries::get(),
         },
     );
-    let assignments: crate::institution::role::RoleAssignmentsOf<T> = admins
+    let assignments: crate::institution::role::RoleAssignmentsOf<T> = people
         .iter()
-        .map(|a| InstitutionAdminAssignment {
+        .map(|a| InstitutionAssignment {
             cid_number: cid.clone(),
-            account_id: a.account_id.clone(),
+            person_cid: a.cid_number.to_vec().try_into().unwrap(),
             role_code: role.clone(),
             term_start: 0,
             term_end: 0,
@@ -145,16 +137,12 @@ fn prepare<T: BenchmarkSetup>() -> Fixture<T> {
     .try_into()
     .unwrap();
     InstitutionRolePermissions::<T>::insert(&cid, &role, permissions);
-    for admin in admins.iter_mut() {
-        admin.family_name = b"F".to_vec().try_into().unwrap();
-        admin.given_name = b"G".to_vec().try_into().unwrap();
-    }
     Fixture {
         registry,
         cid,
         caller,
         role,
-        admins,
+        people,
     }
 }
 #[cfg(test)]
@@ -173,7 +161,7 @@ impl BenchmarkSetup for crate::tests::Test {
 struct RegistrationFixture<T: Config> {
     registry: Registry<T::AccountId>,
     cid: CidNumberOf<T>,
-    action: InstitutionGovernanceActionOf<T>,
+    action: entitybase::InstitutionRoleRegistration,
     state: [u8; 32],
     threshold: Option<u32>,
     #[cfg(feature = "std")]
@@ -191,82 +179,9 @@ fn registration_fixture<T: BenchmarkSetup>(
     operation: bool,
 ) -> RegistrationFixture<T> {
     let mut f = prepare::<T>();
-    assert!(n.max(a) <= T::MaxAdmins::get() && r < T::MaxAdmins::get());
-    let mut admins = f
-        .admins
-        .into_iter()
-        .take(n.max(a) as usize)
-        .collect::<Vec<_>>();
-    for admin in &mut admins {
-        admin.family_name = vec![b'F'; adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
-            .try_into()
-            .unwrap();
-        admin.given_name = vec![b'G'; adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
-            .try_into()
-            .unwrap();
-    }
-
+    assert!(n.max(a) <= T::MaxRoleEntries::get() && r < T::MaxRoleEntries::get());
+    let people = f.people.into_iter().take(n.max(a) as usize).collect::<Vec<_>>();
     if operation {
-        // ABI夹具只在基准externalities内建立实名投票身份。计时内仍执行真实四要素和闭环绑定校验。
-        fn key(item: &[u8], encoded: &[u8]) -> Vec<u8> {
-            let mut key = frame_support::storage::storage_prefix(b"CitizenIdentity", item).to_vec();
-            key.extend(
-                <frame_support::Blake2_128Concat as frame_support::StorageHasher>::hash(encoded),
-            );
-            key
-        }
-        fn seed<T: Config>(
-            admin: &mut Admin<T::AccountId>,
-            number: u32,
-            registry: &Registry<T::AccountId>,
-        ) {
-            let block: frame_system::pallet_prelude::BlockNumberFor<T> = 1u32.into();
-
-            let payload = format!("CN001CTZN{number:09}2026");
-            let cid = format!(
-                "CN001-CTZN{}-{number:09}-2026",
-                primitives::cid::number::checksum_char_m1(&payload, true)
-            )
-            .into_bytes();
-            admin.cid_number = cid.clone().try_into().unwrap();
-            frame_support::storage::unhashed::put(
-                &key(b"AccountIdByCid", &cid.encode()),
-                &admin.account_id,
-            );
-            frame_support::storage::unhashed::put(
-                &key(b"CidByAccountId", &admin.account_id.encode()),
-                &cid,
-            );
-            frame_support::storage::unhashed::put(
-                &key(b"BindingRevisionByCid", &cid.encode()),
-                &1u64,
-            );
-            frame_support::storage::unhashed::put(
-                &key(b"CidRegistry", &cid.encode()),
-                &(
-                    registry.cid.clone(),
-                    [0u8; 32],
-                    registry.province.clone(),
-                    registry.city.clone(),
-                    0u8,
-                    block,
-                    None::<frame_system::pallet_prelude::BlockNumberFor<T>>,
-                ),
-            );
-            frame_support::storage::unhashed::put(
-                &key(b"VotingIdentityByCid", &cid.encode()),
-                &(
-                    20200101u32,
-                    20360101u32,
-                    0u8,
-                    registry.province.clone(),
-                    registry.city.clone(),
-                    Vec::<u8>::new(),
-                    block,
-                ),
-            );
-        }
-        // 最大合法CREG名册、调用者排最后且全部有CID，覆盖签名者解析的最坏重复读取。
         // 两个R_岗位均按登记引用生成，只属于基准临时状态，不引入固定业务岗位。
         let actor_cid = primitives::cid::generator::generate_cid_number(
             primitives::cid::generator::GenerateCidNumberInput {
@@ -283,18 +198,8 @@ fn registration_fixture<T: BenchmarkSetup>(
         .unwrap()
         .into_bytes();
         let actor_cid: CidNumberOf<T> = actor_cid.try_into().unwrap();
-        let mut actor_admins = (0..T::MaxAdmins::get())
-            .map(|index| Admin {
-                account_id: account("operation-registrar", index, 0),
-                cid_number: Default::default(),
-                family_name: vec![b'A'; 128].try_into().unwrap(),
-                given_name: vec![b'B'; 128].try_into().unwrap(),
-            })
-            .collect::<Vec<_>>();
-        for (index, admin) in actor_admins.iter_mut().enumerate() {
-            seed::<T>(admin, 710_000_000 + index as u32, &f.registry);
-        }
-        let caller = actor_admins.last().unwrap().account_id.clone();
+        let caller: T::AccountId = account("operation-registrar", 0, 0);
+        let actor = fixture_person::<T>(caller.clone());
         Institutions::<T>::insert(
             &actor_cid,
             crate::InstitutionInfo {
@@ -306,14 +211,7 @@ fn registration_fixture<T: BenchmarkSetup>(
                 created_at: 1u32.into(),
             },
         );
-        T::AdminLifecycle::benchmark_set_institution_admins(
-            crate::MODULE_TAG,
-            actor_cid.to_vec(),
-            *b"CREG",
-            adminbase::AdminAccountKind::PublicInstitution,
-            actor_admins,
-        )
-        .unwrap();
+
         let mut actor_role = None;
         for index in 0..2u64 {
             let code: crate::institution::role::RoleCodeOf =
@@ -338,6 +236,7 @@ fn registration_fixture<T: BenchmarkSetup>(
                     role_name,
                     term_required: false,
                     role_status: InstitutionRoleStatus::Active,
+                    seats: T::MaxRoleEntries::get(),
                 },
             );
             let mut perms = vec![RoleBusinessPermission {
@@ -376,10 +275,10 @@ fn registration_fixture<T: BenchmarkSetup>(
             let perms: crate::institution::role::RolePermissionsOf<T> = perms.try_into().unwrap();
             InstitutionRolePermissions::<T>::insert(&actor_cid, &code, perms);
             let assigned: crate::institution::role::RoleAssignmentsOf<T> =
-                vec![InstitutionAdminAssignment {
+                vec![InstitutionAssignment {
                     cid_number: actor_cid.clone(),
                     role_code: code.clone(),
-                    account_id: caller.clone(),
+                    person_cid: actor.cid_number.to_vec().try_into().unwrap(),
                     term_start: 0,
                     term_end: 0,
                     assignment_source: InstitutionAssignmentSource::Registry,
@@ -396,24 +295,12 @@ fn registration_fixture<T: BenchmarkSetup>(
         f.registry.caller = caller;
         f.registry.cid = actor_cid.to_vec();
         f.registry.role = actor_role.unwrap().to_vec();
-        for (index, admin) in admins.iter_mut().enumerate() {
-            seed::<T>(admin, 700_000_000 + index as u32, &f.registry);
-        }
         frame_support::storage::unhashed::put(
-            &frame_support::storage::storage_prefix(b"GenesisPallet", b"Phase"),
+            &frame_support::storage::storage_prefix(b"Genesis", b"Phase"),
             &1u8,
         );
     }
-    // 钱包登记与岗位配置分开：setup先登记准确名册，计时只执行本次明确的治理配置。
-    // 不恢复已删除的完整名册替换登记路径，也不清空已有钱包版本/存活引用。
-    T::AdminLifecycle::benchmark_set_institution_admins(
-        crate::MODULE_TAG,
-        f.cid.to_vec(),
-        *b"CGOV",
-        adminbase::AdminAccountKind::PublicInstitution,
-        admins.clone(),
-    )
-    .unwrap();
+
     InstitutionGovernanceThresholds::<T>::remove(&f.cid);
     InstitutionRoles::<T>::remove(&f.cid, &f.role);
     InstitutionRoleAssignments::<T>::remove(&f.cid, &f.role);
@@ -447,11 +334,11 @@ fn registration_fixture<T: BenchmarkSetup>(
         operation,
     })
     .collect::<Vec<_>>();
-    let targets = admins
+    let targets = people
         .iter()
         .take(a as usize)
         .map(|admin| entitybase::InstitutionAssignmentTarget {
-            account_id: admin.account_id.clone(),
+            person_cid: admin.cid_number.to_vec(),
             term_start: 0,
             term_end: 0,
             assignment_source: InstitutionAssignmentSource::Registry,
@@ -485,6 +372,7 @@ fn registration_fixture<T: BenchmarkSetup>(
                     role_name: name.try_into().unwrap(),
                     term_required: false,
                     role_status: InstitutionRoleStatus::Active,
+                    seats: T::MaxRoleEntries::get(),
                 },
             );
             let stored = permissions
@@ -510,10 +398,10 @@ fn registration_fixture<T: BenchmarkSetup>(
             InstitutionRolePermissions::<T>::insert(&f.cid, &code, stored);
             let stored: crate::institution::role::RoleAssignmentsOf<T> = targets
                 .iter()
-                .map(|target| InstitutionAdminAssignment {
+                .map(|target| InstitutionAssignment {
                     cid_number: f.cid.clone(),
                     role_code: code.clone(),
-                    account_id: target.account_id.clone(),
+                    person_cid: target.person_cid.clone().try_into().unwrap(),
                     term_start: 0,
                     term_end: 0,
                     assignment_source: InstitutionAssignmentSource::Registry,
@@ -533,6 +421,7 @@ fn registration_fixture<T: BenchmarkSetup>(
             mutations.push(entitybase::InstitutionRoleMutation::Create {
                 role_name: name,
                 term_required: false,
+                seats: a,
                 permissions: permissions.clone(),
                 assignments: targets.clone(),
             });
@@ -542,27 +431,21 @@ fn registration_fixture<T: BenchmarkSetup>(
     let action = if existing {
         InstitutionGovernanceThresholds::<T>::insert(&f.cid, threshold);
         InstitutionRoleNonce::<T>::insert(&f.cid, u64::from(r) + 1);
-        entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
+        entitybase::InstitutionRoleRegistration {
             role_mutations: Vec::new(),
             assignment_changes: existing_changes,
-            legal_representative_change: None,
         }
     } else {
-        entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
+        entitybase::InstitutionRoleRegistration {
             role_mutations: mutations,
             assignment_changes: Vec::new(),
-            legal_representative_change: None,
         }
     };
     let state = Pallet::<T>::registration_state_hash(&f.cid).unwrap();
     #[cfg(feature = "std")]
     let work = {
-        use adminbase::InstitutionAdminQuery as _;
+
         let mut work = action.registration_work();
-        work.0 = work.0.saturating_add(
-            T::InstitutionAdminQuery::institution_admins_len(*b"CGOV", f.cid.as_slice())
-                .unwrap_or(0),
-        );
         for (code, _) in InstitutionRoles::<T>::iter_prefix(&f.cid) {
             work.1 += 1;
             work.2 +=
@@ -582,18 +465,13 @@ fn registration_fixture<T: BenchmarkSetup>(
         work,
     }
 }
-fn verify_registration<T: Config>(cid: &CidNumberOf<T>, n: u32, r: u32, p: u32, a: u32) {
+fn verify_registration<T: Config>(cid: &CidNumberOf<T>, _n: u32, r: u32, p: u32, a: u32) {
     assert_eq!(
         InstitutionGovernanceThresholds::<T>::get(cid),
         Some(r.saturating_mul(a) / 2 + 1)
     );
-    // 配置调用中的名册一致性写入仍推进原状态nonce，建岗另占r次。
-    assert_eq!(InstitutionRoleNonce::<T>::get(cid), u64::from(r) + 2);
-    let info = Institutions::<T>::get(cid).unwrap();
-    assert_eq!(
-        T::InstitutionAdminQuery::institution_admins_len(info.institution_code, cid),
-        Some(n.max(a))
-    );
+    // 岗位编号只在新增岗位时推进。
+    assert_eq!(InstitutionRoleNonce::<T>::get(cid), u64::from(r) + 1);
     let mut dynamic = 0;
     for (code, _) in InstitutionRoles::<T>::iter_prefix(cid) {
         if code.as_slice() == primitives::institution_constraints::ROLE_CODE_LEGAL_REPRESENTATIVE {
@@ -623,7 +501,7 @@ pub fn measure_registration<T: BenchmarkSetup>(
 ) -> (u128, (u32, u32, u32, u32)) {
     let f = registration_fixture::<T>(n, r, p, a, existing, false);
     let started = std::time::Instant::now();
-    Pallet::<T>::register_institution_admins(
+    Pallet::<T>::register_institution_roles(
         RawOrigin::Signed(f.registry.caller).into(),
         f.cid.clone(),
         f.action,
@@ -647,7 +525,7 @@ pub fn measure_operation_registration<T: BenchmarkSetup>(
 ) -> (u128, (u32, u32, u32, u32)) {
     let f = registration_fixture::<T>(n, r, p, a, true, true);
     let started = std::time::Instant::now();
-    Pallet::<T>::register_institution_admins(
+    Pallet::<T>::register_institution_roles(
         RawOrigin::Signed(f.registry.caller).into(),
         f.cid.clone(),
         f.action,
@@ -683,7 +561,7 @@ mod benchmarks {
         assert_eq!(Institutions::<T>::get(f.cid).unwrap().cid_full_name, name);
     }
     #[benchmark]
-    fn register_institution_admins(
+    fn register_institution_roles(
         n: Linear<2, 1989>,
         r: Linear<1, 64>,
         p: Linear<2, 4>,
@@ -713,7 +591,7 @@ mod benchmarks {
         let f = registration_fixture::<T>(n, r, p, a, true, false);
         #[block]
         {
-            Pallet::<T>::register_institution_admins(
+            Pallet::<T>::register_institution_roles(
                 RawOrigin::Signed(f.registry.caller).into(),
                 f.cid.clone(),
                 f.action,
@@ -737,7 +615,7 @@ mod benchmarks {
         let f = registration_fixture::<T>(n, r, p, a, true, true);
         #[block]
         {
-            Pallet::<T>::register_institution_admins(
+            Pallet::<T>::register_institution_roles(
                 RawOrigin::Signed(f.registry.caller).into(),
                 f.cid.clone(),
                 f.action,
@@ -769,7 +647,7 @@ mod benchmarks {
     #[benchmark]
     fn propose_institution_governance() {
         let f = prepare::<T>();
-        let action = entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
+        let action = entitybase::InstitutionGovernanceAction {
             role_mutations: vec![entitybase::InstitutionRoleMutation::Rename {
                 role_code: f.role.to_vec(),
                 role_name: b"Benchmark renamed".to_vec(),
@@ -789,7 +667,7 @@ mod benchmarks {
     #[benchmark]
     fn governance_names() {
         let f = prepare::<T>();
-        let action = entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
+        let action = entitybase::InstitutionGovernanceAction {
             role_mutations: vec![entitybase::InstitutionRoleMutation::Rename {
                 role_code: f.role.to_vec(),
                 role_name: vec![b'R'; T::MaxAccountNameLength::get() as usize],
@@ -894,7 +772,7 @@ mod benchmarks {
                         if existing {
                             <registration_existing as BenchmarkingSetup<crate::tests::Test>>::unit_test_instance(&registration_existing, &components).unwrap();
                         } else {
-                            <register_institution_admins as BenchmarkingSetup<crate::tests::Test>>::unit_test_instance(&register_institution_admins, &components).unwrap();
+                            <register_institution_roles as BenchmarkingSetup<crate::tests::Test>>::unit_test_instance(&register_institution_roles, &components).unwrap();
                         }
                     });
                 }

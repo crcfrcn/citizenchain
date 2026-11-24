@@ -383,7 +383,7 @@ it.each([[0, '0'], [null, '未取得链上版本']] as const)(
 
 it('设置页显示引导节点和最终性节点的标题、私钥占位和空输入提示', async () => {
   mocks.invoke.mockImplementation(async (command: string) => {
-    if (command === 'has_any_activated_admin') return true;
+    if (command === 'has_role_access') return true;
     if (command === 'get_bootnode_key') return { nodeKey: null, peerId: null, cidShortName: null };
     if (command === 'get_grandpa_key') return { key: null, cidShortName: null };
     return null;
@@ -402,7 +402,7 @@ it('设置页显示引导节点和最终性节点的标题、私钥占位和空�
 
 it('链上中国主机在设备密码验证后提交完整多行 PEM 并更新设置状态', async () => {
   mocks.invoke.mockImplementation(async (command: string) => {
-    if (command === 'has_any_activated_admin') return true;
+    if (command === 'has_role_access') return true;
     if (command === 'get_bootnode_key') return { peerId: 'test-peer-id' };
     if (command === 'get_grandpa_key') return { cidShortName: null };
     if (command === 'get_onchina_host_key_status') return false;

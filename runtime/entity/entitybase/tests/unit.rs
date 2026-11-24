@@ -274,7 +274,7 @@ mod actions {
                     ACTION_UPDATE_CANDIDATE_IDENTITY,
                     ACTION_REVOKE_IDENTITY,
                     ACTION_OCCUPY_CID,
-                    ACTION_ADMIN_REBIND_CID_ACCOUNT_ID,
+                    ACTION_REGISTRAR_REBIND_CID,
                     ACTION_REVOKE_CID,
                 ][..],
             ),
@@ -454,7 +454,7 @@ mod roles {
         );
     }
 
-    /// 岗位字段声明序就是 `PublicManage::InstitutionRoles` 的链上 SCALE 值格式。
+    /// 岗位字段声明序就是 `PublicEntity::InstitutionRoles` 的链上 SCALE 值格式。
     #[test]
     fn institution_role_field_order_matches_node_guard() {
         let role = InstitutionRole {
@@ -463,6 +463,7 @@ mod roles {
             role_name: "岗位一".as_bytes().to_vec(),
             term_required: true,
             role_status: InstitutionRoleStatus::Active,
+            seats: 3,
         };
         assert_eq!(
             role.encode(),
@@ -472,17 +473,18 @@ mod roles {
                 "岗位一".as_bytes().to_vec(),
                 true,
                 InstitutionRoleStatus::Active,
+                3u32,
             )
                 .encode()
         );
     }
 
-    /// 任职字段声明序就是 `PublicManage::InstitutionRoleAssignments` 元素的链上 SCALE 格式。
+    /// 任职字段声明序就是 `PublicEntity::InstitutionRoleAssignments` 元素的链上 SCALE 格式。
     #[test]
     fn institution_assignment_field_order_matches_node_guard() {
-        let assignment = InstitutionAdminAssignment {
+        let assignment = InstitutionAssignment {
             cid_number: b"CID-1".to_vec(),
-            account_id: [7u8; 32],
+            person_cid: b"PERSON-CID".to_vec(),
             role_code: b"ROLE-1".to_vec(),
             term_start: 10,
             term_end: 20,
@@ -494,7 +496,7 @@ mod roles {
             assignment.encode(),
             (
                 b"CID-1".to_vec(),
-                [7u8; 32],
+                b"PERSON-CID".to_vec(),
                 b"ROLE-1".to_vec(),
                 10u32,
                 20u32,
@@ -508,120 +510,47 @@ mod roles {
 }
 
 mod registration {
-    use crate::{
-        InstitutionGovernanceAction, InstitutionLegalRepresentativeChange, InstitutionRoleMutation,
-        RolePermissionOperation,
-    };
-    use codec::{Decode, Encode};
+    use crate::{InstitutionGovernanceAction, InstitutionLegalRepresentativeChange,
+        InstitutionRoleMutation, InstitutionRoleRegistration, RolePermissionOperation};
+    use codec::{DecodeAll, Encode};
 
     #[test]
-    fn registration_reuses_action_encoding_and_rejects_legal_representative_or_no_roster_actions() {
-        let action = InstitutionGovernanceAction::<u64>::ReplaceAdmins { admins: vec![] };
-        assert_eq!(action.encode(), vec![0, 0]);
-        assert!(action.clone().into_registration_parts().is_none());
-        let encoded = action.encode();
-        let decoded = InstitutionGovernanceAction::<u64>::decode(&mut encoded.as_slice()).unwrap();
-        assert_eq!(decoded.encode(), encoded);
-        let action = InstitutionGovernanceAction::<u64>::ReplaceAdminsAndMutateRoles {
-            admins: vec![],
-            role_mutations: vec![],
-            assignment_changes: vec![],
-            legal_representative_change: Some(InstitutionLegalRepresentativeChange::Clear),
-        };
-        assert!(action.into_registration_parts().is_none());
-        let action = InstitutionGovernanceAction::<u64>::MutateRolesAndAssignments {
-            role_mutations: vec![],
-            assignment_changes: vec![],
-            legal_representative_change: None,
-        };
-        assert!(action.allowed_in_registration());
-        assert!(action.into_registration_parts().is_some());
-    }
-
-    #[test]
-    fn registration_reference_and_nonce_generate_dynamic_roles_without_fake_proposal_ids() {
-        use crate::institution_role::{
-            generate_dynamic_role_code, generate_registration_role_code,
-        };
-        let role = generate_registration_role_code(b"pub-mgmt", b"CID", 1, &[7; 32]);
-        assert_eq!(role.len(), 34);
-        assert!(role.starts_with(b"R_"));
-        assert_ne!(role, generate_dynamic_role_code(b"pub-mgmt", b"CID", 1, 0));
-        assert_ne!(
-            role,
-            generate_registration_role_code(b"pub-mgmt", b"CID", 2, &[7; 32])
-        );
-        assert_ne!(
-            role,
-            generate_registration_role_code(b"pub-mgmt", b"CID", 1, &[8; 32])
-        );
-        assert_ne!(
-            role,
-            generate_registration_role_code(b"pri-mgmt", b"CID", 1, &[7; 32])
-        );
-        let action = InstitutionGovernanceAction::<u64>::ReplaceAdminsAndMutateRoles {
-            admins: vec![],
+    fn registration_payload_has_seats_and_cannot_carry_representative_changes() {
+        let registration = InstitutionRoleRegistration {
             role_mutations: vec![InstitutionRoleMutation::Create {
                 role_name: b"role".to_vec(),
                 term_required: false,
+                seats: 3,
                 permissions: vec![crate::RolePermissionSpec {
                     business_action_id: crate::BusinessActionId {
-                        module_tag: b"pub-mgmt".to_vec(),
-                        action_code: 3,
+                        module_tag: b"pub-mgmt".to_vec(), action_code: 3,
                     },
                     operation: RolePermissionOperation::Propose,
                 }],
                 assignments: vec![],
             }],
             assignment_changes: vec![],
-            legal_representative_change: None,
         };
-        assert_eq!(action.registration_work(), (1, 1, 1, 0));
+        let bytes = registration.encode();
+        assert_eq!(InstitutionRoleRegistration::decode_all(&mut bytes.as_slice()).unwrap(), registration);
+        assert_eq!(registration.registration_work(), (1, 1, 1, 0));
+        let governance = InstitutionGovernanceAction {
+            role_mutations: registration.role_mutations,
+            assignment_changes: registration.assignment_changes,
+            legal_representative_change: Some(InstitutionLegalRepresentativeChange::Clear),
+        };
+        assert!(InstitutionRoleRegistration::decode_all(&mut governance.encode().as_slice()).is_err());
     }
-}
 
-#[test]
-fn institutional_write_matrix_preserves_codec_numbers_and_rejects_retired_actions() {
-    use crate::InstitutionGovernanceAction as A;
-    use codec::{DecodeAll, Encode};
-    let old = [
-        A::<u64>::ReplaceAdmins { admins: vec![] },
-        A::ReplaceAdminsAndMutateRoles {
-            admins: vec![],
-            role_mutations: vec![],
-            assignment_changes: vec![],
-            legal_representative_change: None,
-        },
-    ];
-    for (value, index) in old.into_iter().zip([0, 2]) {
-        let bytes = value.encode();
-        assert_eq!(bytes[0], index);
-        let decoded = A::<u64>::decode_all(&mut &bytes[..]).unwrap();
-        assert!(!decoded.allowed_in_governance());
-        assert!(!decoded.allowed_in_registration());
-        assert!(decoded.into_registration_parts().is_none());
+    #[test]
+    fn registration_reference_and_nonce_generate_dynamic_roles_without_fake_proposal_ids() {
+        use crate::institution_role::{generate_dynamic_role_code, generate_registration_role_code};
+        let role = generate_registration_role_code(b"pub-mgmt", b"CID", 1, &[7; 32]);
+        assert_eq!(role.len(), 34);
+        assert!(role.starts_with(b"R_"));
+        assert_ne!(role, generate_dynamic_role_code(b"pub-mgmt", b"CID", 1, 0));
+        assert_ne!(role, generate_registration_role_code(b"pub-mgmt", b"CID", 2, &[7; 32]));
+        assert_ne!(role, generate_registration_role_code(b"pub-mgmt", b"CID", 1, &[8; 32]));
+        assert_ne!(role, generate_registration_role_code(b"pri-mgmt", b"CID", 1, &[7; 32]));
     }
-    let role = A::<u64>::MutateRolesAndAssignments {
-        role_mutations: vec![],
-        assignment_changes: vec![],
-        legal_representative_change: None,
-    };
-    assert_eq!(role.encode()[0], 1);
-    assert!(role.allowed_in_governance());
-    assert!(role.allowed_in_registration());
-    let legal = A::<u64>::MutateRolesAndAssignments {
-        role_mutations: vec![],
-        assignment_changes: vec![],
-        legal_representative_change: Some(crate::InstitutionLegalRepresentativeChange::Clear),
-    };
-    assert!(legal.allowed_in_governance());
-    assert!(!legal.allowed_in_registration());
-    let registry = A::<u64>::RegisterAdminWalletChanges {
-        added: vec![],
-        removed: vec![],
-        replaced: vec![],
-    };
-    assert_eq!(registry.encode()[0], 4);
-    assert!(registry.allowed_in_registration());
-    assert!(!registry.allowed_in_governance());
 }

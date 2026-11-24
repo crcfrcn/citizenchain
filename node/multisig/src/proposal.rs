@@ -112,7 +112,7 @@ fn fetch_safety_fund_proposal_action(
     proposal_id: u128,
 ) -> Result<Option<SafetyFundProposalDetail>, String> {
     let key = nodeclient::query::map_key(
-        "MultisigTransfer",
+        "Multisig",
         "SafetyFundProposalActions",
         &proposal_id.to_le_bytes(),
     );
@@ -162,7 +162,7 @@ fn fetch_safety_fund_proposal_action(
 
 fn fetch_sweep_proposal_action(proposal_id: u128) -> Result<Option<SweepProposalDetail>, String> {
     let key = nodeclient::query::map_key(
-        "MultisigTransfer",
+        "Multisig",
         "SweepProposalActions",
         &proposal_id.to_le_bytes(),
     );

@@ -128,7 +128,7 @@ fn merge_cancel_decision(
 // 异步执行尝试，投票判定保持 PASSED 并等待后续重试。
 //
 // 注:注册 5 个业务模块(multisig /
-// publicentity/privateentity / RuntimeAdminAccountQuery / destroy /
+// publicentity/privateentity / personal / destroy /
 // grandpakey),留 6 元组余量。如未来业务模块增加,补对应元组 impl。
 impl<A: InternalVoteResultCallback> InternalVoteResultCallback for (A,) {
     fn execution_weight() -> Weight {

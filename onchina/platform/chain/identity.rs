@@ -131,7 +131,7 @@ fn decode_all<T: Decode>(encoded: &[u8], field: &str) -> Result<T, String> {
 /// 在调用方已经固定的 finalized storage 上解析 CID 当前绑定账户。
 ///
 /// 本入口只服务管理员签名授权，不另建身份真源：登记状态、正向绑定、绑定版本与
-/// `CidByAccountId` 反向闭环仍全部读取 `CitizenIdentity`。返回 `None` 表示 CID 不存在、
+/// `CidByAccountId` 反向闭环仍全部读取 `Identity`。返回 `None` 表示 CID 不存在、
 /// 已撤销或没有有效当前绑定；闭环损坏则返回错误并拒绝授权。
 pub(crate) async fn read_active_cid_account_id_at(
     storage: &subxt::storage::Storage<PolkadotConfig, OnlineClient<PolkadotConfig>>,
@@ -139,11 +139,7 @@ pub(crate) async fn read_active_cid_account_id_at(
 ) -> Result<Option<[u8; 32]>, String> {
     let cid_key = || vec![dynamic::Value::from_bytes(cid_number.as_bytes())];
     let cid_record = storage
-        .fetch(&dynamic::storage(
-            "CitizenIdentity",
-            "CidRegistry",
-            cid_key(),
-        ))
+        .fetch(&dynamic::storage("Identity", "CidRegistry", cid_key()))
         .await
         .map_err(|e| format!("fetch CidRegistry {cid_number} failed: {e}"))?
         .map(|value| {
@@ -151,11 +147,7 @@ pub(crate) async fn read_active_cid_account_id_at(
         })
         .transpose()?;
     let account_id = storage
-        .fetch(&dynamic::storage(
-            "CitizenIdentity",
-            "AccountIdByCid",
-            cid_key(),
-        ))
+        .fetch(&dynamic::storage("Identity", "AccountIdByCid", cid_key()))
         .await
         .map_err(|e| format!("fetch AccountIdByCid {cid_number} failed: {e}"))?
         .map(|value| {
@@ -164,7 +156,7 @@ pub(crate) async fn read_active_cid_account_id_at(
         .transpose()?;
     let binding_revision = storage
         .fetch(&dynamic::storage(
-            "CitizenIdentity",
+            "Identity",
             "BindingRevisionByCid",
             cid_key(),
         ))
@@ -214,7 +206,7 @@ pub(crate) async fn read_active_cid_number_by_account_id_at(
 ) -> Result<Option<Vec<u8>>, String> {
     let Some(value) = storage
         .fetch(&dynamic::storage(
-            "CitizenIdentity",
+            "Identity",
             "CidByAccountId",
             vec![dynamic::Value::from_bytes(account_id)],
         ))
@@ -281,11 +273,7 @@ pub async fn read_citizen_identity_at(
     let chain_now_millis = finalized_chain_now_millis(finalized_header.number, chain_now_millis)?;
 
     let cid_record = match storage
-        .fetch(&dynamic::storage(
-            "CitizenIdentity",
-            "CidRegistry",
-            cid_key(),
-        ))
+        .fetch(&dynamic::storage("Identity", "CidRegistry", cid_key()))
         .await
         .map_err(|e| format!("fetch CidRegistry {cid_number} failed: {e}"))?
     {
@@ -296,11 +284,7 @@ pub async fn read_citizen_identity_at(
         None => None,
     };
     let account_id = match storage
-        .fetch(&dynamic::storage(
-            "CitizenIdentity",
-            "AccountIdByCid",
-            cid_key(),
-        ))
+        .fetch(&dynamic::storage("Identity", "AccountIdByCid", cid_key()))
         .await
         .map_err(|e| format!("fetch AccountIdByCid {cid_number} failed: {e}"))?
     {
@@ -312,7 +296,7 @@ pub async fn read_citizen_identity_at(
     };
     let binding_revision = match storage
         .fetch(&dynamic::storage(
-            "CitizenIdentity",
+            "Identity",
             "BindingRevisionByCid",
             cid_key(),
         ))
@@ -328,7 +312,7 @@ pub async fn read_citizen_identity_at(
     // 身份版本：ValueQuery，键不存在即 0（尚未建立任何身份）。
     let identity_version = match storage
         .fetch(&dynamic::storage(
-            "CitizenIdentity",
+            "Identity",
             "VotingEligibilityVersionCount",
             cid_key(),
         ))
@@ -344,7 +328,7 @@ pub async fn read_citizen_identity_at(
     let voting = read_voting_identity_at(&storage, cid_number).await?;
     let candidate = match storage
         .fetch(&dynamic::storage(
-            "CitizenIdentity",
+            "Identity",
             "CandidateIdentityByCid",
             cid_key(),
         ))
@@ -444,7 +428,7 @@ pub(crate) async fn read_voting_identity_at(
 ) -> Result<Option<FinalizedVotingIdentity>, String> {
     let voting = match storage
         .fetch(&dynamic::storage(
-            "CitizenIdentity",
+            "Identity",
             "VotingIdentityByCid",
             vec![dynamic::Value::from_bytes(cid_number.as_bytes())],
         ))
@@ -495,7 +479,7 @@ async fn validate_binding_closure(
         account_id.ok_or_else(|| format!("CID {cid_number} account binding missing"))?;
     let reverse = storage
         .fetch(&dynamic::storage(
-            "CitizenIdentity",
+            "Identity",
             "CidByAccountId",
             vec![dynamic::Value::from_bytes(account_id)],
         ))

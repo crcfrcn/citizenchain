@@ -5,7 +5,7 @@ import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
 import { TransferProposalDialog, type TransferProposalStep } from "../multisig/TransferProposalDialog";
 import { runtimeUpgradeApi as api } from "./api";
-import type { AdminSignerMatch } from "../institution/council";
+import type { RoleSigner } from "../institution/council";
 import type { PowDifficultyParams, ProposeUpgradeRequestResult } from "./api";
 // 运行期协议升级页：提交 WASM 提案,走联合投票流程。
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -14,17 +14,17 @@ import { open } from '@tauri-apps/plugin-dialog';
 type Props = {
   actorCidNumber: string;
   institutionName: string;
-  adminSigners: AdminSignerMatch[];
+  roleSigners: RoleSigner[];
   onBack: () => void;
   onSuccess: () => void;
 };
 
-export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, adminSigners, onBack, onSuccess }: Props) {
+export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, roleSigners, onBack, onSuccess }: Props) {
   const [wasmPath, setWasmPath] = useState('');
   const [wasmFileName, setWasmFileName] = useState('');
   const [reason, setReason] = useState('');
   const [selectedSignerAccountId, setSelectedSignerAccountId] = useState(
-    adminSigners.length === 1 ? adminSigners[0].accountId : ''
+    roleSigners.length === 1 ? roleSigners[0].accountId : ''
   );
   const [step, setStep] = useState<TransferProposalStep>('form');
   const [signRequest, setSignRequest] = useState<ProposeUpgradeRequestResult | null>(null);
@@ -247,22 +247,22 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, a
           )}
 
           <div className="wallet-form-field">
-            <label htmlFor="upgrade-signer">发起管理员</label>
-            {adminSigners.length === 0 ? (
-              <p className="upgrade-no-wallet">无已激活管理员</p>
+            <label htmlFor="upgrade-signer">发起岗位人员</label>
+            {roleSigners.length === 0 ? (
+              <p className="upgrade-no-wallet">无已授权岗位</p>
             ) : (
               <select
                 id="upgrade-signer"
                 value={selectedSignerAccountId}
                 onChange={(e) => setSelectedSignerAccountId(e.target.value)}
-                disabled={adminSigners.length <= 1 || building}
+                disabled={roleSigners.length <= 1 || building}
               >
-                {adminSigners.length === 1 ? (
-                  <option value={adminSigners[0].accountId}>{accountIdToSs58(adminSigners[0].accountId)}</option>
+                {roleSigners.length === 1 ? (
+                  <option value={roleSigners[0].accountId}>{accountIdToSs58(roleSigners[0].accountId)}</option>
                 ) : (
                   <>
                     <option value="">请选择…</option>
-                    {adminSigners.map((w) => (
+                    {roleSigners.map((w) => (
                       <option key={w.accountId} value={w.accountId}>{accountIdToSs58(w.accountId)}</option>
                     ))}
                   </>

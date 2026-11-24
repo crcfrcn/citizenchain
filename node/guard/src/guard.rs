@@ -118,6 +118,65 @@ impl GenesisState {
         self.storage.top.get(key).cloned()
     }
 
+    pub(crate) fn is_frozen(&self) -> bool {
+        self.hash == sp_core::H256::from(primitives::genesis::GENESIS_HASH)
+            && self.state_root == sp_core::H256::from(primitives::genesis::GENESIS_STATE_ROOT)
+    }
+
+    // 仅解释已验证冻结块0的原始存储命名；这些值的SCALE布局没有改变。
+    // 不用于运行态查询，不先读新键再回退，也不生成或改写任何链状态。
+    fn baseline_key(key: &[u8], frozen: bool) -> Vec<u8> {
+        for (current, original) in [
+            ("Legislation", "LegislationYuan"),
+            ("FullnodeIssue", "FullnodeIssuance"),
+            ("PrbBankIssue", "ProvincialBankInterest"),
+            ("CitizenIssue", "CitizenIssuance"),
+            ("Genesis", "GenesisPallet"),
+            ("Offchain", "OffchainTransaction"),
+        ] {
+            let (from, to) = if frozen {
+                (current, original)
+            } else {
+                (original, current)
+            };
+            if let Some(suffix) =
+                key.strip_prefix(sp_crypto_hashing::twox_128(from.as_bytes()).as_slice())
+            {
+                return [
+                    sp_crypto_hashing::twox_128(to.as_bytes()).to_vec(),
+                    suffix.to_vec(),
+                ]
+                .concat();
+            }
+        }
+        key.to_vec()
+    }
+
+    pub(crate) fn read_baseline(&self, key: &[u8]) -> Option<Vec<u8>> {
+        if self.is_frozen() {
+            self.read(&Self::baseline_key(key, true))
+        } else {
+            self.read(key)
+        }
+    }
+
+    pub(crate) fn baseline_entries(&self) -> BTreeMap<Vec<u8>, Vec<u8>> {
+        self.storage
+            .top
+            .iter()
+            .map(|(key, value)| {
+                (
+                    if self.is_frozen() {
+                        Self::baseline_key(key, false)
+                    } else {
+                        key.clone()
+                    },
+                    value.clone(),
+                )
+            })
+            .collect()
+    }
+
     pub(crate) fn keys(&self) -> Vec<Vec<u8>> {
         self.storage.top.keys().cloned().collect()
     }
@@ -353,8 +412,9 @@ impl<I> NodeGuard<I> {
                 None
             }
             Ok(state) => {
-                let read = |key: &[u8]| state.read(key);
-                let keys = state.keys();
+                let read = |key: &[u8]| state.read_baseline(key);
+                let entries = state.baseline_entries();
+                let keys = entries.keys().cloned().collect::<Vec<_>>();
                 if let Err(reason) =
                     crate::guard::national_body_composition::check_full_state(&read)
                 {
@@ -371,10 +431,9 @@ impl<I> NodeGuard<I> {
                 let bank_keys = crate::guard::provincialbank_interest::relevant_import_keys();
                 let bank_prefix =
                     crate::guard::provincialbank_interest::storage_key::pallet_prefix();
-                let bank =
-                    state.storage.top.iter().filter(|(key, _)| {
-                        key.starts_with(&bank_prefix) || bank_keys.contains(*key)
-                    });
+                let bank = entries
+                    .iter()
+                    .filter(|(key, _)| key.starts_with(&bank_prefix) || bank_keys.contains(*key));
                 if let Err(reason) =
                     crate::guard::provincialbank_interest::check_recorded_state(0, bank)
                 {
@@ -382,9 +441,7 @@ impl<I> NodeGuard<I> {
                 }
                 let citizen_prefix = crate::guard::citizen_issuance::storage_key::pallet_prefix();
                 if let Err(reason) = crate::guard::citizen_issuance::check_genesis_key_values(
-                    state
-                        .storage
-                        .top
+                    entries
                         .iter()
                         .filter(|(key, _)| key.starts_with(&citizen_prefix)),
                 ) {
@@ -393,17 +450,20 @@ impl<I> NodeGuard<I> {
                 if let Err(reason) = crate::guard::genesis_pallet::check_genesis(&read) {
                     startup_issues.push(format!("创世固定事实校验失败:{reason:?}"));
                 }
-                let fee_prefix = sp_crypto_hashing::twox_128(b"OffchainTransaction");
+                let fee_prefix = sp_crypto_hashing::twox_128(b"Offchain");
                 if let Err(reason) = crate::guard::runtime_policy::check_imported_state(
-                    state
-                        .storage
-                        .top
+                    entries
                         .iter()
                         .filter(|(key, _)| key.starts_with(&fee_prefix)),
                 ) {
                     startup_issues.push(format!("手续费制度校验失败:{reason}"));
                 }
-                match crate::guard::cid_lifecycle::GenesisReference::from_genesis(&keys, &read) {
+                let reference = if state.is_frozen() {
+                    crate::guard::cid_lifecycle::GenesisReference::from_frozen(state)
+                } else {
+                    crate::guard::cid_lifecycle::GenesisReference::from_genesis(&keys, &read)
+                };
+                match reference {
                     Ok(reference) => Some(reference),
                     Err(reason) => {
                         startup_issues.push(format!("CID创世基准校验失败:{reason:?}"));

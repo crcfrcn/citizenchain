@@ -3,6 +3,13 @@
 use super::*;
 use codec::Encode;
 
+fn body(cid: &[u8]) -> RepresentativeBody {
+    entitybase::RoleSubject {
+        cid_number: cid.to_vec(),
+        role_code: b"MEMBER".to_vec(),
+    }
+}
+
 /// Proposal 镜像从链端字段序编码的 golden 逐字节解码一致。
 #[test]
 fn proposal_decodes_from_field_ordered_golden() {
@@ -33,8 +40,8 @@ fn proposal_decodes_from_field_ordered_golden() {
 #[test]
 fn split_meta_mirrors_decode_independently() {
     let bodies: Vec<RepresentativeBody> = vec![
-        b"LN001-NRP0G-000000001-2026".to_vec(),
-        b"LN001-NSN0G-000000001-2026".to_vec(),
+        body(b"LN001-NRP0G-000000001-2026"),
+        body(b"LN001-NSN0G-000000001-2026"),
     ];
     let mut representative_golden = Vec::new();
     representative_golden.extend(1u8.encode()); // Sequential
@@ -48,19 +55,24 @@ fn split_meta_mirrors_decode_independently() {
     assert_eq!(representative.rule.index(), 1);
     assert_eq!(representative.route.bodies().len(), 2);
 
-    let mut legislation_golden = Vec::new();
-    legislation_golden.extend(b"LN001-PRS0G-000000001-2026".to_vec().encode());
-    legislation_golden.extend(Some(b"LN001-NLG0G-000000001-2026".to_vec()).encode());
-    legislation_golden.extend(false.encode());
-    legislation_golden.extend(Option::<()>::None.encode()); // referendum_scope 尾字段
-    let legislation = OnChainLegislationMeta::decode(&mut &legislation_golden[..])
-        .expect("decode LegislationMeta prefix");
-    assert_eq!(legislation.executive, b"LN001-PRS0G-000000001-2026");
-    assert_eq!(
-        legislation.legislature.as_deref(),
-        Some(b"LN001-NLG0G-000000001-2026".as_slice())
-    );
-    assert!(!legislation.needs_guard);
+    let executive = body(b"LN001-PRS0G-000000001-2026");
+    let guard = body(b"LN001-NJD0G-000000001-2026");
+    let golden = (
+        Some(executive.clone()),
+        vec![body(b"LN001-NLG0G-000000001-2026")],
+        true,
+        Some(guard.clone()),
+    )
+        .encode();
+    let legislation = OnChainLegislationMeta::decode_all(&mut golden.as_slice()).unwrap();
+    assert_eq!(legislation.executive, Some(executive));
+    assert_eq!(legislation.override_signers.len(), 1);
+    assert_eq!(legislation.guard, Some(guard));
+    assert!(legislation.needs_guard);
+    let mut broken = golden.clone();
+    broken.push(0);
+    assert!(OnChainLegislationMeta::decode_all(&mut broken.as_slice()).is_err());
+    assert!(OnChainLegislationMeta::decode_all(&mut &golden[..golden.len() - 1]).is_err());
 }
 
 /// VoteCount 镜像解码 + 组装 LegProposalState(计票加宽、houses→HouseRef)。
@@ -79,16 +91,17 @@ fn build_state_projects_tally_and_houses() {
     };
     let representative_meta = OnChainRepresentativeMeta {
         route: OnChainRepresentativeRoute::Sequential(vec![
-            b"LN001-NRP0G-000000001-2026".to_vec(),
-            b"LN001-NSN0G-000000001-2026".to_vec(),
+            body(b"LN001-NRP0G-000000001-2026"),
+            body(b"LN001-NSN0G-000000001-2026"),
         ]),
         current_body: 1,
         rule: OnChainRepresentativeRule::Major,
         procedure: OnChainVoteProcedure::Legislation,
     };
     let legislation_meta = OnChainLegislationMeta {
-        executive: b"LN001-PRS0G-000000001-2026".to_vec(),
-        legislature: Some(b"LN001-NLG0G-000000001-2026".to_vec()),
+        executive: Some(body(b"LN001-PRS0G-000000001-2026")),
+        override_signers: vec![body(b"LN001-NLG0G-000000001-2026")],
+        guard: None,
         needs_guard: false,
     };
     let representative_tally = OnChainVoteCount32 { yes: 220, no: 30 };

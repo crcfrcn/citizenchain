@@ -75,7 +75,7 @@ pub enum ElectionVoter<AccountId> {
     /// 普选公民主体。
     Citizen(CitizenSubject<AccountId>),
     /// 互选机构岗位票据。
-    Institution(InstitutionVoteTicket<AccountId>),
+    Institution(InstitutionVoteTicket),
 }
 
 /// 选举计票汇总。

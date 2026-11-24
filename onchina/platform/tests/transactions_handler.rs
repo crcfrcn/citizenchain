@@ -107,8 +107,9 @@ async fn first_submit_and_safe_resubmit_share_registered_authorization() {
         )))),
     };
     let mut ctx = AdminAuthContext {
-        wallet_revision: "0".into(),
-        wallet_namespace: crate::chain_runtime::AdminPallet::PublicAdmins,
+        binding_revision: "1".into(),
+        person_cid: crate::testing::person_cid(),
+        role_code: "REGISTRAR".into(),
         account_id: "active".into(),
         institution_cid_number: "fixture".into(),
         institution_code: "FRG".into(),
@@ -162,10 +163,42 @@ async fn first_submit_and_safe_resubmit_share_registered_authorization() {
             .status(),
         StatusCode::SERVICE_UNAVAILABLE
     );
-    let builtin = chain_session_with_context(serde_json::json!({}));
+    let mut builtin = chain_session_with_context(serde_json::json!({}));
+    builtin.purpose = crate::institutions::PURPOSE_INSTITUTION_GOVERNANCE.into();
+    builtin.call_data = vec![30, 8];
+    *host.db.role_snapshot.lock().unwrap() = Some(ctx.clone());
+    assert_eq!(
+        recheck_business_submit_authorization(&host, &ctx, &builtin)
+            .await
+            .unwrap_err()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    let permission = entitybase::RoleBusinessPermission {
+        role_subject: entitybase::RoleSubject {
+            cid_number: ctx.institution_cid_number.as_bytes().to_vec(),
+            role_code: ctx.role_code.as_bytes().to_vec(),
+        },
+        business_action_id: entitybase::BusinessActionId {
+            module_tag: b"pub-mgmt".to_vec(),
+            action_code: 3,
+        },
+        operation: entitybase::RolePermissionOperation::Propose,
+    };
+    host.db.role_permissions.lock().unwrap().push(permission);
     assert!(recheck_business_submit_authorization(&host, &ctx, &builtin)
         .await
         .is_ok());
+    host.db.role_permissions.lock().unwrap()[0]
+        .role_subject
+        .role_code = b"OTHER".to_vec();
+    assert_eq!(
+        recheck_business_submit_authorization(&host, &ctx, &builtin)
+            .await
+            .unwrap_err()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
 }
 
 #[tokio::test]
@@ -176,8 +209,9 @@ async fn stale_signing_revision_is_rejected_before_any_business_or_chain_call() 
         modules: Arc::new(crate::modules::ModuleCatalog::new(None)),
     };
     let ctx = AdminAuthContext {
-        wallet_revision: "2".into(),
-        wallet_namespace: crate::chain_runtime::AdminPallet::PublicAdmins,
+        binding_revision: "2".into(),
+        person_cid: crate::testing::person_cid(),
+        role_code: "REGISTRAR".into(),
         account_id: "same-address".into(),
         institution_cid_number: "original".into(),
         institution_code: "FRG".into(),
@@ -191,8 +225,8 @@ async fn stale_signing_revision_is_rejected_before_any_business_or_chain_call() 
     };
     for context in [
         serde_json::json!({}),
-        serde_json::json!({"origin_wallet_revision":"0","origin_wallet_namespace":"PublicAdmins"}),
-        serde_json::json!({"origin_wallet_revision":"2","origin_wallet_namespace":"PrivateAdmins"}),
+        serde_json::json!({"origin_binding_revision":"0","origin_person_cid":"different"}),
+        serde_json::json!({"origin_binding_revision":"2","origin_role_code":"OTHER"}),
     ] {
         let session = chain_session_with_context(context);
         assert_eq!(
@@ -206,64 +240,44 @@ async fn stale_signing_revision_is_rejected_before_any_business_or_chain_call() 
 }
 
 #[test]
-fn institution_write_allowlist_rejects_old_actions_without_rewriting_signatures() {
+fn institution_write_allowlist_requires_exact_current_encoding_and_actor() {
     use codec::Encode;
-    let old = [
-        entitybase::InstitutionGovernanceAction::<[u8; 32]>::ReplaceAdmins { admins: vec![] },
-        entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-            admins: vec![],
+    for pallet in [30, 31] {
+        // 退役钱包操作call 10始终拒绝，空治理动作也不能通过写入门。
+        assert!(validate_institution_write(&[pallet, 10, 0]).is_err());
+        let empty = entitybase::InstitutionGovernanceAction {
             role_mutations: vec![],
             assignment_changes: vec![],
             legal_representative_change: None,
-        },
-    ];
-    for pallet in [30, 31] {
-        for action in old.clone() {
-            let mut call = vec![pallet, 8];
-            call.extend(
-                (
-                    b"CID".to_vec(),
-                    action.clone(),
-                    b"CID".to_vec(),
-                    b"ROLE".to_vec(),
-                )
-                    .encode(),
-            );
-            assert!(validate_institution_write(&call).is_err());
-            let mut call = vec![pallet, 9];
-            call.extend(
-                (
-                    b"CID".to_vec(),
-                    action,
-                    b"REGISTRY".to_vec(),
-                    b"ROLE".to_vec(),
-                    [0u8; 32],
-                    None::<u32>,
-                )
-                    .encode(),
-            );
-            assert!(validate_institution_write(&call).is_err());
-        }
+        };
+        let mut call = vec![pallet, 8];
+        call.extend((b"CID".to_vec(), empty, b"ACTOR".to_vec(), b"ROLE".to_vec()).encode());
+        assert!(validate_institution_write(&call).is_err());
+        let action = entitybase::InstitutionRoleRegistration {
+            role_mutations: vec![],
+            assignment_changes: vec![entitybase::InstitutionRoleAssignmentChange {
+                role_code: b"R1".to_vec(),
+                assignments: vec![],
+            }],
+        };
+        let mut call = vec![pallet, 9];
+        call.extend(
+            (
+                b"CID".to_vec(),
+                action,
+                b"ACTOR".to_vec(),
+                b"ROLE".to_vec(),
+                [0u8; 32],
+                Some(2u32),
+            )
+                .encode(),
+        );
+        assert_eq!(
+            validate_institution_write(&call).unwrap(),
+            Some((b"ACTOR".to_vec(), b"ROLE".to_vec()))
+        );
+        call.push(0);
+        assert!(validate_institution_write(&call).is_err());
     }
-    let action = entitybase::InstitutionGovernanceAction::<[u8; 32]>::MutateRolesAndAssignments {
-        role_mutations: vec![],
-        assignment_changes: vec![],
-        legal_representative_change: None,
-    };
-    let mut call = vec![31, 9];
-    call.extend(
-        (
-            b"CID".to_vec(),
-            action,
-            b"REGISTRY".to_vec(),
-            b"ROLE".to_vec(),
-            [0u8; 32],
-            Some(2u32),
-        )
-            .encode(),
-    );
-    assert!(validate_institution_write(&call).is_ok());
-    call.push(0);
-    assert!(validate_institution_write(&call).is_err());
-    assert!(validate_institution_write(&[48, 9, 0]).is_ok()); // 个人身份模块不进入机构动作门。
+    assert_eq!(validate_institution_write(&[48, 9, 0]).unwrap(), None);
 }

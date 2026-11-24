@@ -9,15 +9,6 @@ pub struct CapabilitySet {
     pub can_view_institutions: bool,
     pub can_view_private: bool,
     pub can_view_education: bool,
-    #[serde(rename = "canViewFederalRegistryAdmins")]
-    pub view_federal_admins: bool,
-    #[serde(rename = "canViewCityRegistryAdmins")]
-    pub view_city_admins: bool,
-    #[serde(rename = "canCrudCityRegistryAdmins")]
-    pub manage_city_admins: bool,
-    /// 只读「本机构管理员」位:非注册局法人登录后可查看本机构链上管理员列表(只读)。
-    #[serde(rename = "canViewOwnAdmins")]
-    pub view_own_admins: bool,
     pub can_manage_institutions: bool,
     pub can_register_institutions: bool,
     pub can_business_write: bool,
@@ -45,10 +36,6 @@ pub const EMPTY: CapabilitySet = CapabilitySet {
     can_view_institutions: false,
     can_view_private: false,
     can_view_education: false,
-    view_federal_admins: false,
-    view_city_admins: false,
-    manage_city_admins: false,
-    view_own_admins: false,
     can_manage_institutions: false,
     can_register_institutions: false,
     can_business_write: false,
@@ -62,30 +49,9 @@ pub const EMPTY: CapabilitySet = CapabilitySet {
     can_propose_budget: false,
 };
 
-// 普通机构(NJD/公权/私权/非法人,非注册局):本期只开只读「本机构管理员」入口。
-const OWN_ADMINS_READONLY: CapabilitySet = CapabilitySet {
-    view_own_admins: true,
-    ..EMPTY
-};
-
-// 各业务模块在其真实入口声明业务能力；本文件只保留公共类型、基线与汇总。
-
-/// 机构码文本 → 能力集。按机构类(`primitives::cid::code` 单源)分发,未知/不归控制台返回空能力。
-pub fn base_capabilities(institution_code: &str) -> CapabilitySet {
-    use primitives::cid::code::{
-        institution_code_from_str, is_private_legal_code, is_public_legal_code,
-        is_unincorporated_code,
-    };
-    let Some(code) = institution_code_from_str(institution_code) else {
-        return EMPTY;
-    };
-
-    if primitives::cid::code::is_fixed_governance_code(&code) || is_public_legal_code(&code) || is_private_legal_code(&code) || is_unincorporated_code(&code)
-    {
-        OWN_ADMINS_READONLY
-    } else {
-        EMPTY
-    }
+// 普通机构的本机构资料由已认证工作台展示，不另设人员名单能力。
+pub fn base_capabilities(_institution_code: &str) -> CapabilitySet {
+    EMPTY
 }
 /// 业务能力由已装载模块提供，通用本机构读取仍按原规则。
 pub fn capabilities_for(

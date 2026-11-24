@@ -28,10 +28,6 @@ members = [
     "runtime",                               # 链上运行时
     "runtime/primitives",                    # 运行时共享常量与基础类型
 
-    "runtime/admins/adminbase",        # admins 模组-管理员共用类型与 trait
-    "runtime/admins/publicadmin",           # admins 模组-公权机构管理员（含固定治理档运行期治理）
-    "runtime/admins/privateadmin",          # admins 模组-私权机构管理员
-    "runtime/admins/personaladmin",         # admins 模组-个人多签管理员
     "runtime/governance/grandpakey",         # 治理-GRANDPA 密钥治理模块 pallet
     "runtime/governance/destroy",   # 治理-决议销毁模块 pallet
     "runtime/governance/upgrade",    # 治理-协议升级模块 pallet
@@ -60,7 +56,7 @@ members = [
     "runtime/entity/entitybase",          # 实体模组-生命周期共用类型与 trait
     "runtime/entity/publicentity",              # 实体模组-公权机构生命周期
     "runtime/entity/privateentity",             # 实体模组-私权机构生命周期
-    "runtime/entity/personalentity",            # 实体模组-个人多签账户生命周期
+    "runtime/misc/personal",            # misc 模组-个人多签生命周期与成员治理
     "runtime/transaction/multisig",     # 交易-机构多签名地址转账模块 pallet
 
 ]

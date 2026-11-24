@@ -8,9 +8,6 @@ pub mod actions;
 /// 平台管理员登录认证能力。
 #[path = "login.rs"]
 pub mod login;
-/// 平台登录管理员元数据；注册局名册 DTO 归注册局。
-#[path = "model.rs"]
-pub mod model;
 /// 管理端操作权限分级唯一入口。
 #[path = "operation_auth.rs"]
 pub mod operation_auth;

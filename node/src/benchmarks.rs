@@ -51,7 +51,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for RemarkBuilder {
     }
 }
 
-/// Generates `OnchainTransaction::transfer_with_remark` extrinsics for the benchmarks.
+/// Generates `Onchain::transfer_with_remark` extrinsics for the benchmarks.
 ///
 /// Note: Should only be used for benchmarking.
 pub(crate) struct TransferWithRemarkBuilder {
@@ -85,7 +85,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferWithRemarkBuilder {
         let extrinsic: OpaqueExtrinsic = create_benchmark_extrinsic(
             self.client.as_ref(),
             acc,
-            runtime::RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+            runtime::RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
                 beneficiary_account_id: self.dest.clone(),
                 amount: self.value,
                 remark: Default::default(),

@@ -1,7 +1,7 @@
-// 根据注册局工作台清单组织公民、机构及管理员办理页面。
+// 根据注册局工作台清单组织公民及机构办理页面。
 
 import { useState } from 'react';
-import { Alert, Card } from 'antd';
+import { Alert } from 'antd';
 import { type AdminAuth } from '@gmb/onchina-platform/authentication/types';
 import { type CapabilitySet } from '@gmb/onchina-platform/authentication/Context';
 import { type CidMetaResult } from '@gmb/onchina-platform/codes/api';
@@ -10,9 +10,7 @@ import { notice } from '@gmb/onchina-platform/controls/notice';
 import { GovView } from "../government/GovView";
 import { PrivateShell } from "../private/PrivateShell";
 import { EducationView } from "../education/EducationView";
-import { OwnInstitutionAdminsView } from '@gmb/onchina-platform/institutions/AdminsView';
-import { RegistryAdminsView } from "../admins/ProvinceDetailView";
-import { isSubordinateRegistry, isTier1Registry } from '@gmb/onchina-platform/authorization/registryTier';
+import { RegistryView } from "../government/Registry";
 import { CitizensView } from "../citizens/CitizensView";
 import { AddressManageView } from "../address/AddressManageView";
 import { moduleView } from '@gmb/onchina-platform/workspace/modules';
@@ -31,7 +29,6 @@ type ActiveView =
   | 'private-association'
   | 'education'
   | 'address'
-  | 'own-admins'
   | 'city-registry'
   | 'federal-registry'
   | 'legislation';
@@ -39,7 +36,6 @@ type ActiveView =
 export type RegistryWorkspaceProps = {
   auth: AdminAuth;
   capabilities: CapabilitySet;
-  passkeyRegistered: boolean | null;
   cidMeta: CidMetaResult | null;
   setCidMeta: (next: CidMetaResult | null) => void;
 };
@@ -63,12 +59,6 @@ function privateTypeForView(view: ActiveView): PrivateType | null {
   }
 }
 
-function registryAdminListView(institutionCode: string | null | undefined): ActiveView | null {
-  if (isTier1Registry(institutionCode)) return 'federal-registry';
-  if (isSubordinateRegistry(institutionCode)) return 'city-registry';
-  return null;
-}
-
 function firstBusinessView(capabilities: CapabilitySet): ActiveView | null {
   if (capabilities.canViewCitizens) return 'citizens';
   if (capabilities.canViewInstitutions) return 'gov';
@@ -77,14 +67,12 @@ function firstBusinessView(capabilities: CapabilitySet): ActiveView | null {
   if (capabilities.canViewCityRegistry) return 'city-registry';
   if (capabilities.canViewFederalRegistry) return 'federal-registry';
   if (capabilities.canViewLegislation) return 'legislation';
-  if (capabilities.canViewOwnAdmins) return 'own-admins';
   return null;
 }
 
 export function RegistryWorkspace({
   auth,
   capabilities,
-  passkeyRegistered,
   cidMeta,
   setCidMeta,
 }: RegistryWorkspaceProps) {
@@ -109,7 +97,6 @@ export function RegistryWorkspace({
     if (options?.loadCidMeta) await loadCidMetaForInstitutions();
   };
 
-  const passkeyLockedRegistryView = passkeyRegistered === false ? registryAdminListView(auth.institutionCode) : null;
   const tabs = ([
     { key: 'citizens' as const, title: '公民', visible: capabilities.canViewCitizens, onClick: () => switchView('citizens') },
     { key: 'private-sole' as const, title: '个体经营', visible: capabilities.canViewPrivate, onClick: () => switchView('private-sole', { loadCidMeta: true }) },
@@ -132,17 +119,15 @@ export function RegistryWorkspace({
     },
     { key: 'address' as const, title: '地址库', visible: capabilities.canViewInstitutions, onClick: () => switchView('address') },
     { key: 'legislation' as const, title: '立法与表决', visible: capabilities.canViewLegislation, onClick: () => switchView('legislation') },
-    { key: 'own-admins' as const, title: '本机构管理员', visible: capabilities.canViewOwnAdmins, onClick: () => switchView('own-admins') },
     { key: 'city-registry' as const, title: '市注册局', visible: capabilities.canViewCityRegistry, onClick: () => switchView('city-registry') },
     { key: 'federal-registry' as const, title: '联邦注册局', visible: capabilities.canViewFederalRegistry, onClick: () => switchView('federal-registry') },
-  ] as const).filter((tab) => tab.visible && (!passkeyLockedRegistryView || tab.key === passkeyLockedRegistryView));
-  // 第一帧只选取最终可见页面；保留原两个注册局Tab及未设置密钥时的限制。
-  const defaultView = passkeyLockedRegistryView ?? firstBusinessView(capabilities);
+  ] as const).filter((tab) => tab.visible);
+  // 首次密钥设置由宿主路由统一守卫；业务页只消费后端能力。
+  const defaultView = firstBusinessView(capabilities);
   const selectedView = selection?.accountId === auth.accountId
     && selection.institutionCidNumber === auth.institutionCidNumber ? selection.view : null;
   const activeView = tabs.some(tab => tab.key === selectedView) ? selectedView
     : tabs.find(tab => tab.key === defaultView)?.key ?? tabs[0]?.key ?? null;
-  if (passkeyRegistered === null) return <Card bordered={false} loading />;
   if (!activeView) return <Alert type="info" showIcon message="当前身份没有可访问的工作台入口" />;
   const routedPrivateType = privateTypeForView(activeView);
 
@@ -195,12 +180,11 @@ export function RegistryWorkspace({
         <EducationView key={`education-${viewResetToken}`} auth={auth} cidMeta={cidMeta} />
       ) : activeView === 'address' && capabilities.canViewInstitutions ? (
         <AddressManageView key={`address-${viewResetToken}`} auth={auth} />
-      ) : activeView === 'own-admins' && capabilities.canViewOwnAdmins ? (
-        <OwnInstitutionAdminsView key={`own-admins-${viewResetToken}`} />
+
       ) : activeView === 'city-registry' && capabilities.canViewCityRegistry ? (
-        <RegistryAdminsView key={`city-registry-${viewResetToken}`} mode="city-registry" />
+        <RegistryView key={`city-registry-${viewResetToken}`} auth={auth} mode="city-registry" />
       ) : activeView === 'federal-registry' && capabilities.canViewFederalRegistry ? (
-        <RegistryAdminsView key={`federal-registry-${viewResetToken}`} mode="federal-registry" />
+        <RegistryView key={`federal-registry-${viewResetToken}`} auth={auth} mode="federal-registry" />
       ) : activeView === 'legislation' && capabilities.canViewLegislation ? (
         <LegislationView key={`legislation-${viewResetToken}`} auth={auth} />
       ) : (
@@ -212,4 +196,4 @@ export function RegistryWorkspace({
   );
 }
 
-export { RegistryAdminsView };
+export { RegistryView };

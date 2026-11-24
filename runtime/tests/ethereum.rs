@@ -95,6 +95,34 @@ fn apply(tx: pallet_revive::evm::GenericTransaction) {
     let result = apply_checked(extrinsic(tx));
     assert!(matches!(result, Ok(Ok(_))), "{result:?}");
 }
+/// 以太坊签名也遵守共同余额入口，账户重新入金后沿用原 System nonce。
+#[test]
+fn ethereum_signer_requires_balance_and_keeps_nonce_after_reap() {
+    use sp_runtime::transaction_validity::TransactionValidityError;
+
+    ext().execute_with(|| {
+        let who = signer();
+        let recipient = H160::repeat_byte(0x52);
+        let original = extrinsic(tx(Some(recipient), Vec::new(), 200));
+        assert!(matches!(apply_checked(original.clone()), Ok(Ok(_))));
+        assert_eq!(System::account_nonce(&who), 1);
+        Balances::set_balance(&who, 0);
+        assert!(!frame_system::Account::<Runtime>::contains_key(&who));
+        assert_eq!(
+            apply_checked(original.clone()),
+            Err(TransactionValidityError::Invalid(InvalidTransaction::Payment))
+        );
+        Balances::set_balance(&who, 10_000);
+        assert_eq!(System::account_nonce(&who), 1);
+        assert_eq!(
+            apply_checked(original),
+            Err(TransactionValidityError::Invalid(InvalidTransaction::Stale))
+        );
+        apply(tx(Some(recipient), Vec::new(), 200));
+        assert_eq!(System::account_nonce(&who), 2);
+    });
+}
+
 fn initcode(runtime: &[u8]) -> Vec<u8> {
     assert!(runtime.len() < 256);
     let n = runtime.len() as u8;
@@ -115,7 +143,7 @@ fn paid_fees() -> Vec<(AccountId, u128)> {
     System::events()
         .into_iter()
         .filter_map(|event| match event.event {
-            RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid {
+            RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid {
                 account_id,
                 fee,
             }) => Some((account_id, fee)),
@@ -340,14 +368,14 @@ fn prefunded_fallback_does_not_block_new_accounts_or_historical_backfill() {
         let fallback =
             pallet_revive::AccountId32Mapper::<Runtime>::to_fallback_account_id(&address);
         // Anyone can fund this native address without possessing E's key.
-        assert_ok!(OnchainTransaction::transfer_with_remark(
+        assert_ok!(Onchain::transfer_with_remark(
             RuntimeOrigin::signed(source.clone()),
             fallback.clone(),
             1_000,
             vec![].try_into().unwrap(),
         ));
         let fallback_before = System::account(&fallback);
-        assert_ok!(OnchainTransaction::transfer_with_remark(
+        assert_ok!(Onchain::transfer_with_remark(
             RuntimeOrigin::signed(source.clone()),
             account.clone(),
             500,
@@ -372,7 +400,7 @@ fn prefunded_fallback_does_not_block_new_accounts_or_historical_backfill() {
         let legacy_address = pallet_revive::AccountId32Mapper::<Runtime>::to_address(&legacy);
         let legacy_fallback =
             pallet_revive::AccountId32Mapper::<Runtime>::to_fallback_account_id(&legacy_address);
-        assert_ok!(OnchainTransaction::transfer_with_remark(
+        assert_ok!(Onchain::transfer_with_remark(
             RuntimeOrigin::signed(source),
             legacy_fallback.clone(),
             1_000,

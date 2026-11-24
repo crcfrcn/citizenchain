@@ -12,6 +12,7 @@ pub mod apis;
 mod benchmarks;
 pub mod configs;
 mod evm_accounts;
+mod migrations;
 
 extern crate alloc;
 use alloc::vec::Vec;
@@ -80,8 +81,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //   runtime in substitute for the on-chain Wasm runtime unless all of `spec_name`,
     //   `spec_version`, and `authoring_version` are the same between Wasm and native.
     // 当前 runtime 采用统一模块命名：
-    // genesis / publicadmin / privateadmin / personaladmin /
-    // publicentity / privateentity / personalentity / engingcore /
+    // genesis /
+    // publicentity / privateentity / personal / engingcore /
     // multisig / offchain / onchain /
     // square。
     // square 订阅采用 runtime 真实公历时间戳协议：只执行扣款、最小状态和时间戳比较；
@@ -136,7 +137,7 @@ pub type Hash = sp_core::H256;
 pub type BlockNumber = u32;
 
 /// The address format for describing accounts.
-pub type Address = MultiAddress<AccountId, ()>;
+pub type TransactionAddress = MultiAddress<AccountId, ()>;
 
 /// Block header type as expected by this runtime.
 pub type Header = generic::Header<BlockNumber, BlakeTwo256>;
@@ -171,6 +172,7 @@ pub type TxExtension = (
     ),
 );
 
+/// 签名账户必须有原生币余额，质押账户继续禁止直接签名。沿用现有扩展编码。
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, Eq, PartialEq, TypeInfo, Debug)]
 pub struct CheckNonStakeSender;
 
@@ -185,7 +187,9 @@ where
     type Pre = ();
 
     fn weight(&self, _call: &RuntimeCall) -> Weight {
-        Weight::zero()
+        <Runtime as frame_system::Config>::DbWeight::get()
+            .reads(1)
+            .saturating_add(Weight::from_parts(2_000_000, 3_593))
     }
 
     fn validate(
@@ -201,6 +205,9 @@ where
         if let Some(who) = origin.as_system_origin_signer() {
             if configs::is_stake_account(who) {
                 return Err(InvalidTransaction::Call.into());
+            }
+            if Balances::free_balance(who) == 0 {
+                return Err(InvalidTransaction::Payment.into());
             }
         }
         Ok((Default::default(), (), origin))
@@ -243,7 +250,7 @@ where
 #[serde(crate = "sp_runtime::serde", transparent)]
 pub struct UncheckedExtrinsic(
     pub  generic::UncheckedExtrinsic<
-        Address,
+        TransactionAddress,
         RuntimeCall,
         Signature,
         TxExtension,
@@ -252,12 +259,12 @@ pub struct UncheckedExtrinsic(
 );
 
 type SdkExtrinsic =
-    pallet_revive::evm::runtime::UncheckedExtrinsic<Address, Signature, EthExtraImpl>;
+    pallet_revive::evm::runtime::UncheckedExtrinsic<TransactionAddress, Signature, EthExtraImpl>;
 
 impl
     From<
         generic::UncheckedExtrinsic<
-            Address,
+            TransactionAddress,
             RuntimeCall,
             Signature,
             TxExtension,
@@ -267,7 +274,7 @@ impl
 {
     fn from(
         value: generic::UncheckedExtrinsic<
-            Address,
+            TransactionAddress,
             RuntimeCall,
             Signature,
             TxExtension,
@@ -458,19 +465,19 @@ mod runtime {
 
     // 链上交易手续费模块：发出 FeePaid 事件，供客户端读取真实手续费
     #[runtime::pallet_index(4)]
-    pub type OnchainTransaction = onchain::pallet;
+    pub type Onchain = onchain::pallet;
 
     // 省储行利息模块：按年度给固定省储行账户发放质押利息
     #[runtime::pallet_index(5)]
-    pub type ProvincialBankInterest = prbbankissue;
+    pub type PrbBankIssue = prbbankissue;
 
     // 全节点发行模块：出块成功后发放固定铸块奖励
     #[runtime::pallet_index(6)]
-    pub type FullnodeIssuance = fullnodeissue;
+    pub type FullnodeIssue = fullnodeissue;
 
     // 决议发行模块：完整承载提案、联合投票回调、发行执行与维护审计
     #[runtime::pallet_index(8)]
-    pub type ResolutionIssuance = resolutionissue;
+    pub type ResolutionIssue = resolutionissue;
 
     // 投票引擎核心:Proposals/反向索引/状态机/快照/锁/清理共用基础设施
     #[runtime::pallet_index(9)]
@@ -480,7 +487,7 @@ mod runtime {
     #[runtime::pallet_index(20)]
     pub type InternalVote = internalvote;
 
-    // 联合投票 sub-pallet:管理员多签 + 联合公投两阶段
+    // 联合投票 sub-pallet：机构岗位投票和联合公投两个阶段。
     #[runtime::pallet_index(21)]
     pub type JointVote = jointvote;
 
@@ -490,63 +497,61 @@ mod runtime {
 
     // 链上公民身份：登记投票身份、参选身份并提供人口快照读取
     #[runtime::pallet_index(10)]
-    pub type CitizenIdentity = identity;
+    pub type Identity = identity;
 
     // 公民发行：仅负责认证奖励发放
     #[runtime::pallet_index(11)]
-    pub type CitizenIssuance = citizenissue;
+    pub type CitizenIssue = citizenissue;
 
     // 运行时升级治理模块：提案与联合投票通过后触发 set_code。
     #[runtime::pallet_index(12)]
-    pub type RuntimeUpgrade = upgrade;
+    pub type Upgrade = upgrade;
 
     // 决议销毁治理模块：本机构内部投票通过后销毁本机构交易地址余额
     #[runtime::pallet_index(13)]
-    pub type ResolutionDestroy = destroy;
+    pub type Destroy = destroy;
 
     // GRANDPA 密钥治理模块：国家储委会/省储委会内部投票通过后替换 GRANDPA 投票公钥
     #[runtime::pallet_index(15)]
-    pub type GrandpaKeyChange = grandpakey;
+    pub type GrandpaKey = grandpakey;
 
-    // 个人多签账户生命周期模块:创建/关闭用户自定义多签账户(无 CID 归属,creator_account_id+account_name 派生)。
+    // 个人多签模块:创建/关闭及成员治理，用户自定义多签账户(无 CID 归属,creator_account_id+account_name 派生)。
     #[runtime::pallet_index(7)]
-    pub type PersonalManage = personalentity;
+    pub type Personal = personal;
 
-    // 个人多签管理员模块:只管理个人多签账户的 admins 集合与管理员变更。
-    #[runtime::pallet_index(29)]
-    pub type PersonalAdmins = personaladmin;
+    // pallet_index(29) 原个人成员模块已并入7，永久保留空位，不复用。
 
     // PoW 动态难度调整模块：每 600 块根据实际出块速度自动调整挖矿难度
     #[runtime::pallet_index(16)]
-    pub type PowDifficulty = difficulty;
+    pub type Difficulty = difficulty;
 
     // 机构/个人多签账户转账模块：机构交易以 CID 为主体并显式携带 institution_account_id；个人交易以 personal_account_id 为主体。
     #[runtime::pallet_index(17)]
-    pub type MultisigTransfer = multisig;
+    pub type Multisig = multisig;
 
     // 创世模块：存储创世期/运行期阶段、出块目标时间、开发者直升开关、创世常量
     #[runtime::pallet_index(18)]
-    pub type GenesisPallet = genesis;
+    pub type Genesis = genesis;
 
     // 链下交易清算模块：省储行即时清算、批量上链、绑定清算行、费率治理
     #[runtime::pallet_index(19)]
-    pub type OffchainTransaction = offchain::pallet;
+    pub type Offchain = offchain::pallet;
 
-    // 链上发行代币(Plain FT, ADR-011):用户(CID 机构 + personalentity 个人多签账户)发行 GMB 之外的代币。
+    // 链上发行代币(Plain FT, ADR-011):用户(CID 机构 + personal 个人多签账户)发行 GMB 之外的代币。
     // 唯一外壳入口,内核挂 pallet_assets;pallet_assets 原生 extrinsic 由 BaseCallFilter 屏蔽。
-    // 当前为空壳(任务卡 A/B 未实装),OnchainIssuance 自身 propose_* 也在 RuntimeCallFilter 中 reject。
+    // 当前为空壳(任务卡 A/B 未实装),OnchainIssue 自身 propose_* 也在 RuntimeCallFilter 中 reject。
     #[runtime::pallet_index(23)]
-    pub type OnchainIssuance = onchainissue;
+    pub type OnchainIssue = onchainissue;
 
     // pallet_assets 内核:多资产基础设施,所有原生 extrinsic 在 RuntimeCallFilter 中 reject。
-    // 业务调用一律经由 OnchainIssuance::propose_* → InternalVote/JointVote callback → 内部 root 调用。
+    // 业务调用一律经由 OnchainIssue::propose_* → InternalVote/JointVote callback → 内部 root 调用。
     #[runtime::pallet_index(24)]
     pub type Assets = pallet_assets;
 
     // 立法院模块:法律结构化上链 + 修法走立法投票(ADR-027)。业务壳,只承载法律数据与提案入口;
     // 表决/计票/公投归属 legislationvote sub-pallet。
     #[runtime::pallet_index(25)]
-    pub type LegislationYuan = legislation;
+    pub type Legislation = legislation;
 
     // 立法投票 sub-pallet:立法机构专属投票(单院/两院/特别案强制公投,ADR-027)。
     // 投票引擎「头等模式」PROPOSAL_KIND_LEGISLATION,共享核心共享基础,只本地存计票账本。
@@ -555,31 +560,25 @@ mod runtime {
 
     // 公民选举模块：用于公民选举公职人员，当前仅占位。
     #[runtime::pallet_index(32)]
-    pub type CitizenElection = election;
+    pub type Election = election;
 
-    // 公权机构管理员模块：含创世写入的固定治理机构运行期管理员治理。
-    #[runtime::pallet_index(27)]
-    pub type PublicAdmins = publicadmin;
-
-    // 私权机构管理员模块；归属私法人的非法人由上层显式路由到这里。
-    #[runtime::pallet_index(28)]
-    pub type PrivateAdmins = privateadmin;
+    // pallet index 27、28 原机构管理员模块已退役。
 
     // 公权机构生命周期模块：只负责公权机构 CID 登记、创建、关闭。
     #[runtime::pallet_index(30)]
-    pub type PublicManage = publicentity;
+    pub type PublicEntity = publicentity;
 
     // 私权机构生命周期模块：只负责私权机构 CID 登记、创建、关闭。
     #[runtime::pallet_index(31)]
-    pub type PrivateManage = privateentity;
+    pub type PrivateEntity = privateentity;
 
     // 地址变更上链模块：只保存地址目录版本、单条地址当前哈希和变更事件。
     #[runtime::pallet_index(33)]
-    pub type AddressRegistry = address;
+    pub type Address = address;
 
     // 广场动态发布索引模块：只记录 post_id/content_hash/storage_receipt_id 等链上索引。
     #[runtime::pallet_index(34)]
-    pub type SquarePost = square;
+    pub type Square = square;
 
     #[runtime::pallet_index(36)]
     pub type Mldsa = mldsa;

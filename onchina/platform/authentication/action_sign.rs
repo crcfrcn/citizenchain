@@ -1,4 +1,4 @@
-//! 构造管理员敏感动作的冷签原文和摘要，并验证账户签名。
+//! 构造岗位人员敏感操作的冷签原文和摘要，并验证账户签名。
 
 #![allow(clippy::result_large_err)]
 
@@ -10,12 +10,12 @@ use crate::crypto::pubkey::same_account_id;
 use crate::*;
 
 /// 敏感动作挑战有效期(秒)。
-pub(crate) const ADMIN_ACTION_TTL_SECONDS: i64 = 300;
+pub(crate) const OPERATION_TTL_SECONDS: i64 = 300;
 
 /// 冷钱包扫码签名的结构化 payload(序列化为 JSON 文本后冷签)。
 #[derive(Serialize)]
 // QR_V1 固定签名字节保持原 snake_case 与声明顺序；不属于 HTTP DTO。
-pub(crate) struct AdminSignedPayload<'a> {
+pub(crate) struct OperationPayload<'a> {
     pub(crate) domain: &'static str,
     pub(crate) qr_proto: &'static str,
     pub(crate) action_id: &'a str,
@@ -30,7 +30,7 @@ pub(crate) struct AdminSignedPayload<'a> {
     pub(crate) expires_at: i64,
 }
 
-pub(crate) fn signed_payload_text(payload: AdminSignedPayload<'_>) -> String {
+pub(crate) fn signed_payload_text(payload: OperationPayload<'_>) -> String {
     serde_json::to_string(&payload).unwrap_or_default()
 }
 
@@ -69,11 +69,11 @@ pub(crate) fn verify_account_signature(
             "payload hash mismatch",
         ));
     }
-    // 治理动作走统一哈希域:signing_message(OP_SIGN_ONCHINA_ADMIN, payload)
+    // 治理动作走统一哈希域:signing_message(OP_SIGN_ONCHINA_CONFIRM, payload)
     // = blake2_256(GMB || 0x20 || payload)。此前对裸 JSON 文本直签,无 GMB 前缀、
     // 无 op_tag、不进 SIGN_OP_TAGS,域分离只靠 JSON 里一个 domain 字符串字段。
     let signing_bytes = primitives::sign::signing_message(
-        primitives::sign::OP_SIGN_ONCHINA_ADMIN,
+        primitives::sign::OP_SIGN_ONCHINA_CONFIRM,
         payload_text.as_bytes(),
     );
     if !crate::authentication::login::verify_admin_signature_bytes(

@@ -7,24 +7,24 @@ use frame_support::{
 };
 
 use crate::pallet::{
-    self, AdminSnapshot, Error, FrozenGovernanceWalletState, FrozenWalletVersions, InstitutionTicketCountSnapshot, ProposalVotePlans, VoterSnapshot,
+    self, AdminSnapshot, Error, InstitutionTicketCountSnapshot, ProposalVotePlans, RoleVoters,
 };
 use crate::types::{AuthorizationSubject, CidNumber, ProposalSubject};
-use crate::InternalAdminProvider;
+use crate::{CitizenIdentityReader, InternalVoteProvider};
 
 impl<T: pallet::Config> pallet::Pallet<T> {
-    /// 冻结版本读取的保守附加预算，非新实测基准；个人票不使用。
+    /// 冻结资格及当前人员绑定查询的保守附加预算，非新实测基准；个人票不使用。
     pub fn frozen_vote_weight() -> Weight {
         Weight::from_parts(
             1_000_000_000,
-            u64::from(T::MaxAdminsPerInstitution::get())
+            u64::from(T::MaxSnapshotVoters::get())
                 .saturating_mul(40)
                 .saturating_add(8192),
         )
-        .saturating_add(T::DbWeight::get().reads(2))
+        .saturating_add(T::DbWeight::get().reads(4))
     }
-    /// 机构治理建案的批量钱包查询及版本写入附加预算，按实际名单/岗位数估价。
-    pub fn frozen_snapshot_weight(wallets: u32, subjects: u32) -> Weight {
+    /// 机构建案的人员绑定与岗位快照预算。
+    pub fn frozen_snapshot_weight(persons: u32, subjects: u32) -> Weight {
         if subjects == 0 {
             return Weight::zero();
         }
@@ -32,61 +32,30 @@ impl<T: pallet::Config> pallet::Pallet<T> {
             .saturating_mul(subjects.into())
             .saturating_add(
                 Weight::from_parts(10_000_000, 40)
-                    .saturating_mul(u64::from(wallets).saturating_mul(subjects.into())),
+                    .saturating_mul(u64::from(persons).saturating_mul(subjects.into())),
             )
-            .saturating_add(Weight::from_parts(0, 6000).saturating_mul(wallets.into()))
+            .saturating_add(Weight::from_parts(0, 6000).saturating_mul(persons.into()))
             .saturating_add(
                 T::DbWeight::get().reads_writes(
-                    (u64::from(wallets).saturating_mul(2).saturating_add(3))
+                    (u64::from(persons).saturating_mul(3).saturating_add(3))
                         .saturating_mul(subjects.into()),
                     subjects.into(),
                 ),
             )
     }
 
-    /// 同样只供受信任的创建/历史事实补齐流程调用，无外部extrinsic，不从当前状态兜底。
-    pub fn record_governance_wallet_state(proposal_id: u128, state: [u8; 32]) -> DispatchResult {
-        frame_support::ensure!(
-            crate::Proposals::<T>::contains_key(proposal_id),
-            Error::<T>::ProposalNotFound
-        );
-        frame_support::ensure!(
-            !FrozenGovernanceWalletState::<T>::contains_key(proposal_id),
-            Error::<T>::VotePlanAlreadyBound
-        );
-        FrozenGovernanceWalletState::<T>::insert(proposal_id, state);
-        Ok(())
-    }
-
-    /// 原签名钱包必须直接属于该提案的冻结身份；不解析现任名单或个人CID。
-    /// 票据版本随提案冻结，保持旧票据的SCALE编码和已投状态不变。
-    pub fn frozen_voter_identity(
-        proposal_id: u128,
-        subject: &AuthorizationSubject<CidNumber, crate::types::RoleCode, T::AccountId>,
-        who: &T::AccountId,
-    ) -> Option<(T::AccountId, u64)> {
-        if !matches!(subject, AuthorizationSubject::Institution(_)) {
-            return None;
-        }
-        let voters = VoterSnapshot::<T>::get(proposal_id, subject)?;
-        let versions = FrozenWalletVersions::<T>::get(proposal_id, subject)?;
-        if voters.len() != versions.len()
-            || !voters
-                .iter()
-                .zip(versions.iter())
-                .all(|(wallet, (recorded, _))| wallet == recorded)
-        {
-            return None;
-        }
-        versions.into_iter().find(|(wallet, _)| wallet == who)
-    }
-
+    /// 解析签名钱包的当前人员 CID，并验证该人员属于指定提案和机构岗位。
     pub fn resolve_snapshot_voter(
         proposal_id: u128,
         subject: &AuthorizationSubject<CidNumber, crate::types::RoleCode, T::AccountId>,
         who: &T::AccountId,
-    ) -> Option<T::AccountId> {
-        Self::frozen_voter_identity(proposal_id, subject, who).map(|(wallet, _)| wallet)
+    ) -> Option<CidNumber> {
+        let AuthorizationSubject::Institution(role) = subject else {
+            return None;
+        };
+        let person_cid = T::CitizenIdentityReader::person_cid(who)?;
+        let persons = RoleVoters::<T>::get(proposal_id, role)?;
+        persons.binary_search(&person_cid).is_ok().then_some(person_cid)
     }
 
     pub fn is_subject_voter_in_snapshot(
@@ -94,44 +63,18 @@ impl<T: pallet::Config> pallet::Pallet<T> {
         subject: AuthorizationSubject<CidNumber, crate::types::RoleCode, T::AccountId>,
         who: &T::AccountId,
     ) -> bool {
-        Self::frozen_voter_identity(proposal_id, &subject, who).is_some()
+        Self::resolve_snapshot_voter(proposal_id, &subject, who).is_some()
     }
 
-    /// 受信任的一次性资料补齐原语，无外部extrinsic。调用方须提供创建时的已核实版本。
-    /// 名单必须与原快照逐项完全一致，只能补写一次，不改名单、分母、票数或投票记录。
-    pub fn record_frozen_wallet_versions(
-        proposal_id: u128,
-        subject: AuthorizationSubject<CidNumber, crate::types::RoleCode, T::AccountId>,
-        records: sp_std::vec::Vec<(T::AccountId, u64)>,
-    ) -> DispatchResult {
-        frame_support::ensure!(
-            matches!(subject, AuthorizationSubject::Institution(_)),
-            Error::<T>::InvalidVotePlan
-        );
-        let voters = VoterSnapshot::<T>::get(proposal_id, &subject)
-            .ok_or(Error::<T>::MissingVoterSnapshot)?;
-        Self::ensure_valid_voter_snapshot(&voters)?;
-        frame_support::ensure!(
-            !FrozenWalletVersions::<T>::contains_key(proposal_id, &subject),
-            Error::<T>::VotePlanAlreadyBound
-        );
-        frame_support::ensure!(
-            voters.len() == records.len()
-                && voters.iter().zip(records.iter()).all(|(w, (r, _))| w == r),
-            Error::<T>::InvalidInstitution
-        );
-        let records = BoundedVec::<_, T::MaxAdminsPerInstitution>::try_from(records)
-            .map_err(|_| Error::<T>::InvalidInstitution)?;
-        FrozenWalletVersions::<T>::insert(proposal_id, subject, records);
-        Ok(())
-    }
-
-    /// 查询某个完整岗位主体的冻结选民人数。
+    /// 查询指定岗位的冻结人员数量。
     pub fn subject_voters_len(
         proposal_id: u128,
         subject: AuthorizationSubject<CidNumber, crate::types::RoleCode, T::AccountId>,
     ) -> Option<u32> {
-        VoterSnapshot::<T>::get(proposal_id, subject).map(|voters| voters.len() as u32)
+        let AuthorizationSubject::Institution(role) = subject else {
+            return None;
+        };
+        RoleVoters::<T>::decode_len(proposal_id, role).map(|len| len as u32)
     }
 
     /// 查询某机构冻结的岗位票据总数。
@@ -151,52 +94,31 @@ impl<T: pallet::Config> pallet::Pallet<T> {
             .unwrap_or(false)
     }
 
-    /// 冻结一个完整岗位主体的当前有效任职账户，并累加该机构的岗位票据总数。
+    /// 按机构和岗位冻结人员名单，整案拒绝缺绑定、重复或超限的人员。
     pub fn snapshot_role_voters(
         proposal_id: u128,
         subject: AuthorizationSubject<CidNumber, crate::types::RoleCode, T::AccountId>,
-        voters: sp_std::vec::Vec<T::AccountId>,
+        voters: sp_std::vec::Vec<sp_std::vec::Vec<u8>>,
     ) -> DispatchResult {
-        let institution_cid = match &subject {
-            AuthorizationSubject::Institution(role_subject) => role_subject.cid_number.clone(),
-            AuthorizationSubject::PersonalMultisig(_) => {
-                return Err(Error::<T>::InvalidVotePlan.into())
-            }
+        let AuthorizationSubject::Institution(role) = subject else {
+            return Err(Error::<T>::InvalidVotePlan.into());
         };
-        frame_support::ensure!(
-            !VoterSnapshot::<T>::contains_key(proposal_id, &subject),
-            Error::<T>::VotePlanAlreadyBound
-        );
-        Self::ensure_valid_voter_snapshot(voters.as_slice())?;
-        frame_support::ensure!(
-            !FrozenWalletVersions::<T>::contains_key(proposal_id, &subject),
-            Error::<T>::VotePlanAlreadyBound
-        );
-        let records =
-            T::InternalAdminProvider::institution_wallet_snapshot(&institution_cid, &voters)
-                .ok_or(Error::<T>::MissingVoterSnapshot)?;
-        frame_support::ensure!(
-            records.len() == voters.len(),
-            Error::<T>::InvalidInstitution
-        );
-        let wallets = records
-            .iter()
-            .map(|(wallet, _)| wallet.clone())
-            .collect::<sp_std::vec::Vec<_>>();
-        Self::ensure_valid_voter_snapshot(&wallets)?;
-        let bounded = BoundedVec::<T::AccountId, T::MaxAdminsPerInstitution>::try_from(wallets)
+        frame_support::ensure!(!RoleVoters::<T>::contains_key(proposal_id, &role), Error::<T>::VotePlanAlreadyBound);
+        frame_support::ensure!(!voters.is_empty(), Error::<T>::MissingVoterSnapshot);
+        frame_support::ensure!(voters.len() <= T::MaxSnapshotVoters::get() as usize, Error::<T>::InvalidInstitution);
+        let mut persons = voters.into_iter().map(|raw| {
+            let cid = CidNumber::try_from(raw).map_err(|_| Error::<T>::InvalidInstitution)?;
+            T::CitizenIdentityReader::person_account(&cid).ok_or(Error::<T>::MissingVoterSnapshot)?;
+            Ok::<_, Error<T>>(cid)
+        }).collect::<Result<sp_std::vec::Vec<_>, _>>()?;
+        persons.sort_unstable();
+        frame_support::ensure!(persons.windows(2).all(|pair| pair[0] != pair[1]), Error::<T>::InvalidInstitution);
+        let persons = BoundedVec::<CidNumber, T::MaxSnapshotVoters>::try_from(persons)
             .map_err(|_| Error::<T>::InvalidInstitution)?;
-        let versions = BoundedVec::<_, T::MaxAdminsPerInstitution>::try_from(records)
-            .map_err(|_| Error::<T>::InvalidInstitution)?;
-
-        let current = InstitutionTicketCountSnapshot::<T>::get(proposal_id, &institution_cid)
-            .unwrap_or_default();
-        let updated = current
-            .checked_add(bounded.len() as u32)
-            .ok_or(Error::<T>::InvalidInstitution)?;
-        FrozenWalletVersions::<T>::insert(proposal_id, &subject, versions);
-        VoterSnapshot::<T>::insert(proposal_id, subject, bounded);
-        InstitutionTicketCountSnapshot::<T>::insert(proposal_id, institution_cid, updated);
+        let current = InstitutionTicketCountSnapshot::<T>::get(proposal_id, &role.cid_number).unwrap_or_default();
+        let updated = current.checked_add(persons.len() as u32).ok_or(Error::<T>::InvalidInstitution)?;
+        InstitutionTicketCountSnapshot::<T>::insert(proposal_id, &role.cid_number, updated);
+        RoleVoters::<T>::insert(proposal_id, role, persons);
         Ok(())
     }
 
@@ -231,16 +153,6 @@ impl<T: pallet::Config> pallet::Pallet<T> {
         Ok(())
     }
 
-    fn ensure_valid_voter_snapshot(voters: &[T::AccountId]) -> DispatchResult {
-        frame_support::ensure!(!voters.is_empty(), Error::<T>::MissingVoterSnapshot);
-        for i in 0..voters.len() {
-            for j in i.saturating_add(1)..voters.len() {
-                frame_support::ensure!(voters[i] != voters[j], Error::<T>::InvalidInstitution);
-            }
-        }
-        Ok(())
-    }
-
     /// 将个人多签当前或待注册管理员列表写入快照。
     pub fn snapshot_personal_admins(
         proposal_id: u128,
@@ -248,9 +160,9 @@ impl<T: pallet::Config> pallet::Pallet<T> {
         pending_account: bool,
     ) -> DispatchResult {
         let admins = if pending_account {
-            T::InternalAdminProvider::get_pending_personal_admins(personal_account_id.clone())
+            T::InternalVoteProvider::get_pending_personal_admins(personal_account_id.clone())
         } else {
-            T::InternalAdminProvider::get_personal_admins(personal_account_id.clone())
+            T::InternalVoteProvider::get_personal_admins(personal_account_id.clone())
         }
         .ok_or(Error::<T>::InvalidInstitution)?;
 
@@ -268,14 +180,17 @@ impl<T: pallet::Config> pallet::Pallet<T> {
     ) -> DispatchResult {
         Self::ensure_valid_admin_snapshot(admins.as_slice())?;
 
-        match BoundedVec::<T::AccountId, T::MaxAdminsPerInstitution>::try_from(admins) {
+        match BoundedVec::<
+            T::AccountId,
+            frame_support::traits::ConstU32<{ primitives::multisig::MAX_PERSONAL_ADMINS }>,
+        >::try_from(admins) {
             Ok(bounded) => {
                 AdminSnapshot::<T>::insert(proposal_id, subject, bounded);
                 Ok(())
             }
             Err(_) => {
                 frame_support::defensive!(
-                    "write_admin_snapshot: personal admin list exceeds MaxAdminsPerInstitution, snapshot not written"
+                    "write_admin_snapshot: personal admin list exceeds MAX_PERSONAL_ADMINS, snapshot not written"
                 );
                 Err(Error::<T>::InvalidInstitution.into())
             }

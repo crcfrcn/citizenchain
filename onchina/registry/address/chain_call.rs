@@ -9,7 +9,7 @@ use super::{
     version::ADDRESS_CATALOG_VERSION,
 };
 
-/// AddressRegistry pallet 在 runtime 中的索引。
+/// Address pallet 在 runtime 中的索引。
 pub(crate) const ADDRESS_REGISTRY_PALLET_INDEX: u8 = 33;
 pub(crate) const CALL_SET_CATALOG_VERSION: u8 = 0;
 pub(crate) const CALL_SET_ADDRESS_NAME: u8 = 1;

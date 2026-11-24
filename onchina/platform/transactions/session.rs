@@ -52,7 +52,7 @@ impl Db {
             crate::authentication::repo::lock_node_binding_conn(&mut tx)?;
             let binding = crate::authentication::repo::get_active_node_binding_conn(&mut tx)?
                 .ok_or("node binding required for chain session")?;
-            if binding.institution_cid_number != expected_institution_cid
+            if passkey.institution_cid_number != expected_institution_cid
                 || !passkey.matches_binding(&s.account_id, &binding)
             {
                 return Err("Passkey proof belongs to another account or binding".into());
@@ -61,19 +61,29 @@ impl Db {
                 .context
                 .as_object_mut()
                 .ok_or("chain session context must be an object")?;
-            context.insert("origin_wallet_revision".into(),serde_json::json!(passkey.wallet_revision));
-            context.insert("origin_wallet_namespace".into(),serde_json::json!(passkey.wallet_namespace));
+            context.insert(
+                "origin_person_cid".into(),
+                serde_json::json!(passkey.person_cid),
+            );
+            context.insert(
+                "origin_binding_revision".into(),
+                serde_json::json!(passkey.binding_revision),
+            );
+            context.insert(
+                "origin_role_code".into(),
+                serde_json::json!(passkey.role_code),
+            );
             context.insert(
                 "origin_binding_id".into(),
                 serde_json::json!(binding.binding_id),
             );
             context.insert(
                 "origin_institution_cid".into(),
-                serde_json::json!(binding.institution_cid_number),
+                serde_json::json!(passkey.institution_cid_number),
             );
             context.insert(
                 "origin_institution_code".into(),
-                serde_json::json!(binding.institution_code),
+                serde_json::json!(passkey.institution_code),
             );
             tx.execute(
                 "INSERT INTO signing

@@ -9,10 +9,10 @@ import type { ClearingBankNodeOnChainInfo } from "../offchain/types";
 import { institutionReadApi } from "./api";
 import type { InstitutionDetail, InstitutionProposalItem } from "./types";
 
-// 清算行机构详情页(链上 organization-manage::Institutions[cid_number] 已存在时展示)。
+// 清算行机构详情页(链上 PublicEntity/PrivateEntity::Institutions[cid_number] 已存在时展示)。
 //
 // 风格参考 governance/InstitutionDetailPage 的卡片栅格 + 折叠子页入口,
-// 数据源全部走链上 organization-manage,通过 institutionReadApi.fetchInstitutionDetail 获取。
+// 数据源全部走链上 PublicEntity/PrivateEntity,通过 institutionReadApi.fetchInstitutionDetail 获取。
 //
 // 顶部按钮根据本机是否已声明清算行节点切换:
 //   - 未声明 → "声明本机为清算行节点" → declare-node
@@ -24,7 +24,7 @@ type Props = {
   cidNumber: string;
   onBack: () => void;
   onOpenOtherAccounts: (detail: InstitutionDetail) => void;
-  onOpenAdminList: (detail: InstitutionDetail) => void;
+  onOpenAssignments: (detail: InstitutionDetail) => void;
   onDeclareNode: (cidNumber: string, cidFullName: string) => void;
 };
 
@@ -34,7 +34,7 @@ export function ClearingBankInstitutionDetailPage({
   cidNumber,
   onBack,
   onOpenOtherAccounts,
-  onOpenAdminList,
+  onOpenAssignments,
   onDeclareNode,
 }: Props) {
   const [detail, setDetail] = useState<InstitutionDetail | null>(null);
@@ -153,7 +153,7 @@ export function ClearingBankInstitutionDetailPage({
         <div className="metric-card">
           <div className="metric-label">内部投票阈值</div>
           <div className="metric-value">
-            {detail.threshold} / {detail.adminsLen} 票
+            {detail.threshold} 票
           </div>
         </div>
 
@@ -168,36 +168,36 @@ export function ClearingBankInstitutionDetailPage({
       {/* 其他账户列表(折叠卡片入口) */}
       <div className="institution-info-section">
         <div
-          className="metric-card admin-entry-card"
+          className="metric-card institution-entry-card"
           role="button"
           tabIndex={0}
           onClick={() => onOpenOtherAccounts(detail)}
           onKeyDown={(e) => e.key === 'Enter' && onOpenOtherAccounts(detail)}
         >
-          <div className="admin-entry-left">
-            <div className="admin-entry-title">
+          <div className="institution-entry-left">
+            <div className="institution-entry-title">
               其他账户列表（{detail.otherAccounts.length} 个）
             </div>
           </div>
-          <span className="admin-entry-arrow">→</span>
+          <span className="institution-entry-arrow">→</span>
         </div>
       </div>
 
-      {/* 管理员列表(折叠卡片入口) */}
+      {/* 岗位任职(折叠卡片入口) */}
       <div className="institution-info-section">
         <div
-          className="metric-card admin-entry-card"
+          className="metric-card institution-entry-card"
           role="button"
           tabIndex={0}
-          onClick={() => onOpenAdminList(detail)}
-          onKeyDown={(e) => e.key === 'Enter' && onOpenAdminList(detail)}
+          onClick={() => onOpenAssignments(detail)}
+          onKeyDown={(e) => e.key === 'Enter' && onOpenAssignments(detail)}
         >
-          <div className="admin-entry-left">
-            <div className="admin-entry-title">
-              管理员列表（{detail.admins.length} 人）
+          <div className="institution-entry-left">
+            <div className="institution-entry-title">
+              岗位任职（{detail.roles.length} 岗）
             </div>
           </div>
-          <span className="admin-entry-arrow">→</span>
+          <span className="institution-entry-arrow">→</span>
         </div>
       </div>
 

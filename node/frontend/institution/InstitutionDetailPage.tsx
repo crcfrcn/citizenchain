@@ -8,32 +8,33 @@ import { sanitizeError } from "../client/tauri";
 import { formatBalance } from "../client/format";
 import { accountIdToSs58 } from "../client/ss58";
 import { MetricHelp } from '../desktop/MetricHelp';
-import { adminsChangeApi } from "./admins";
+import { rolesApi } from "./roles";
 import { CreateMultisigTransferPage } from "../multisig/CreateProposalPage";
 import { SafetyFundProposalPage } from "../multisig/SafetyFundProposalPage";
 import { SweepProposalPage } from "../multisig/SweepProposalPage";
 import { GrandpaKeyChangePage } from "../grandpakey/GrandpaKeyChangePage";
 import { ProtocolUpgradeProposalPage } from "../upgrade/index";
-import type { ActivatedAdmin, AdminSignerMatch, InstitutionBalanceUpdate, InstitutionDetail } from "./council";
+import type { RoleAccess, RoleSigner, InstitutionBalanceUpdate, InstitutionDetail } from "./council";
 import type { ProposalListItem } from "../proposal/types";
-// 机构详情页：机构信息 → 管理员入口 → 发起提案 → 提案列表（分页）。
-// 管理员列表折叠到独立的 AdminListPage，点击入口卡片右箭头进入。
+import {roleSigners as selectedRoleSigners} from './assignments';
+// 机构详情页：机构信息 → 岗位任职入口 → 发起提案 → 提案列表（分页）。
+// 岗位任职与本机授权在独立的AssignmentsPage，点击入口卡片右箭头进入。
 import { useEffect, useState, useCallback, useRef, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 
 type Props = {
   cidNumber: string;
   onBack: () => void;
-  onOpenAdminList?: (cidNumber: string, orgType: number) => void;
-  onSelectProposal?: (proposalId: string, adminSigners: AdminSignerMatch[], cidNumber: string) => void;
+  onOpenAssignments?: (cidNumber: string, orgType: number) => void;
+  onSelectProposal?: (proposalId: string, roleSigners: RoleSigner[], cidNumber: string) => void;
   /** 隐藏返回按钮（用于直接作为 Tab 内容显示时）。 */
   hideBackButton?: boolean;
 };
 
 type TransferKind = 'transfer' | 'he' | 'safety' | 'sweep';
 type ActiveProposal =
-  | { kind: TransferKind; accountId: string; signers: AdminSignerMatch[] }
-  | { kind: 'grandpa-key' | 'protocol-upgrade'; signers: AdminSignerMatch[] };
+  | { kind: TransferKind; accountId: string; signers: RoleSigner[] }
+  | { kind: 'grandpa-key' | 'protocol-upgrade'; signers: RoleSigner[] };
 
 const PROPOSAL_PAGE_SIZE = 10;
 
@@ -41,7 +42,7 @@ const INSTITUTION_ACCOUNT_HELP = [
   '所有机构均有1个主账户和1个费用账户，主账户和费用账户不可注销，所有机构特指链上注册的机构。',
   '主账户用于该机构持有资金，费用账户用于支付该机构交易产生的手续费等费用，费用账户只能向主账户转账。',
   '机构可注册更多账户，机构账户由账户名称+身份CID号经哈希运算后产生，故一个身份CID号+不同账户名称可产生无限多的机构账户。',
-  '机构账户发起转账交易的，必须由该机构的管理员发起转账提案，经该机构管理员内部投票通过后执行。',
+  '机构账户发起转账交易的，必须由该机构有权岗位人员发起转账提案，按冻结岗位票据内部投票通过后执行。',
 ];
 const NRC_ACCOUNT_HELP = [
   '国家储委会拥有安全基金专用账户，安全基金用于公民链的技术安全，赔付因公民链技术原因造成的用户资金损失。',
@@ -86,9 +87,9 @@ function VotingHelpDialog({ onClose }: { onClose: () => void }) {
         <section>
           <h3>一、内部投票</h3>
           <ol>
-            <li>投票引擎的内部投票模块组织本机构管理员投票，投票资格以提案快照为准。</li>
-            <li>省储委会和省储行每机构共 9 名管理员，赞成票达到 6 票即通过。</li>
-            <li>国家储委会共 19 名管理员，赞成票达到 13 票即通过。</li>
+            <li>投票引擎的内部投票模块组织本机构岗位人员投票，投票资格以提案快照为准。</li>
+            <li>省储委会和省储行每机构规则岗位共 9 席，赞成票达到 6 票即通过。</li>
+            <li>国家储委会规则岗位共 19 席，赞成票达到 13 票即通过。</li>
             <li>即使剩余选民全部赞成也达不到阈值，或满 30 天仍未通过，提案即否决。</li>
           </ol>
         </section>
@@ -118,7 +119,7 @@ function VotingHelpDialog({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSelectProposal, hideBackButton }: Props) {
+export function InstitutionDetailPage({ cidNumber, onBack, onOpenAssignments, onSelectProposal, hideBackButton }: Props) {
   const [detail, setDetail] = useState<InstitutionDetail | null>(null);
   const [proposals, setProposals] = useState<ProposalListItem[]>([]);
   const [proposalHasMore, setProposalHasMore] = useState(false);
@@ -126,29 +127,17 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
   const [loadingMoreProposals, setLoadingMoreProposals] = useState(false);
   const [proposalRefreshError, setProposalRefreshError] = useState<string | null>(null);
   const proposalPageGeneration = useRef(0);
-  const [activatedAdmins, setActivatedAdmins] = useState<ActivatedAdmin[]>([]);
+  const [roleAccess, setRoleAccess] = useState<RoleAccess[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showVotingHelp, setShowVotingHelp] = useState(false);
   const votingHelpButtonRef = useRef<HTMLButtonElement>(null);
   const [activeProposal, setActiveProposal] = useState<ActiveProposal | null>(null);
   const proposalButtonRef = useRef<HTMLButtonElement | null>(null);
-  const isAdmin = activatedAdmins.length > 0;
+  const hasRoleAccess = roleAccess.length > 0;
 
-  // 将已激活管理员转换为 AdminSignerMatch 格式,账户标签不复用机构名称字段。
-  const adminSigners: AdminSignerMatch[] = activatedAdmins.map(a => ({
-
-    accountId: a.accountId,
-    accountLabel: '',
-  }));
-  // GRANDPA 换钥必须同时满足本身份CID号、委员岗位码和管理员账户；前端只展示
-  // 当前机构委员任职账户，Runtime 仍执行同一授权的最终校验。
-  const committeeAccountIds = new Set(
-    (detail?.admins ?? [])
-      .filter((admin) => admin.assignments.some((assignment) => assignment.roleCode === 'COMMITTEE_MEMBER'))
-      .map((admin) => admin.accountId),
-  );
-  const grandpaAdminSigners = adminSigners.filter((admin) => committeeAccountIds.has(admin.accountId));
+  const roleSigners=selectedRoleSigners(detail?.roles??[],roleAccess);
+  const grandpaRoleSigners=roleSigners.filter(s=>s.roleCode==='COMMITTEE_MEMBER'&&s.permissions.some(p=>p.moduleTag==='gra-key'&&p.operation===0));
 
   const refreshProposals = useCallback(async () => {
     const generation = ++proposalPageGeneration.current;
@@ -177,12 +166,12 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
     setActiveProposal(null);
     councilApi.getInstitutionDetail(cidNumber)
       .then(async (d) => {
-        const aa = await adminsChangeApi
-          .getActivatedAdmins(cidNumber, { cidNumber })
-          .catch(() => [] as ActivatedAdmin[]);
+        const aa = await rolesApi
+          .getRoleAccess(cidNumber, { cidNumber })
+          .catch(() => [] as RoleAccess[]);
         if (cancelled) return;
         setDetail(d);
-        setActivatedAdmins(aa);
+        setRoleAccess(aa);
         setError(null);
         await refreshProposals();
       })
@@ -258,19 +247,10 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
 
   if (!detail) return null;
 
-  const activatedCount = activatedAdmins.length;
-  const proposerRoleCode = detail.orgType === 2 ? 'DIRECTOR' : 'COMMITTEE_MEMBER';
+  const activatedCount = roleAccess.length;
   const feeAccountId = detail.orgType === 0 ? detail.nrcAccountId
     : detail.orgType === 1 ? detail.cbAccountId : detail.feeAccountId;
-  // 省储委会入口随链上岗位权限生效，旧 Runtime 不提供可签名的入口。
-  const sweepSigners = detail.orgType === 1
-    ? adminSigners.filter(({ accountId }) => detail.admins.some((admin) =>
-      admin.accountId === accountId && admin.assignments.some((assignment) =>
-        assignment.roleCode === 'COMMITTEE_MEMBER' &&
-        'permissions' in assignment && Array.isArray(assignment.permissions) &&
-        assignment.permissions.some((permission) =>
-          permission.moduleTag === 'multisig' && permission.actionCode === 2 && permission.operation === 0))))
-    : adminSigners;
+  const sweepSigners=roleSigners.filter(s=>s.permissions.some(p=>p.moduleTag==='multisig'&&p.actionCode===2&&p.operation===0));
 
   const openProposal = (event: MouseEvent<HTMLButtonElement>, proposal: ActiveProposal) => {
     if (proposal.signers.length === 0) return;
@@ -279,9 +259,11 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
   };
   const openTransfer = (
     event: MouseEvent<HTMLButtonElement>, kind: TransferKind,
-    accountId: string | null, signers = adminSigners,
+    accountId: string | null, signers = roleSigners,
   ) => {
-    if (accountId) openProposal(event, { kind, accountId, signers });
+    const action=kind==='safety'?1:kind==='sweep'?2:0;
+    const allowed=signers.filter(s=>s.permissions.some(p=>p.moduleTag==='multisig'&&p.actionCode===action&&p.operation===0));
+    if (accountId) openProposal(event, { kind, accountId, signers:allowed });
   };
   const closeProposal = () => {
     const trigger = proposalButtonRef.current;
@@ -298,7 +280,7 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
       <button
         type="button"
         className="proposal-type-button"
-        disabled={!isAdmin}
+        disabled={!hasRoleAccess}
         aria-haspopup="dialog"
         onClick={(event) => openTransfer(event, 'transfer', detail.mainAccountId)}
       >转账</button>
@@ -316,14 +298,14 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
           <button
             type="button"
             className="proposal-type-button"
-            disabled={!isAdmin || !detail.fundAccountId}
+            disabled={!hasRoleAccess || !detail.fundAccountId}
             aria-haspopup="dialog"
             onClick={(event) => openTransfer(event, 'safety', detail.fundAccountId)}
           >安全基金转账</button>
           <button
             type="button"
             className="proposal-type-button"
-            disabled={!isAdmin || !detail.heAccountId}
+            disabled={!hasRoleAccess || !detail.heAccountId}
             aria-haspopup="dialog"
             onClick={(event) => openTransfer(event, 'he', detail.heAccountId)}
           >两和基金转账</button>
@@ -335,16 +317,16 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
           <button
             type="button"
             className="proposal-type-button"
-            disabled={grandpaAdminSigners.length === 0}
+            disabled={grandpaRoleSigners.length === 0}
             aria-haspopup="dialog"
-            onClick={(event) => openProposal(event, { kind: 'grandpa-key', signers: grandpaAdminSigners })}
+            onClick={(event) => openProposal(event, { kind: 'grandpa-key', signers: grandpaRoleSigners })}
           >验证密钥</button>
           <button
             type="button"
             className="proposal-type-button"
-            disabled={!isAdmin}
+            disabled={!hasRoleAccess}
             aria-haspopup="dialog"
-            onClick={(event) => openProposal(event, { kind: 'protocol-upgrade', signers: adminSigners })}
+            onClick={(event) => openProposal(event, { kind: 'protocol-upgrade', signers: roleSigners })}
           >协议升级</button>
         </>
       )}
@@ -362,7 +344,7 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
               key={item.proposalId}
               className="proposal-card clickable"
               onClick={() => {
-                onSelectProposal?.(item.proposalId, adminSigners, cidNumber);
+                onSelectProposal?.(item.proposalId, roleSigners, cidNumber);
               }}
             >
               <div className="proposal-card-header">
@@ -435,16 +417,16 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
           </h2>
           <button
             type="button"
-            className="institution-overview-admin-button"
-            onClick={() => onOpenAdminList?.(cidNumber, detail.orgType)}
+            className="institution-overview-role-button"
+            onClick={() => onOpenAssignments?.(cidNumber, detail.orgType)}
           >
-            管理员（{detail.admins.length}人）
+            岗位任职（{detail.roles.length}岗）
             <span aria-hidden="true">›</span>
           </button>
         </div>
         <p className="institution-overview-cid">
           身份CID号 <code><IdentityCidText value={detail.cidNumber} /></code>
-          {activatedCount > 0 && <span className="admin-badge">已激活 {activatedCount} 人</span>}
+          {activatedCount > 0 && <span className="role-access-badge">本机已授权 {activatedCount} 岗</span>}
         </p>
       </header>
 
@@ -499,31 +481,31 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAdminList, onSe
       </section>
       {activeProposal?.kind === 'sweep' && (
         <SweepProposalPage actorCidNumber={cidNumber} cidFullName={detail.cidFullName}
-          proposerRoleCode={proposerRoleCode}
+
           institutionAccountId={activeProposal.accountId} mainAccountId={detail.mainAccountId}
-          adminSigners={activeProposal.signers} onBack={closeProposal} onSuccess={completeProposal} />
+          roleSigners={activeProposal.signers} onBack={closeProposal} onSuccess={completeProposal} />
       )}
       {activeProposal?.kind === 'safety' && (
         <SafetyFundProposalPage actorCidNumber={cidNumber} cidFullName={detail.cidFullName}
-          proposerRoleCode={proposerRoleCode}
-          institutionAccountId={activeProposal.accountId} adminSigners={activeProposal.signers}
+
+          institutionAccountId={activeProposal.accountId} roleSigners={activeProposal.signers}
           onBack={closeProposal} onSuccess={completeProposal} />
       )}
       {(activeProposal?.kind === 'transfer' || activeProposal?.kind === 'he') && (
         <CreateMultisigTransferPage cidNumber={cidNumber} cidFullName={detail.cidFullName}
-          proposerRoleCode={proposerRoleCode}
+
           title={activeProposal.kind === 'he' ? '两和基金转账提案' : '发起转账提案'}
           sourceAccountLabel={activeProposal.kind === 'he' ? '两和基金账户' : '主账户'}
-          institutionAccountId={activeProposal.accountId} adminSigners={activeProposal.signers}
+          institutionAccountId={activeProposal.accountId} roleSigners={activeProposal.signers}
           onBack={closeProposal} onSuccess={completeProposal} />
       )}
       {activeProposal?.kind === 'grandpa-key' && (
         <GrandpaKeyChangePage actorCidNumber={cidNumber} institutionName={detail.cidFullName}
-          adminSigners={activeProposal.signers} onBack={closeProposal} onSuccess={completeProposal} />
+          roleSigners={activeProposal.signers} onBack={closeProposal} onSuccess={completeProposal} />
       )}
       {activeProposal?.kind === 'protocol-upgrade' && (
         <ProtocolUpgradeProposalPage actorCidNumber={cidNumber} institutionName={detail.cidFullName}
-          adminSigners={activeProposal.signers} onBack={closeProposal} onSuccess={completeProposal} />
+          roleSigners={activeProposal.signers} onBack={closeProposal} onSuccess={completeProposal} />
       )}
       {showVotingHelp && (
         <VotingHelpDialog onClose={() => {

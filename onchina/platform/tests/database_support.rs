@@ -68,7 +68,9 @@ impl IsolatedTestDb {
         Self {
             db: Db {
                 #[cfg(test)]
-                wallet_snapshot: Arc::new(Mutex::new(None)),
+                role_snapshot: Arc::new(Mutex::new(None)),
+                #[cfg(test)]
+                role_permissions: Arc::new(Mutex::new(Vec::new())),
                 clients: Arc::new(clients),
                 next_client_idx: Arc::new(AtomicUsize::new(0)),
             },
@@ -103,7 +105,9 @@ impl Db {
     pub fn empty_for_route_test() -> Self {
         Self {
             #[cfg(test)]
-            wallet_snapshot: Arc::new(Mutex::new(None)),
+            role_snapshot: Arc::new(Mutex::new(None)),
+            #[cfg(test)]
+            role_permissions: Arc::new(Mutex::new(Vec::new())),
             clients: Arc::new(Vec::new()),
             next_client_idx: Arc::new(AtomicUsize::new(0)),
         }

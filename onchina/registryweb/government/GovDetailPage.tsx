@@ -18,7 +18,7 @@ import { DocsLibrary } from '@gmb/onchina-platform/documents/Library';
 import { institutionDetailCacheKey, readCachedInstitutionDetail, writeCachedInstitutionDetail } from '@gmb/onchina-platform/codes/cache';
 import { InstitutionDetailNavLayout } from '@gmb/onchina-platform/workspace/DetailLayout';
 import { OperationRecords } from './OperationRecords';
-import { InstitutionAdministratorsPanel as InstitutionGovernancePanel } from '../admins/AddCityRegistryAdminModal';
+import { InstitutionConfigurationPanel as InstitutionGovernancePanel } from '../controls/Configuration';
 // 机构详情页(调度器)。各类机构统一使用左侧导航详情布局;
 // 私权机构仍由 PrivateDetailLayout 承接本模块独有编辑逻辑。
 
@@ -26,7 +26,7 @@ interface Props {
   auth: AdminAuth;
   cidNumber: string;
   canWrite: boolean;
-  /** 不传则隐藏返回按钮(注册局 tab 里市注册局管理员直接进详情、或联邦注册局无上一级时)。 */
+  /** 不传则隐藏返回按钮(注册局机构直接进详情、或联邦注册局无上一级时)。 */
   onBack?: () => void;
   /** 返回按钮文案,默认「返回列表」。 */
   backLabel?: string;
@@ -35,9 +35,7 @@ interface Props {
    * 联邦注册局走 scope-bypass 的 getFederalRegistry,通过此 prop 注入。
    */
   loadDetail?: () => Promise<InstitutionDetail>;
-  /** 注册局机构详情页:有管理员数据时显示“管理员列表”tab;普通机构不传。 */
-  adminListSection?: React.ReactNode;
-  /** 注册局管理员进入详情页时可默认打开管理员列表。 */
+  /** 初始机构详情分区。 */
   initialActiveKey?: string;
 }
 
@@ -48,7 +46,7 @@ const SUBJECT_STATUS_LABEL: Record<string, string> = {
 
 
 
-export const GovDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, onBack, backLabel, loadDetail, adminListSection, initialActiveKey }) => {
+export const GovDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, onBack, backLabel, loadDetail, initialActiveKey }) => {
   const detailCacheKey = institutionDetailCacheKey(auth, cidNumber);
   const [detail, setDetail] = useState<InstitutionDetail | null>(() =>
     readCachedInstitutionDetail(detailCacheKey),
@@ -169,9 +167,6 @@ export const GovDetailPage: React.FC<Props> = ({ auth, cidNumber, canWrite, onBa
           }
           items={[
             { key: 'info', label: '机构信息', content: institutionInfoSection },
-            ...(adminListSection
-              ? [{ key: 'admins', label: '管理员列表', content: adminListSection }]
-              : []),
             ...(canWrite
               ? [{
                   key: 'governance',

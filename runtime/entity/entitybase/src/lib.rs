@@ -34,10 +34,11 @@ pub use institution_governance::{
     InstitutionAssignmentTarget, InstitutionGovernanceAction, InstitutionGovernanceProposal,
     InstitutionGovernanceResult, InstitutionGovernanceResultHandler,
     InstitutionLegalRepresentativeChange, InstitutionRoleAssignmentChange, InstitutionRoleMutation,
+    InstitutionRoleRegistration,
     RolePermissionSpec,
 };
 pub use institution_role::{
-    generate_dynamic_role_code, AuthorizationSubject, BusinessActionId, InstitutionAdminAssignment,
+    generate_dynamic_role_code, AuthorizationSubject, BusinessActionId, InstitutionAssignment,
     InstitutionAssignmentSource, InstitutionAssignmentStatus, InstitutionCapabilityPolicy,
     InstitutionRole, InstitutionRoleAuthorizationQuery, InstitutionRoleQuery,
     InstitutionRoleStatus, RoleBusinessPermission, RolePermissionOperation, RoleSubject,
@@ -68,11 +69,10 @@ pub struct RegisteredInstitution<CidNumber, AccountName> {
 #[derive(
     Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
 )]
-pub struct LegalRepresentative<AccountName, CidNumber, AccountId> {
+pub struct LegalRepresentative<AccountName, CidNumber> {
     pub family_name: AccountName,
     pub given_name: AccountName,
-    pub cid_number: CidNumber,
-    pub account_id: AccountId,
+    pub person_cid: CidNumber,
 }
 
 /// 机构信息(链上最小集)。
@@ -80,13 +80,12 @@ pub struct LegalRepresentative<AccountName, CidNumber, AccountId> {
 /// 链上只保存全国可见的机构身份事实:`cid_number` 作 storage key 已编码省/市/机构码/法人/盈利;
 /// 镇归属使用统一字段 `town_code`:镇行政区公权机构由注册局创建时写入,当前私权机构写空值;
 /// 主账户/费用账户由 `(cid_number, 保留名)` 派生且常驻 `InstitutionAccounts`,故不在此重复存;
-/// 管理员集合长期真源在 admins 模块；机构治理阈值由对应 public/private entity
-/// 的独立 storage 保存，不嵌入本信息结构，也不由管理员人数推导。
+/// 岗位任职和治理阈值由所属实体分别保存。
 /// 公权/私权机构名称均以上链字段为准;OnChina 只保留查询缓存。
 #[derive(
     Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
 )]
-pub struct InstitutionInfo<BlockNumber, AccountName, CidNumber, AccountId> {
+pub struct InstitutionInfo<BlockNumber, AccountName, CidNumber> {
     /// 机构全称。
     pub cid_full_name: AccountName,
     /// 机构简称。
@@ -94,8 +93,8 @@ pub struct InstitutionInfo<BlockNumber, AccountName, CidNumber, AccountId> {
     /// 所属镇代码。非镇行政区机构与当前私权机构写空值;镇行政区公权机构由注册局创建时写入。
     pub town_code: AccountName,
     /// 法定代表人公开人员信息。创世没有真实任免资料时为 None。
-    pub legal_representative: Option<LegalRepresentative<AccountName, CidNumber, AccountId>>,
-    /// 管理员更换/路由使用的机构码:机构账户只能是公权/私权法人机构码。
+    pub legal_representative: Option<LegalRepresentative<AccountName, CidNumber>>,
+    /// 机构分类和业务路由使用的机构码。
     pub institution_code: InstitutionCode,
     /// 机构注册创建区块号。
     pub created_at: BlockNumber,
@@ -147,13 +146,13 @@ pub enum EntityKind {
     PublicInstitution,
     /// 私权机构生命周期，由 `privateentity` 承载。
     PrivateInstitution,
-    /// 个人多签生命周期，由 `personalentity` 承载。
+    /// 个人多签生命周期，由 `personal` 承载。
     PersonalMultisig,
 }
 
 /// 机构多签账户查询 trait，供交易、清算、验签等下游模块使用。
 ///
-/// 输入任意机构账户地址，返回该账户所属机构 CID、机构码和管理员快照。
+/// 输入机构账户地址，查询所属机构 CID、机构码与账户登记状态。
 /// 公权/私权 pallet 各自实现本 trait，runtime 再提供聚合查询适配器。
 pub trait InstitutionMultisigQuery<AccountId> {
     /// 按机构 CID 与账户名读取唯一账户，并同时核验正向记录和反向索引。
@@ -173,11 +172,6 @@ pub trait InstitutionMultisigQuery<AccountId> {
     /// 返回机构账户所属机构码。
     fn lookup_org(addr: &AccountId) -> Option<InstitutionCode>;
 
-    /// 返回机构账户当前管理员快照。
-    fn lookup_admin_config(
-        addr: &AccountId,
-    ) -> Option<primitives::multisig::MultisigConfigSnapshot<AccountId>>;
-
     /// 返回该机构账户是否存在于当前机构账户集合。
     fn account_exists(addr: &AccountId) -> bool;
 }
@@ -193,18 +187,12 @@ pub trait InstitutionCidQuery<CidNumber> {
 
 /// 机构法定代表人查询接口。
 ///
-/// 法定代表人是机构公开信息，唯一真源位于 entity 的 `InstitutionInfo`；
-/// admins 模块不得保存副本，也不得以首位管理员作为回退值。
+/// 法定代表人是机构公开信息。人员 CID 以本机构 `InstitutionInfo` 为准，当前钱包由 identity 解析。
 pub trait InstitutionLegalRepresentativeQuery<AccountId> {
     /// 按机构唯一 CID 读取当前已任命的法定代表人账户。
     fn legal_representative(cid_number: &[u8]) -> Option<AccountId>;
 
-    /// 按机构唯一 CID 读取法定代表人的**公民 CID**。
-    ///
-    /// 分层强制下私权只有 LR 岗四要素完整，且强制落点是本记录（非 admins 名册的
-    /// `Admin.cid_number`）。授权/投票的身份解析在名册 cid 为空时回落到此值，
-    /// 使 LR 同样享受「换绑不掉权」，无需在名册侧新增强制或复制数据。
-    /// 默认 `None`：不提供该事实的实现（测试桩等）退回按 `account_id` 解析。
+    /// 按机构 CID 读取法定代表人的人员 CID。公权使用 CTZN，私权可使用 CTZN 或 NATP。
     fn legal_representative_cid(_cid_number: &[u8]) -> Option<Vec<u8>> {
         None
     }
@@ -231,25 +219,14 @@ impl<AccountId> InstitutionMultisigQuery<AccountId> for () {
         None
     }
 
-    fn lookup_admin_config(
-        _addr: &AccountId,
-    ) -> Option<primitives::multisig::MultisigConfigSnapshot<AccountId>> {
-        None
-    }
-
     fn account_exists(_addr: &AccountId) -> bool {
         false
     }
 }
 
-// 机构登记/创建/治理/自定义账户关闭已全部收敛为「任职管理员账户直接冷签一笔普通 extrinsic」,
-// 由 runtime 在 origin 处按机构 CID + 岗位码 + 管理员账户鉴权，不再有任何独立凭证。原
-// `CidInstitutionVerifier`(账户关闭注册局审批凭证验签)连同 OnChina 平台签名钥已整体删除。
-
 /// 注册局登记/维护权限抽象。
 ///
-/// 机构登记、改名、增账户、登记管理员集合统一只认交易
-/// `origin + actor_cid_number + actor_role_code`。管理员身份本身不产生业务权限。
+/// 以签名、注册局机构 CID 和岗位码确定行权人员，再按目标机构的登记权限和辖区校验。
 pub trait RegistryAuthority<AccountId> {
     /// 当前 origin 是否可代表 actor CID 登记/维护目标机构。
     fn can_register_institution_origin(
@@ -278,3 +255,14 @@ impl<AccountId> RegistryAuthority<AccountId> for () {
 #[cfg(test)]
 #[path = "../tests/mod.rs"]
 mod tests;
+
+/// 只读链阶段，用于私权机构保留既有的法定代表人资料校验规则。
+pub trait ChainPhaseCheck {
+    fn is_operation() -> bool;
+}
+
+impl ChainPhaseCheck for () {
+    fn is_operation() -> bool {
+        false
+    }
+}

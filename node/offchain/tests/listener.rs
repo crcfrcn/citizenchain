@@ -64,7 +64,7 @@ fn withdrawn_decreases_confirmed() {
 fn convert_event_deposited() {
     let user = AccountId32::new([1u8; 32]);
     let bank: Vec<u8> = b"ZS001-PRB08-233384677-2026".to_vec();
-    let ev = runtime::RuntimeEvent::OffchainTransaction(PalletEvent::Deposited {
+    let ev = runtime::RuntimeEvent::Offchain(PalletEvent::Deposited {
         user: user.clone(),
         bank_cid: bank.clone().try_into().unwrap(),
         amount: 100,
@@ -92,7 +92,7 @@ fn convert_event_payment_settled_maps_field_names() {
     let recipient = AccountId32::new([2u8; 32]);
     let recipient_bank: Vec<u8> = b"AH001-PRB0X-111111111-2026".to_vec();
     let tx_id = H256::repeat_byte(7);
-    let ev = runtime::RuntimeEvent::OffchainTransaction(PalletEvent::PaymentSettled {
+    let ev = runtime::RuntimeEvent::Offchain(PalletEvent::PaymentSettled {
         tx_id,
         payer_account_id: payer.clone(),
         payer_bank_cid: payer_bank.clone().try_into().unwrap(),

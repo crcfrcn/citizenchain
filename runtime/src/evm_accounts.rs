@@ -112,21 +112,24 @@ impl prbbankissue::weights::WeightInfo for EvmProvincialWeight {
 }
 
 pub struct EvmPersonalWeight;
-impl personalentity::weights::WeightInfo for EvmPersonalWeight {
+impl personal::weights::WeightInfo for EvmPersonalWeight {
     fn propose_create(n: u32) -> Weight {
         // 既有方法同时提供异步执行上界：一个本金收款方及最多三个内部分账收款方。
-        <personalentity::weights::SubstrateWeight<Runtime> as personalentity::weights::WeightInfo>::propose_create(n)
+        <personal::weights::SubstrateWeight<Runtime> as personal::weights::WeightInfo>::propose_create(n)
             .saturating_add(EvmAccountMapping::get().saturating_mul(4))
     }
     fn propose_close() -> Weight {
-        <personalentity::weights::SubstrateWeight<Runtime> as personalentity::weights::WeightInfo>::propose_close()
+        <personal::weights::SubstrateWeight<Runtime> as personal::weights::WeightInfo>::propose_close()
             .saturating_add(EvmAccountMapping::get().saturating_mul(4))
     }
+    fn propose_admin_set_change(n: u32) -> Weight {
+        <personal::weights::SubstrateWeight<Runtime> as personal::weights::WeightInfo>::propose_admin_set_change(n)
+    }
     fn terminal_callback_ignored() -> Weight {
-        <personalentity::weights::SubstrateWeight<Runtime> as personalentity::weights::WeightInfo>::terminal_callback_ignored()
+        <personal::weights::SubstrateWeight<Runtime> as personal::weights::WeightInfo>::terminal_callback_ignored()
     }
     fn terminal_callback() -> Weight {
-        <personalentity::weights::SubstrateWeight<Runtime> as personalentity::weights::WeightInfo>::terminal_callback()
+        <personal::weights::SubstrateWeight<Runtime> as personal::weights::WeightInfo>::terminal_callback()
     }
 }
 
@@ -201,9 +204,9 @@ fn next_account(progress: &Progress) -> Option<(Vec<u8>, AccountId, bool)> {
         0 => next!(frame_system::Account<Runtime>),
         1 => next!(publicentity::AccountRegisteredCid<Runtime>),
         2 => next!(privateentity::AccountRegisteredCid<Runtime>),
-        3 => next!(personalentity::PersonalAccounts<Runtime>).map(|(key, account, _)| {
-            let active = personalentity::PersonalAccounts::<Runtime>::get(&account)
-                .is_some_and(|info| info.status == personalentity::types::PersonalStatus::Active);
+        3 => next!(personal::PersonalAccounts<Runtime>).map(|(key, account, _)| {
+            let active = personal::PersonalAccounts::<Runtime>::get(&account)
+                .is_some_and(|info| info.status == personal::types::PersonalStatus::Active);
             (key, account, active)
         }),
         4 => next!(identity::CidByAccountId<Runtime>),

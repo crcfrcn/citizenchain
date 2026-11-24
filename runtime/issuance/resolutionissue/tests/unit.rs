@@ -8,7 +8,7 @@ use super::*;
 fn only_authorized_admin_can_propose() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            ResolutionIssuance::propose_issuance(
+            ResolutionIssue::propose_issuance(
                 RuntimeOrigin::signed(AccountId32::new([2u8; 32])),
                 actor_cid_number(),
                 committee_role_code(),
@@ -25,7 +25,7 @@ fn only_authorized_admin_can_propose() {
 fn administrator_without_committee_role_cannot_propose() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            ResolutionIssuance::propose_issuance(
+            ResolutionIssue::propose_issuance(
                 RuntimeOrigin::signed(AccountId32::new([4u8; 32])),
                 actor_cid_number(),
                 committee_role_code(),
@@ -42,7 +42,7 @@ fn administrator_without_committee_role_cannot_propose() {
 fn authorized_admin_cannot_replace_committee_role_with_another_role() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            ResolutionIssuance::propose_issuance(
+            ResolutionIssue::propose_issuance(
                 RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
                 actor_cid_number(),
                 director_role_code(),
@@ -63,7 +63,7 @@ fn authorized_admin_cannot_supply_invalid_actor_cid() {
             .try_into()
             .expect("invalid CID fixture should fit bound");
         assert_noop!(
-            ResolutionIssuance::propose_issuance(
+            ResolutionIssue::propose_issuance(
                 RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
                 invalid_actor_cid,
                 committee_role_code(),
@@ -85,7 +85,7 @@ fn reject_invalid_allocation_count() {
         }];
         let alloc: pallet::AllocationOf<Test> = one.try_into().expect("should fit");
         assert_noop!(
-            ResolutionIssuance::propose_issuance(
+            ResolutionIssue::propose_issuance(
                 RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
                 actor_cid_number(),
                 committee_role_code(),
@@ -101,7 +101,7 @@ fn reject_invalid_allocation_count() {
 #[test]
 fn approved_callback_executes_issuance() {
     new_test_ext().execute_with(|| {
-        assert_ok!(ResolutionIssuance::propose_issuance(
+        assert_ok!(ResolutionIssue::propose_issuance(
             RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
             actor_cid_number(),
             committee_role_code(),
@@ -121,7 +121,7 @@ fn approved_callback_executes_issuance() {
                 if role.cid_number == actor_cid_number()
                     && role.role_code == committee_role_code()
         ));
-        let proposal_data = ResolutionIssuance::load_proposal_data(100)
+        let proposal_data = ResolutionIssue::load_proposal_data(100)
             .expect("resolution issuance proposal data must decode");
         assert_eq!(proposal_data.actor_cid_number, actor_cid_number());
         assert_eq!(proposal_data.proposer_role_code, committee_role_code());
@@ -157,7 +157,7 @@ fn approved_callback_executes_issuance() {
 #[test]
 fn approved_referendum_callback_executes_issuance() {
     new_test_ext().execute_with(|| {
-        assert_ok!(ResolutionIssuance::propose_issuance(
+        assert_ok!(ResolutionIssue::propose_issuance(
             RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
             actor_cid_number(),
             committee_role_code(),
@@ -181,7 +181,7 @@ fn approved_referendum_callback_executes_issuance() {
 #[test]
 fn callback_rejects_non_finalizable_engine_status() {
     new_test_ext().execute_with(|| {
-        assert_ok!(ResolutionIssuance::propose_issuance(
+        assert_ok!(ResolutionIssue::propose_issuance(
             RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
             actor_cid_number(),
             committee_role_code(),
@@ -204,7 +204,7 @@ fn callback_rejects_non_finalizable_engine_status() {
 #[test]
 fn callback_requires_engingcore_scope() {
     new_test_ext().execute_with(|| {
-        assert_ok!(ResolutionIssuance::propose_issuance(
+        assert_ok!(ResolutionIssue::propose_issuance(
             RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
             actor_cid_number(),
             committee_role_code(),
@@ -215,7 +215,7 @@ fn callback_requires_engingcore_scope() {
 
         insert_engine_proposal(100);
         assert_noop!(
-            ResolutionIssuance::on_joint_vote_finalized(100, true),
+            ResolutionIssue::on_joint_vote_finalized(100, true),
             pallet::Error::<Test>::ProposalNotFinalizable
         );
         assert_eq!(pallet::VotingProposalCount::<Test>::get(), 1);
@@ -226,7 +226,7 @@ fn callback_requires_engingcore_scope() {
 #[test]
 fn second_callback_after_executed_is_rejected() {
     new_test_ext().execute_with(|| {
-        assert_ok!(ResolutionIssuance::propose_issuance(
+        assert_ok!(ResolutionIssue::propose_issuance(
             RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
             actor_cid_number(),
             committee_role_code(),
@@ -255,7 +255,7 @@ fn second_callback_after_executed_is_rejected() {
 #[test]
 fn rejected_callback_does_not_issue() {
     new_test_ext().execute_with(|| {
-        assert_ok!(ResolutionIssuance::propose_issuance(
+        assert_ok!(ResolutionIssue::propose_issuance(
             RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
             actor_cid_number(),
             committee_role_code(),
@@ -275,7 +275,7 @@ fn rejected_callback_does_not_issue() {
 #[test]
 fn callback_rejects_corrupted_reason_with_reason_too_long() {
     new_test_ext().execute_with(|| {
-        assert_ok!(ResolutionIssuance::propose_issuance(
+        assert_ok!(ResolutionIssue::propose_issuance(
             RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
             actor_cid_number(),
             committee_role_code(),
@@ -309,7 +309,7 @@ fn callback_rejects_corrupted_reason_with_reason_too_long() {
 #[test]
 fn issuance_event_comes_from_unified_pallet() {
     new_test_ext().execute_with(|| {
-        assert_ok!(ResolutionIssuance::propose_issuance(
+        assert_ok!(ResolutionIssue::propose_issuance(
             RuntimeOrigin::signed(AccountId32::new([1u8; 32])),
             actor_cid_number(),
             committee_role_code(),
@@ -323,7 +323,7 @@ fn issuance_event_comes_from_unified_pallet() {
         assert!(frame_system::Pallet::<Test>::events().iter().any(|record| {
             matches!(
                 &record.event,
-                RuntimeEvent::ResolutionIssuance(
+                RuntimeEvent::ResolutionIssue(
                     pallet::Event::<Test>::ResolutionIssuanceExecuted {
                         proposal_id: 100,
                         ..

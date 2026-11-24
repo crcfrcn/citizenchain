@@ -35,9 +35,14 @@ fn active_proposal_ids_reject_trailing_and_truncated_bytes() {
 fn proposal_subject_institution_cid_key_encodes_scale_enum() {
     let key = proposal_subject_institution_cid_key("LN001-NRP0G-000000001-2026")
         .expect("encode subject key");
-    let mut expected = vec![0_u8];
-    expected.extend("LN001-NRP0G-000000001-2026".as_bytes().to_vec().encode());
-    assert_eq!(key, expected);
+    match key.value {
+        subxt::ext::scale_value::ValueDef::Variant(v) => {
+            assert_eq!(v.name, "InstitutionCid");
+            assert_eq!(v.values.len(), 1);
+        }
+        _ => panic!("storage key must encode the actual proposal-subject variant"),
+    };
+    assert!(proposal_subject_institution_cid_key("").is_err());
 }
 
 /// 逐席投票值 bool 解码(赞成/反对)。
@@ -56,7 +61,7 @@ fn representative_ticket_key_decodes_complete_role_identity() {
                 cid_number: b"LN001-NRP0G-000000001-2026".to_vec(),
                 role_code: b"HOUSE_MEMBER".to_vec(),
             },
-            voter_account_id: [7_u8; 32],
+            person_cid: onchina::testing::person_cid().into_bytes(),
         },
     )
         .encode();
@@ -77,7 +82,10 @@ fn representative_ticket_key_decodes_complete_role_identity() {
         decode_representative_ticket_storage_key(&storage_key).expect("decode ticket key");
     assert_eq!(body_index, 2);
     assert_eq!(ticket.role_subject.role_code, b"HOUSE_MEMBER");
-    assert_eq!(ticket.voter_account_id, [7_u8; 32]);
+    assert_eq!(
+        ticket.person_cid,
+        onchina::testing::person_cid().into_bytes()
+    );
 
     storage_key.push(0);
     assert!(decode_representative_ticket_storage_key(&storage_key).is_err());

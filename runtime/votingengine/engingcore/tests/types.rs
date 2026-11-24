@@ -10,6 +10,27 @@ use entitybase::RoleSubject;
 type MaxModuleTagLen = ConstU32<32>;
 type TestVotePlan = VotePlan<[u8; 32], MaxModuleTagLen>;
 
+#[test]
+fn personal_snapshot_capacity_and_encoding_do_not_follow_institution_limit() {
+    use super::{ext, Test};
+    use frame_support::traits::Get;
+    ext().execute_with(|| {
+        let institution_limit: u32 = <Test as crate::Config>::MaxSnapshotVoters::get();
+        assert_eq!(institution_limit, 8);
+        let subject = ProposalSubject::PersonalAccount(42u64);
+        let key = crate::AdminSnapshot::<Test>::hashed_key_for(9u128, subject.clone());
+        let members: Vec<u64> = (1..=64).collect();
+        // 真实存储解码接受独立个人上限，值仍是原Vec的SCALE字节。
+        sp_io::storage::set(&key, &members.encode());
+        let frozen = crate::AdminSnapshot::<Test>::get(9u128, subject.clone()).unwrap();
+        assert_eq!(frozen.as_slice(), members.as_slice());
+        assert_eq!(frozen.encode(), members.encode());
+        let overflow: Vec<u64> = (1..=65).collect();
+        sp_io::storage::set(&key, &overflow.encode());
+        assert!(crate::AdminSnapshot::<Test>::get(9u128, subject).is_none());
+    });
+}
+
 fn bounded(bytes: &[u8]) -> BoundedVec<u8, MaxModuleTagLen> {
     bytes.to_vec().try_into().expect("测试标签长度合法")
 }

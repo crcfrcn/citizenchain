@@ -1,7 +1,7 @@
 //! 读取并严格解码提案及投票元数据，投影链上阶段和计票事实。
 
 use super::law::model::{house_ref, HouseRef};
-use codec::Decode;
+use codec::{Decode, DecodeAll};
 use onchina::chain_url;
 use serde::Serialize;
 use subxt::dynamic;
@@ -28,10 +28,10 @@ pub struct OnChainProposal {
     pub end: u32,
 }
 
-/// 代表机构身份只保存 CID。
-type RepresentativeBody = Vec<u8>;
+/// 代表机构身份完整保存机构CID和岗位码。
+type RepresentativeBody = entitybase::RoleSubject<Vec<u8>, Vec<u8>>;
 
-/// `RepresentativeRoute<AccountId>` SCALE 镜像。
+/// RepresentativeRoute按实际RoleSubject编码。
 #[derive(Debug, Decode)]
 pub enum OnChainRepresentativeRoute {
     Single(RepresentativeBody),
@@ -83,13 +83,14 @@ pub struct OnChainRepresentativeMeta {
     pub procedure: OnChainVoteProcedure,
 }
 
-/// legislationvote `LegislationMeta<T>` 前缀镜像；公投作用域为尾字段且本投影不读取。
+/// LegislationMeta完整布局，拒绝旧前缀和尾随字节。
 #[derive(Debug, Decode)]
 #[allow(dead_code)] // SCALE 解码镜像:未读字段只保序,删字段会破坏 Decode 对齐。
 pub struct OnChainLegislationMeta {
-    pub executive: RepresentativeBody,
-    pub legislature: Option<RepresentativeBody>,
+    pub executive: Option<RepresentativeBody>,
+    pub override_signers: Vec<RepresentativeBody>,
     pub needs_guard: bool,
+    pub guard: Option<RepresentativeBody>,
 }
 
 /// `VoteCountU32` 解码镜像（代表机构计票）。
@@ -166,7 +167,7 @@ pub fn build_leg_proposal_state(
             .route
             .bodies()
             .iter()
-            .map(|cid_number| house_ref(cid_number))
+            .map(|body| house_ref(&body.cid_number))
             .collect(),
         start_block: proposal.start,
         end_block: proposal.end,
@@ -182,20 +183,17 @@ pub fn build_leg_proposal_state(
 }
 
 /// 按明确存储键点查并解码，双 Map 的代表计票同时传入提案 ID 和机构索引。
-async fn fetch_value<V: Decode>(
+async fn fetch_value<V: DecodeAll>(
     pallet: &str,
     item: &str,
     keys: Vec<dynamic::Value>,
+    at: [u8; 32],
 ) -> Result<Option<V>, String> {
     let ws_url = chain_url::chain_ws_url()?;
     let client = chain_url::online_client(ws_url.as_str())
         .await
         .map_err(|e| format!("connect chain ws for {pallet}::{item} failed: {e}"))?;
-    let storage = client
-        .storage()
-        .at_latest()
-        .await
-        .map_err(|e| format!("get latest chain storage failed: {e}"))?;
+    let storage = client.storage().at(subxt::utils::H256(at));
     let query = dynamic::storage(pallet, item, keys);
     let Some(value) = storage
         .fetch(&query)
@@ -205,16 +203,27 @@ async fn fetch_value<V: Decode>(
         return Ok(None);
     };
     let mut raw = value.encoded();
-    V::decode(&mut raw)
+    V::decode_all(&mut raw)
         .map(Some)
         .map_err(|e| format!("decode {pallet}::{item} failed: {e}"))
 }
 
 /// 读取法律提案完整投影（两类元数据必存，tally 缺省 0/0）。
 pub async fn fetch_proposal_state(proposal_id: u128) -> Result<Option<LegProposalState>, String> {
+    fetch_proposal_state_at(
+        proposal_id,
+        onchina::chain_runtime::finalized_block_hash().await?,
+    )
+    .await
+}
+/// 在调用方固定的最终块读取完整提案，所有元数据和计票共用该块。
+pub async fn fetch_proposal_state_at(
+    proposal_id: u128,
+    at: [u8; 32],
+) -> Result<Option<LegProposalState>, String> {
     let proposal_key = || vec![dynamic::Value::u128(proposal_id as u128)];
     let Some(proposal) =
-        fetch_value::<OnChainProposal>("VotingEngine", "Proposals", proposal_key()).await?
+        fetch_value::<OnChainProposal>("VotingEngine", "Proposals", proposal_key(), at).await?
     else {
         return Ok(None);
     };
@@ -222,6 +231,7 @@ pub async fn fetch_proposal_state(proposal_id: u128) -> Result<Option<LegProposa
         "LegislationVote",
         "RepresentativeMetas",
         proposal_key(),
+        at,
     )
     .await?
     else {
@@ -232,6 +242,7 @@ pub async fn fetch_proposal_state(proposal_id: u128) -> Result<Option<LegProposa
         "LegislationVote",
         "LegislationMetas",
         proposal_key(),
+        at,
     )
     .await?
     else {
@@ -244,13 +255,18 @@ pub async fn fetch_proposal_state(proposal_id: u128) -> Result<Option<LegProposa
             dynamic::Value::u128(proposal_id as u128),
             dynamic::Value::u128(representative_meta.current_body as u128),
         ],
+        at,
     )
     .await?
     .unwrap_or_default();
-    let referendum_tally =
-        fetch_value::<OnChainVoteCount64>("LegislationVote", "LegReferendumTally", proposal_key())
-            .await?
-            .unwrap_or_default();
+    let referendum_tally = fetch_value::<OnChainVoteCount64>(
+        "LegislationVote",
+        "LegReferendumTally",
+        proposal_key(),
+        at,
+    )
+    .await?
+    .unwrap_or_default();
     Ok(Some(build_leg_proposal_state(
         proposal_id,
         &proposal,
@@ -259,6 +275,23 @@ pub async fn fetch_proposal_state(proposal_id: u128) -> Result<Option<LegProposa
         &representative_tally,
         &referendum_tally,
     )))
+}
+
+/// 代表路线以机构CID和岗位码表达，供冻结席位读取复用同一解码器。
+pub(crate) async fn representative_subjects_at(
+    proposal_id: u128,
+    at: [u8; 32],
+) -> Result<Vec<RepresentativeBody>, String> {
+    Ok(fetch_value::<OnChainRepresentativeMeta>(
+        "LegislationVote",
+        "RepresentativeMetas",
+        vec![dynamic::Value::u128(proposal_id)],
+        at,
+    )
+    .await?
+    .ok_or("代表表决路线缺失")?
+    .route
+    .bodies())
 }
 
 #[cfg(test)]

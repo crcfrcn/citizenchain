@@ -61,7 +61,7 @@ pub mod catalog {
     //! 创世公权机构目录链上验收(ADR-031 D9)。
     //!
     //! 本文件只做部署/启动验收:用创世派生规则抽样或全量比对链上
-    //! `PublicManage::Institutions`,确认 runtime/onchina 版本未漂移。
+    //! `PublicEntity::Institutions`,确认 runtime/onchina 版本未漂移。
     //! OnChina 本地公权机构数据不得由这里生成,只能由平台 indexer::db::government 从链上投影。
 
     use std::collections::{BTreeMap, BTreeSet};

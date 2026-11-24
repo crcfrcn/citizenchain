@@ -23,7 +23,7 @@ pub(crate) fn do_update_institution_info<T: pallet::Config>(
     ensure!(!cid_short_name.is_empty(), Error::<T>::EmptyAccountName);
 
     let info = Institutions::<T>::get(&cid_number).ok_or(Error::<T>::InstitutionNotFound)?;
-    // 授权唯一真源:extrinsic 签名者是注册局在册管理员,且对目标机构有登记权。
+    // 授权唯一真源:签名人须任职有登记权限的注册局岗位。
     ensure!(
         T::RegistryAuthority::can_register_institution_origin(
             &submitter,

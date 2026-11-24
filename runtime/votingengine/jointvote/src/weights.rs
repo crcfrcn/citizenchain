@@ -10,7 +10,7 @@ use core::marker::PhantomData;
 
 /// FRAME实测权重接口。
 pub trait WeightInfo {
-    fn cast_admin() -> Weight;
+    fn cast_role_vote() -> Weight;
     fn cast_referendum() -> Weight;
     fn finalize_joint_timeout() -> Weight;
     fn finalize_jointreferendum_timeout() -> Weight;
@@ -30,8 +30,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `VotingEngine::VoterSnapshot` (`max_values`: None, `max_size`: Some(63790), added: 66265, mode: `MaxEncodedLen`)
 	/// Storage: `PublicAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PublicAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `JointVote::JointVotesByTicket` (r:1 w:1)
 	/// Proof: `JointVote::JointVotesByTicket` (`max_values`: None, `max_size`: Some(172), added: 2647, mode: `MaxEncodedLen`)
 	/// Storage: `JointVote::JointInstitutionTallies` (r:1 w:1)
@@ -40,7 +40,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `VotingEngine::InstitutionTicketCountSnapshot` (`max_values`: None, `max_size`: Some(77), added: 2552, mode: `MaxEncodedLen`)
 	/// Storage: `JointVote::JointTallies` (r:1 w:1)
 	/// Proof: `JointVote::JointTallies` (`max_values`: None, `max_size`: Some(32), added: 2507, mode: `MaxEncodedLen`)
-	fn cast_admin() -> Weight {
+	fn cast_role_vote() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2681`
 		//  Estimated: `649945`
@@ -56,14 +56,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `VotingEngine::Proposals` (`max_values`: None, `max_size`: Some(8557), added: 11032, mode: `MaxEncodedLen`)
 	/// Storage: `VotingEngine::ProposalPopulationSnapshots` (r:1 w:0)
 	/// Proof: `VotingEngine::ProposalPopulationSnapshots` (`max_values`: None, `max_size`: Some(100), added: 2575, mode: `MaxEncodedLen`)
-	/// Storage: `CitizenIdentity::CidByAccountId` (r:1 w:0)
-	/// Proof: `CitizenIdentity::CidByAccountId` (`max_values`: None, `max_size`: Some(81), added: 2556, mode: `MaxEncodedLen`)
-	/// Storage: `CitizenIdentity::AccountIdByCid` (r:1 w:0)
-	/// Proof: `CitizenIdentity::AccountIdByCid` (`max_values`: None, `max_size`: Some(81), added: 2556, mode: `MaxEncodedLen`)
-	/// Storage: `CitizenIdentity::VotingEligibilityVersionCount` (r:1 w:0)
-	/// Proof: `CitizenIdentity::VotingEligibilityVersionCount` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
-	/// Storage: `CitizenIdentity::VotingEligibilityVersions` (r:1 w:0)
-	/// Proof: `CitizenIdentity::VotingEligibilityVersions` (`max_values`: None, `max_size`: Some(154), added: 2629, mode: `MaxEncodedLen`)
+	/// Storage: `Identity::CidByAccountId` (r:1 w:0)
+	/// Proof: `Identity::CidByAccountId` (`max_values`: None, `max_size`: Some(81), added: 2556, mode: `MaxEncodedLen`)
+	/// Storage: `Identity::AccountIdByCid` (r:1 w:0)
+	/// Proof: `Identity::AccountIdByCid` (`max_values`: None, `max_size`: Some(81), added: 2556, mode: `MaxEncodedLen`)
+	/// Storage: `Identity::VotingEligibilityVersionCount` (r:1 w:0)
+	/// Proof: `Identity::VotingEligibilityVersionCount` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
+	/// Storage: `Identity::VotingEligibilityVersions` (r:1 w:0)
+	/// Proof: `Identity::VotingEligibilityVersions` (`max_values`: None, `max_size`: Some(154), added: 2629, mode: `MaxEncodedLen`)
 	/// Storage: `JointVote::ReferendumVotesByCid` (r:1 w:1)
 	/// Proof: `JointVote::ReferendumVotesByCid` (`max_values`: None, `max_size`: Some(139), added: 2614, mode: `MaxEncodedLen`)
 	/// Storage: `JointVote::ReferendumTallies` (r:1 w:1)
@@ -251,8 +251,8 @@ impl WeightInfo for () {
 	/// Proof: `VotingEngine::VoterSnapshot` (`max_values`: None, `max_size`: Some(63790), added: 66265, mode: `MaxEncodedLen`)
 	/// Storage: `PublicAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PublicAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `JointVote::JointVotesByTicket` (r:1 w:1)
 	/// Proof: `JointVote::JointVotesByTicket` (`max_values`: None, `max_size`: Some(172), added: 2647, mode: `MaxEncodedLen`)
 	/// Storage: `JointVote::JointInstitutionTallies` (r:1 w:1)
@@ -261,7 +261,7 @@ impl WeightInfo for () {
 	/// Proof: `VotingEngine::InstitutionTicketCountSnapshot` (`max_values`: None, `max_size`: Some(77), added: 2552, mode: `MaxEncodedLen`)
 	/// Storage: `JointVote::JointTallies` (r:1 w:1)
 	/// Proof: `JointVote::JointTallies` (`max_values`: None, `max_size`: Some(32), added: 2507, mode: `MaxEncodedLen`)
-	fn cast_admin() -> Weight {
+	fn cast_role_vote() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2681`
 		//  Estimated: `649945`
@@ -277,14 +277,14 @@ impl WeightInfo for () {
 	/// Proof: `VotingEngine::Proposals` (`max_values`: None, `max_size`: Some(8557), added: 11032, mode: `MaxEncodedLen`)
 	/// Storage: `VotingEngine::ProposalPopulationSnapshots` (r:1 w:0)
 	/// Proof: `VotingEngine::ProposalPopulationSnapshots` (`max_values`: None, `max_size`: Some(100), added: 2575, mode: `MaxEncodedLen`)
-	/// Storage: `CitizenIdentity::CidByAccountId` (r:1 w:0)
-	/// Proof: `CitizenIdentity::CidByAccountId` (`max_values`: None, `max_size`: Some(81), added: 2556, mode: `MaxEncodedLen`)
-	/// Storage: `CitizenIdentity::AccountIdByCid` (r:1 w:0)
-	/// Proof: `CitizenIdentity::AccountIdByCid` (`max_values`: None, `max_size`: Some(81), added: 2556, mode: `MaxEncodedLen`)
-	/// Storage: `CitizenIdentity::VotingEligibilityVersionCount` (r:1 w:0)
-	/// Proof: `CitizenIdentity::VotingEligibilityVersionCount` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
-	/// Storage: `CitizenIdentity::VotingEligibilityVersions` (r:1 w:0)
-	/// Proof: `CitizenIdentity::VotingEligibilityVersions` (`max_values`: None, `max_size`: Some(154), added: 2629, mode: `MaxEncodedLen`)
+	/// Storage: `Identity::CidByAccountId` (r:1 w:0)
+	/// Proof: `Identity::CidByAccountId` (`max_values`: None, `max_size`: Some(81), added: 2556, mode: `MaxEncodedLen`)
+	/// Storage: `Identity::AccountIdByCid` (r:1 w:0)
+	/// Proof: `Identity::AccountIdByCid` (`max_values`: None, `max_size`: Some(81), added: 2556, mode: `MaxEncodedLen`)
+	/// Storage: `Identity::VotingEligibilityVersionCount` (r:1 w:0)
+	/// Proof: `Identity::VotingEligibilityVersionCount` (`max_values`: None, `max_size`: Some(57), added: 2532, mode: `MaxEncodedLen`)
+	/// Storage: `Identity::VotingEligibilityVersions` (r:1 w:0)
+	/// Proof: `Identity::VotingEligibilityVersions` (`max_values`: None, `max_size`: Some(154), added: 2629, mode: `MaxEncodedLen`)
 	/// Storage: `JointVote::ReferendumVotesByCid` (r:1 w:1)
 	/// Proof: `JointVote::ReferendumVotesByCid` (`max_values`: None, `max_size`: Some(139), added: 2614, mode: `MaxEncodedLen`)
 	/// Storage: `JointVote::ReferendumTallies` (r:1 w:1)

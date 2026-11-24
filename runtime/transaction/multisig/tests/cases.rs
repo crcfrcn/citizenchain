@@ -111,7 +111,7 @@ fn safety_fund_remark_fee_is_paid_only_by_nrc_fee_account() {
             let fund = AccountId32::new(primitives::cid::china::china_cb::SAFETY_FUND_ACCOUNT);
             let _ = Balances::deposit_creating(&fund, 10_000);
             let role = test_role_code(NRC).to_vec().try_into().unwrap();
-            assert_ok!(MultisigTransfer::propose_safety_fund_transfer(
+            assert_ok!(Multisig::propose_safety_fund_transfer(
                 RuntimeOrigin::signed(nrc_admin(0)),
                 nrc_actor_cid(),
                 role,
@@ -232,7 +232,7 @@ fn prc_fee_sweep_rejects_other_cids_and_pays_its_main_at_six_votes() {
         let amount = 1_000;
         let fee = primitives::fee_policy::calculate_onchain_fee(amount);
         assert_noop!(
-            MultisigTransfer::propose_sweep_to_main(
+            Multisig::propose_sweep_to_main(
                 RuntimeOrigin::signed(prc_admin(0)),
                 cid.clone(),
                 role.clone(),
@@ -241,7 +241,7 @@ fn prc_fee_sweep_rejects_other_cids_and_pays_its_main_at_six_votes() {
             ),
             Error::<Test>::InvalidInstitution
         );
-        assert_ok!(MultisigTransfer::propose_sweep_to_main(
+        assert_ok!(Multisig::propose_sweep_to_main(
             RuntimeOrigin::signed(prc_admin(0)),
             cid,
             role,
@@ -290,7 +290,7 @@ fn fee_sweep_keeps_ed_and_caps_principal_at_eighty_percent() {
                 prc_fee_account(),
                 before
             ));
-            assert_ok!(MultisigTransfer::propose_sweep_to_main(
+            assert_ok!(Multisig::propose_sweep_to_main(
                 RuntimeOrigin::signed(prc_admin(0)),
                 prc_actor_cid(),
                 test_role_code(PRC)
@@ -374,92 +374,108 @@ fn frg_and_njd_can_create_multisig_transfer_internal_proposals() {
 
 #[test]
 fn personal_account_transfer_executes_when_internal_vote_reaches_threshold() {
-    for remark in [
-        vec![],
-        b"a".to_vec(),
-        "中".as_bytes().to_vec(),
-        b" ".to_vec(),
-        b"\n".to_vec(),
-        vec![b'a'; 256],
-    ] {
-        new_test_ext().execute_with(|| {
-            let personal_account_id = personal_account_id();
-            let dest = beneficiary_account_id();
-            let admins = BoundedVec::try_from(
-                [
-                    personal_account_admin(0),
-                    personal_account_admin(1),
-                    personal_account_admin(2),
-                ]
-                .into_iter()
-                .map(|account_id| adminbase::Admin {
-                    account_id,
-                    cid_number: Default::default(),
-                    family_name: Default::default(),
-                    given_name: Default::default(),
-                })
-                .collect::<Vec<_>>(),
-            )
-            .expect("admins should fit");
+    for threshold in [1u32, 2, 3] {
+        for remark in [
+            vec![],
+            b"a".to_vec(),
+            "中".as_bytes().to_vec(),
+            b" ".to_vec(),
+            b"\n".to_vec(),
+            vec![b'a'; 256],
+        ] {
+            new_test_ext().execute_with(|| {
+                let personal_account_id = personal_account_id();
+                let dest = beneficiary_account_id();
+                let admins = BoundedVec::try_from(
+                    [
+                        personal_account_admin(0),
+                        personal_account_admin(1),
+                        personal_account_admin(2),
+                    ]
+                    .into_iter()
+                    .map(|account_id| personal::Admin {
+                        account_id,
+                        family_name: Default::default(),
+                        given_name: Default::default(),
+                    })
+                    .collect::<Vec<_>>(),
+                )
+                .expect("admins should fit");
 
-            personalentity::PersonalAccounts::<Test>::insert(
-                &personal_account_id,
-                personalentity::PersonalAccount {
-                    creator_account_id: personal_account_admin(0),
-                    account_name: b"personal"
-                        .to_vec()
-                        .try_into()
-                        .expect("account name should fit"),
-                    created_at: 1,
-                    status: personalentity::PersonalStatus::Active,
-                },
-            );
-            personaladmin::AdminAccounts::<Test>::insert(
-                personal_account_id.clone(),
-                adminbase::AdminAccount {
-                    cid_number: Default::default(),
-                    institution_code: PERSONAL_CODE,
-                    kind: adminbase::AdminAccountKind::PersonalMultisig,
-                    admins,
-                    creator_account_id: personal_account_admin(0),
-                    created_at: 1,
-                    updated_at: 1,
-                    status: adminbase::AdminAccountStatus::Active,
-                },
-            );
-            internalvote::ActivePersonalThresholds::<Test>::insert(personal_account_id.clone(), 2);
-            let _ = Balances::deposit_creating(&personal_account_id, 10_000);
+                personal::PersonalAccounts::<Test>::insert(
+                    &personal_account_id,
+                    personal::PersonalAccount {
+                        creator_account_id: personal_account_admin(0),
+                        account_name: b"personal"
+                            .to_vec()
+                            .try_into()
+                            .expect("account name should fit"),
+                        created_at: 1,
+                        status: personal::PersonalStatus::Active,
+                    },
+                );
+                personal::AdminAccounts::<Test>::insert(
+                    personal_account_id.clone(),
+                    personal::AdminAccount {
+                        institution_code: PERSONAL_CODE,
+                        kind: personal::AdminAccountKind::PersonalMultisig,
+                        admins,
+                        creator_account_id: personal_account_admin(0),
+                        created_at: 1,
+                        updated_at: 1,
+                        status: personal::AdminAccountStatus::Active,
+                    },
+                );
+                internalvote::ActivePersonalThresholds::<Test>::insert(
+                    personal_account_id.clone(),
+                    threshold,
+                );
+                let _ = Balances::deposit_creating(&personal_account_id, 10_000);
 
-            assert_ok!(propose_transfer(
-                RuntimeOrigin::signed(personal_account_admin(0)),
-                None,
-                personal_account_id.clone(),
-                dest.clone(),
-                1_500,
-                remark.clone().try_into().unwrap(),
-            ));
-            let pid = last_proposal_id();
+                assert_ok!(propose_transfer(
+                    RuntimeOrigin::signed(personal_account_admin(0)),
+                    None,
+                    personal_account_id.clone(),
+                    dest.clone(),
+                    1_500,
+                    remark.clone().try_into().unwrap(),
+                ));
+                let pid = last_proposal_id();
 
-            let vote_pairs = personal_account_pairs(2);
-            assert_ok!(cast_transfer_votes_n(&vote_pairs[1..], 1, pid,));
+                assert_eq!(
+                    internalvote::InternalThresholdSnapshot::<Test>::get(pid),
+                    Some(threshold)
+                );
+                let vote_pairs = personal_account_pairs(threshold as u8);
+                if threshold == 1 {
+                    assert_eq!(Balances::free_balance(&dest), 0);
+                    <VotingEngine as Hooks<u64>>::on_initialize(System::block_number());
+                } else {
+                    assert_ok!(cast_transfer_votes_n(
+                        &vote_pairs[1..],
+                        threshold as usize - 1,
+                        pid
+                    ));
+                }
 
-            assert_eq!(
-                Balances::free_balance(&personal_account_id),
-                8_490
-                    - if remark.is_empty() {
-                        0
-                    } else {
-                        primitives::fee_policy::FLAT_FEE
-                    }
-            );
-            assert_eq!(Balances::free_balance(&dest), 1_500);
-            assert_eq!(
-                engingcore::Pallet::<Test>::proposals(pid)
-                    .expect("proposal should exist")
-                    .status,
-                STATUS_EXECUTED
-            );
-        });
+                assert_eq!(
+                    Balances::free_balance(&personal_account_id),
+                    8_490
+                        - if remark.is_empty() {
+                            0
+                        } else {
+                            primitives::fee_policy::FLAT_FEE
+                        }
+                );
+                assert_eq!(Balances::free_balance(&dest), 1_500);
+                assert_eq!(
+                    engingcore::Pallet::<Test>::proposals(pid)
+                        .expect("proposal should exist")
+                        .status,
+                    STATUS_EXECUTED
+                );
+            });
+        }
     }
 }
 

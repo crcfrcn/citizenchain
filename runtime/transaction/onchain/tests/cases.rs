@@ -16,7 +16,7 @@ fn transfer_with_remark_moves_balance_and_emits_bound_remark() {
         )
         .expect("remark should fit 99 bytes");
 
-        assert_ok!(OnchainTransaction::transfer_with_remark(
+        assert_ok!(Onchain::transfer_with_remark(
             RuntimeOrigin::signed(from.clone()),
             beneficiary_account_id.clone(),
             123,
@@ -27,7 +27,7 @@ fn transfer_with_remark_moves_balance_and_emits_bound_remark() {
         assert_eq!(Balances::free_balance(&beneficiary_account_id), 1_123);
         assert!(System::events().iter().any(|record| matches!(
             &record.event,
-            RuntimeEvent::OnchainTransaction(pallet::Event::TransferWithRemark {
+            RuntimeEvent::Onchain(pallet::Event::TransferWithRemark {
                 from_account_id: event_from,
                 beneficiary_account_id: event_beneficiary,
                 amount,
@@ -47,7 +47,7 @@ fn transfer_with_remark_rejects_invalid_transfer_and_caps_remark_bytes() {
             .expect("short remark should fit");
 
         assert_noop!(
-            OnchainTransaction::transfer_with_remark(
+            Onchain::transfer_with_remark(
                 RuntimeOrigin::signed(account(1)),
                 account(2),
                 0,
@@ -56,7 +56,7 @@ fn transfer_with_remark_rejects_invalid_transfer_and_caps_remark_bytes() {
             pallet::Error::<Test>::ZeroAmount
         );
         assert_noop!(
-            OnchainTransaction::transfer_with_remark(
+            Onchain::transfer_with_remark(
                 RuntimeOrigin::signed(account(1)),
                 account(1),
                 1,
@@ -151,7 +151,7 @@ fn ordinary_transfer_remark_charges_once_in_quote_precheck_and_withdrawal() {
             let who = account(1);
             let extra = if remark.is_empty() { 0 } else { primitives::fee_policy::FLAT_FEE };
             let expected = primitives::fee_policy::ONCHAIN_MIN_FEE + extra;
-            let call = RuntimeCall::OnchainTransaction(pallet::Call::transfer_with_remark {
+            let call = RuntimeCall::Onchain(pallet::Call::transfer_with_remark {
                 beneficiary_account_id: account(2), amount: 1,
                 remark: remark.try_into().unwrap(),
             });
@@ -165,7 +165,7 @@ fn ordinary_transfer_remark_charges_once_in_quote_precheck_and_withdrawal() {
             assert_eq!(credit.peek(), expected);
             assert_eq!(Balances::free_balance(&who), 1_000 - expected);
             assert!(System::events().iter().any(|event| matches!(&event.event,
-                RuntimeEvent::OnchainTransaction(pallet::Event::FeePaid { account_id, fee }) if account_id == &who && *fee == expected)));
+                RuntimeEvent::Onchain(pallet::Event::FeePaid { account_id, fee }) if account_id == &who && *fee == expected)));
             // 差一分必须拒绝，恰好留下 ED 时可支付；报价与预检不扣款。
             drop(credit);
             use frame_support::traits::fungible::Mutate;
@@ -218,7 +218,7 @@ fn execution_charger_uses_same_formula_exact_payer_and_ed_rule() {
             assert_eq!(Balances::free_balance(&unrelated_signer), signer_before);
             assert!(System::events().iter().any(|record| matches!(
                 &record.event,
-                RuntimeEvent::OnchainTransaction(pallet::Event::FeePaid {
+                RuntimeEvent::Onchain(pallet::Event::FeePaid {
                     account_id,
                     fee: actual_fee
                 }) if account_id == &payer_account_id && *actual_fee == expected
@@ -1060,7 +1060,7 @@ fn charge_details_matches_actual_payer_and_single_withdrawal() {
             .filter(|record| {
                 matches!(
                     &record.event,
-                    RuntimeEvent::OnchainTransaction(pallet::Event::FeePaid { account_id, fee })
+                    RuntimeEvent::Onchain(pallet::Event::FeePaid { account_id, fee })
                         if account_id == &payer && *fee == quoted.1
                 )
             })

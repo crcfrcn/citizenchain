@@ -8,7 +8,12 @@ fn platform_routes() -> Vec<modules::model::ModuleRoute> {
             &["POST"],
             post(qr::join_frames),
         ),
-        modules::model::ModuleRoute::new("public", "/api/qr/split", &["POST"], post(qr::split_frames)),
+        modules::model::ModuleRoute::new(
+            "public",
+            "/api/qr/split",
+            &["POST"],
+            post(qr::split_frames),
+        ),
         modules::model::ModuleRoute::new(
             "auth",
             "/api/admin/auth/check",
@@ -89,12 +94,6 @@ fn platform_routes() -> Vec<modules::model::ModuleRoute> {
         ),
         modules::model::ModuleRoute::new(
             "admin",
-            "/api/admin/own-institution-admins",
-            &["GET"],
-            get(institutions::list_own_institution_admins),
-        ),
-        modules::model::ModuleRoute::new(
-            "admin",
             "/api/admin/own-institution",
             &["GET"],
             get(institutions::get_own_institution),
@@ -111,7 +110,6 @@ fn platform_routes() -> Vec<modules::model::ModuleRoute> {
             &["POST"],
             post(institutions::prepare_institution_governance),
         ),
-        modules::model::ModuleRoute::new("admin", "/api/admin/institution/wallet/prepare", &["POST"], post(institutions::prepare_institution_wallet)),
         modules::model::ModuleRoute::new(
             "admin",
             "/api/institutions/legal-representative/photo/{photo_id}",

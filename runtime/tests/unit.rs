@@ -15,14 +15,15 @@ fn time_and_currency_constants_are_consistent() {
 #[test]
 fn governance_module_tags_are_globally_unique() {
     use std::collections::HashSet;
-    let tags: [(&str, &[u8]); 9] = [
+    let tags: [(&str, &[u8]); 10] = [
         ("grandpakey", grandpakey::MODULE_TAG),
         ("destroy", destroy::MODULE_TAG),
         ("resolutionissue", resolutionissue::MODULE_TAG),
         ("upgrade", upgrade::MODULE_TAG),
         ("publicentity", publicentity::MODULE_TAG),
         ("privateentity", privateentity::MODULE_TAG),
-        ("personaladmin", personaladmin::MODULE_TAG),
+        ("personal", personal::MODULE_TAG),
+        ("personal-members", personal::ADMIN_MODULE_TAG),
         ("multisig", multisig::MODULE_TAG),
         ("legislation", legislation::MODULE_TAG),
     ];

@@ -47,7 +47,7 @@ export function ClearingBankAddPage({ onBack, onSelectCandidate, onSelectKnownCi
   return (
     <>
       <button className="back-button" onClick={onBack}>← 返回</button>
-      <div className="admin-list-header">
+      <div className="institution-list-header">
         <h2>添加清算行</h2>
       </div>
       <div className="form-group">
@@ -68,11 +68,11 @@ export function ClearingBankAddPage({ onBack, onSelectCandidate, onSelectKnownCi
       {error && <div className="error">{error}</div>}
 
       {!loading && results.length > 0 && (
-        <div className="admin-grid">
+        <div className="institution-grid">
           {results.map((r) => (
             <div
               key={r.cidNumber}
-              className="metric-card admin-card"
+              className="metric-card institution-card"
               role="button"
               tabIndex={0}
               onClick={() => onSelectCandidate(r)}
@@ -81,7 +81,7 @@ export function ClearingBankAddPage({ onBack, onSelectCandidate, onSelectKnownCi
               }}
             >
               <strong>{r.cidFullName}</strong>
-              <code className="admin-card-address"><IdentityCidText value={r.cidNumber} /></code>
+              <code className="institution-card-address"><IdentityCidText value={r.cidNumber} /></code>
             </div>
           ))}
         </div>

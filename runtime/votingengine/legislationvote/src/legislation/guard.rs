@@ -53,17 +53,12 @@ impl<T: Config> Pallet<T> {
             members_len == CONSTITUTION_GUARD_MEMBERS,
             Error::<T>::InvalidGuardMembersLen
         );
-        ensure!(
-            <engingcore::Pallet<T>>::is_subject_voter_in_snapshot(
-                proposal_id,
-                authorization_subject,
-                &who,
-            ),
-            Error::<T>::NotConstitutionGuard
-        );
+        let person_cid = <engingcore::Pallet<T>>::resolve_snapshot_voter(
+            proposal_id, &authorization_subject, &who,
+        ).ok_or(Error::<T>::NotConstitutionGuard)?;
         let mut signs = pallet::LegGuardSigns::<T>::get(proposal_id);
         ensure!(
-            !signs.iter().any(|(s, _)| s == &who),
+            !signs.iter().any(|(s, _)| s == &person_cid),
             Error::<T>::AlreadySigned
         );
         Self::deposit_event(pallet::Event::<T>::LegislationGuardVoted {
@@ -72,7 +67,7 @@ impl<T: Config> Pallet<T> {
             approve,
         });
         signs
-            .try_push((who, approve))
+            .try_push((person_cid, approve))
             .map_err(|_| Error::<T>::AlreadySigned)?;
         let yes = signs.iter().filter(|(_, a)| *a).count();
         let no = signs.iter().filter(|(_, a)| !*a).count();

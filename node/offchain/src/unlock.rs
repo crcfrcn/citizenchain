@@ -1,7 +1,7 @@
 //! 管理清算行密钥解锁挑战、冷签请求及短时内存解密状态。
 
-use crate::types::DecryptAdminRequestResult;
-use crate::types::DecryptedAdminInfo;
+use crate::types::ClearingDecryptInfo;
+use crate::types::ClearingDecryptRequest;
 use nodeclient::signing::payload_b64;
 use nodeclient::signing::public_key_b64;
 use nodeclient::signing::sha256_hash_public;
@@ -12,11 +12,11 @@ use nodeclient::signing::QR_KIND_SIGN_REQUEST;
 use nodeclient::signing::QR_KIND_SIGN_RESPONSE;
 use nodeclient::signing::QR_V1;
 use primitives::sign::binary_domain_prefix;
-use primitives::sign::decrypt_admin_payload;
+use primitives::sign::clearing_decrypt_payload;
 use primitives::sign::BINARY_PREFIX_LEN;
-use primitives::sign::DECRYPT_ADMIN_CID_LEN;
-use primitives::sign::DECRYPT_ADMIN_PAYLOAD_LEN;
-use primitives::sign::OP_SIGN_DECRYPT;
+use primitives::sign::CLEARING_DECRYPT_CID_LEN;
+use primitives::sign::CLEARING_DECRYPT_PAYLOAD_LEN;
+use primitives::sign::OP_SIGN_CLEARING_DECRYPT;
 use rand::Rng;
 use serde::Deserialize;
 use serde::Serialize;
@@ -30,10 +30,10 @@ use std::time::UNIX_EPOCH;
 
 const DEFAULT_TTL_SECS: u64 = 90;
 
-/// 当前正在内存中"已解密"的管理员表(节点重启清空)。
+/// 当前正在内存中"已解密"的清算行授权表(节点重启清空)。
 ///
 /// key = 小写 `0x` + 64 位十六进制签名公钥，value = (cid_number, decrypted_at_ms)。
-static DECRYPTED_ADMINS: OnceLock<Mutex<HashMap<String, MemoryEntry>>> = OnceLock::new();
+static CLEARING_DECRYPTIONS: OnceLock<Mutex<HashMap<String, MemoryEntry>>> = OnceLock::new();
 
 /// 等待"解密"响应的进行中 challenge 上下文。前端拿到 request_id,扫描签名响应时
 /// 由 verify 阶段从此表查回 payload 做本地验签。
@@ -51,10 +51,11 @@ struct ChallengeContext {
     cid_number: String,
     payload: Vec<u8>,
     issued_at_ms: u64,
+    expires_at: u64,
 }
 
 fn decrypted_map() -> &'static Mutex<HashMap<String, MemoryEntry>> {
-    DECRYPTED_ADMINS.get_or_init(|| Mutex::new(HashMap::new()))
+    CLEARING_DECRYPTIONS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn pending_map() -> &'static Mutex<HashMap<String, ChallengeContext>> {
@@ -82,18 +83,18 @@ fn build_challenge_payload(
     timestamp: u64,
 ) -> Option<Vec<u8>> {
     let nonce: [u8; 16] = rand::thread_rng().gen();
-    decrypt_admin_payload(cid_number.as_bytes(), public_key_bytes, timestamp, &nonce)
+    clearing_decrypt_payload(cid_number.as_bytes(), public_key_bytes, timestamp, &nonce)
 }
 
 /// 验签前锁死当前共享协议长度与二进制域，旧 108B 布局直接拒绝。
 fn validate_challenge_payload(payload: &[u8]) -> Result<(), String> {
-    if payload.len() != DECRYPT_ADMIN_PAYLOAD_LEN {
+    if payload.len() != CLEARING_DECRYPT_PAYLOAD_LEN {
         return Err(format!(
-            "解密 challenge 长度无效:期望 {DECRYPT_ADMIN_PAYLOAD_LEN},实际 {}",
+            "解密 challenge 长度无效:期望 {CLEARING_DECRYPT_PAYLOAD_LEN},实际 {}",
             payload.len()
         ));
     }
-    if payload[..BINARY_PREFIX_LEN] != binary_domain_prefix(OP_SIGN_DECRYPT) {
+    if payload[..BINARY_PREFIX_LEN] != binary_domain_prefix(OP_SIGN_CLEARING_DECRYPT) {
         return Err("解密 challenge 二进制域无效".to_string());
     }
     Ok(())
@@ -105,12 +106,12 @@ fn generate_request_id() -> String {
 }
 
 /// 构造解密请求 QR JSON,把 ChallengeContext 暂存以备验签。
-pub(crate) fn build_decrypt_admin_request(
+pub(crate) fn build_clearing_decrypt_request(
     signer_public_key: &str,
     cid_number: &str,
-) -> Result<DecryptAdminRequestResult, String> {
+) -> Result<ClearingDecryptRequest, String> {
     let signer_public_key = nodedesktop::validation::normalize_public_key(signer_public_key)?;
-    if cid_number.is_empty() || cid_number.len() > DECRYPT_ADMIN_CID_LEN {
+    if cid_number.is_empty() || cid_number.len() > CLEARING_DECRYPT_CID_LEN {
         return Err("cid_number 超出链上 CID_NUMBER_MAX_BYTES 范围".to_string());
     }
     let public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
@@ -135,8 +136,8 @@ pub(crate) fn build_decrypt_admin_request(
         id: request_id.clone(),
         expires_at: now + DEFAULT_TTL_SECS,
         body: SignRequestBody {
-            action: primitives::sign::QR_ACTION_DECRYPT_ADMIN,
-            sig_alg: 1,
+            action: primitives::sign::QR_ACTION_CLEARING_DECRYPT,
+            sig_alg: 0,
             signer_public_key: public_key_b64(&public_key_bytes)?,
             payload: payload_b64(&payload),
         },
@@ -155,10 +156,11 @@ pub(crate) fn build_decrypt_admin_request(
                 cid_number: cid_number.to_string(),
                 payload,
                 issued_at_ms: now_ms(),
+                expires_at: now + DEFAULT_TTL_SECS,
             },
         );
 
-    Ok(DecryptAdminRequestResult {
+    Ok(ClearingDecryptRequest {
         request_json,
         request_id,
         expected_payload_hash: payload_hash_hex,
@@ -168,7 +170,7 @@ pub(crate) fn build_decrypt_admin_request(
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct VerifyDecryptAdminInput {
+pub(crate) struct VerifyClearingDecryptInput {
     pub request_id: String,
 
     pub signer_public_key: String,
@@ -177,9 +179,9 @@ pub(crate) struct VerifyDecryptAdminInput {
 }
 
 /// 验证 CitizenWallet 签名响应，通过则把 `(signer_public_key, cid_number)` 写入内存解密表。
-pub(crate) fn verify_and_decrypt_admin(
-    input: VerifyDecryptAdminInput,
-) -> Result<DecryptedAdminInfo, String> {
+pub(crate) fn verify_clearing_decrypt(
+    input: VerifyClearingDecryptInput,
+) -> Result<ClearingDecryptInfo, String> {
     let response: QrSignResponse =
         serde_json::from_str(&input.response_json).map_err(|e| format!("解析签名响应失败:{e}"))?;
 
@@ -214,7 +216,7 @@ pub(crate) fn verify_and_decrypt_admin(
         return Err("本地签名 session 缺少 payload hash".to_string());
     }
 
-    // 拉回原 challenge payload 做本地 sr25519 验签。
+    // 一次性取回原挑战，按冻结账户和原始载荷验证现有两种钱包算法。
     let context = {
         let mut guard = pending_map()
             .lock()
@@ -241,28 +243,15 @@ pub(crate) fn verify_and_decrypt_admin(
         return Err("本地重新计算的 payload hash 与请求不一致".to_string());
     }
 
-    // sr25519 验签
-    let sig_hex = response
-        .body
-        .signature
-        .strip_prefix("0x")
-        .unwrap_or(&response.body.signature);
-    if sig_hex.len() != 128 {
-        return Err(format!("签名长度无效:期望 128 hex,实际 {}", sig_hex.len()));
+    if response.expires_at != context.expires_at || now_secs() > context.expires_at {
+        return Err("清算行解密授权已过期或响应期限不匹配".into());
     }
-    let signature_bytes = hex::decode(sig_hex).map_err(|e| format!("签名解码失败:{e}"))?;
-    let public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
-        .map_err(|e| format!("公钥解码失败:{e}"))?;
-    use sp_core::crypto::Pair;
-    use sp_core::sr25519::{Public, Signature};
-    let public = Public::from_raw(
-        <[u8; 32]>::try_from(public_key_bytes.as_slice()).map_err(|_| "公钥长度必须为 32 字节")?,
-    );
-    let signature = Signature::from_raw(
-        <[u8; 64]>::try_from(signature_bytes.as_slice()).map_err(|_| "签名长度必须为 64 字节")?,
-    );
-    if !sp_core::sr25519::Pair::verify(&signature, &context.payload, &public) {
-        return Err("sr25519 签名验证失败,无法证明对该公钥的控制".to_string());
+    let account: [u8; 32] = hex::decode(signer_public_key.trim_start_matches("0x"))
+        .map_err(|e| e.to_string())?
+        .try_into()
+        .map_err(|_| "签名账户长度无效")?;
+    if !nodeclient::signing::verify_message_signature(&account, &context.payload, &response.body)? {
+        return Err("清算行解密授权签名无效".into());
     }
 
     let now = now_ms();
@@ -278,21 +267,21 @@ pub(crate) fn verify_and_decrypt_admin(
         );
 
     log::info!(
-        "[ClearingBank] 管理员 {} 已解密(cid={},耗时 {} ms)",
+        "[ClearingBank] 清算行账户 {} 已授权解密(cid={},耗时 {} ms)",
         &signer_public_key[..10],
         context.cid_number,
         now.saturating_sub(context.issued_at_ms),
     );
 
-    Ok(DecryptedAdminInfo {
+    Ok(ClearingDecryptInfo {
         signer_public_key,
         cid_number: context.cid_number,
         decrypted_at_ms: now,
     })
 }
 
-/// 列出某机构当前在内存中已解密的管理员。
-pub(crate) fn list_decrypted_admins(cid_number: &str) -> Vec<DecryptedAdminInfo> {
+/// 列出该机构当前内存中的清算行解密授权。
+pub(crate) fn list_clearing_decrypt(cid_number: &str) -> Vec<ClearingDecryptInfo> {
     let guard = match decrypted_map().lock() {
         Ok(g) => g,
         Err(e) => e.into_inner(),
@@ -300,7 +289,7 @@ pub(crate) fn list_decrypted_admins(cid_number: &str) -> Vec<DecryptedAdminInfo>
     guard
         .iter()
         .filter(|(_, v)| v.cid_number == cid_number)
-        .map(|(k, v)| DecryptedAdminInfo {
+        .map(|(k, v)| ClearingDecryptInfo {
             signer_public_key: k.clone(),
             cid_number: v.cid_number.clone(),
             decrypted_at_ms: v.decrypted_at_ms,
@@ -308,8 +297,8 @@ pub(crate) fn list_decrypted_admins(cid_number: &str) -> Vec<DecryptedAdminInfo>
         .collect()
 }
 
-/// 将某管理员从内存解密表移除。前端"重新加锁"用。
-pub(crate) fn lock_decrypted_admin(signer_public_key: &str) -> Result<(), String> {
+/// 将某清算行授权账户从内存解密表移除。前端"重新加锁"用。
+pub(crate) fn lock_clearing_decrypt(signer_public_key: &str) -> Result<(), String> {
     let signer_public_key = nodedesktop::validation::normalize_public_key(signer_public_key)?;
     let mut guard = decrypted_map()
         .lock()

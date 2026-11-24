@@ -719,55 +719,47 @@ fn non_amend_skips_guard() {
     });
 }
 
+/// 代表表决和行政签署都冻结人员 CID，换绑后由同一人员的现绑钱包行权。
 #[test]
-fn representative_and_executive_signatures_remain_with_original_proposal_wallets() {
+fn representative_and_executive_signatures_follow_frozen_people_after_rebinding() {
     new_test_ext().execute_with(|| {
         let pid = create(member(1), single_house(), RepresentativeVoteRule::Regular);
-        let plan = engingcore::ProposalVotePlans::<Test>::get(pid).unwrap();
-        let body = plan.proposer_subject.clone();
-        let old = member(2);
-        let new = member(202);
-        let engingcore::AuthorizationSubject::Institution(ref body_scope) = body else {
-            unreachable!()
-        };
-        set_fixture_wallet(&body_scope.cid_number, &old, new.clone(), 2);
+        let old_wallet = member(2);
+        let new_wallet = member(202);
+        rebind_fixture_person(&old_wallet, &new_wallet);
         assert_noop!(
-            cast(new, pid, true),
+            cast(old_wallet, pid, true),
             engingcore::Error::<Test>::NoPermission
         );
-        assert_ok!(cast(old.clone(), pid, true));
+        assert_ok!(cast(new_wallet.clone(), pid, true));
         assert_noop!(
-            cast(old.clone(), pid, false),
+            cast(new_wallet, pid, false),
             engingcore::Error::<Test>::AlreadyVoted
         );
+
         for i in [1, 3, 4, 5, 6, 7, 8, 9, 10] {
             assert_ok!(cast(member(i), pid, i <= 7));
         }
         assert_eq!(stage(pid), STAGE_LEG_SIGN);
-        let executive = crate::LegislationMetas::<Test>::get(pid)
-            .unwrap()
-            .executive
-            .unwrap();
         let new_exec = member(203);
-        set_fixture_wallet(&executive.cid_number, &exec_rep(), new_exec.clone(), 4);
+        rebind_fixture_person(&exec_rep(), &new_exec);
         assert_noop!(
-            exec_sign(new_exec.clone(), pid, true),
+            exec_sign(exec_rep(), pid, true),
             Error::<Test>::NotLegalRepresentative
         );
-        assert_ok!(exec_sign(exec_rep(), pid, true));
+        assert_ok!(exec_sign(new_exec.clone(), pid, true));
+
         let fresh = create(member(1), single_house(), RepresentativeVoteRule::Regular);
-        let fresh_exec = crate::LegislationMetas::<Test>::get(fresh)
-            .unwrap()
-            .executive
-            .unwrap();
+        let fresh_exec = crate::LegislationMetas::<Test>::get(fresh).unwrap().executive.unwrap();
+        let executive = engingcore::AuthorizationSubject::Institution(fresh_exec);
         assert!(engingcore::Pallet::<Test>::is_subject_voter_in_snapshot(
             fresh,
-            engingcore::AuthorizationSubject::Institution(fresh_exec.clone()),
+            executive.clone(),
             &new_exec
         ));
         assert!(!engingcore::Pallet::<Test>::is_subject_voter_in_snapshot(
             fresh,
-            engingcore::AuthorizationSubject::Institution(fresh_exec),
+            executive,
             &exec_rep()
         ));
     });

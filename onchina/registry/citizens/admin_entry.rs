@@ -1310,7 +1310,7 @@ pub(crate) async fn commit_module_projection(
                     snapshot,
                 )?;
             }
-            crate::admins::governance::PURPOSE_INSTITUTION_REGISTER_ADMINS => {}
+            crate::institutions::roles::PURPOSE_INSTITUTION_REGISTER_ROLES => {}
             _ => return Err("unknown chain sign purpose".into()),
         }
         Ok(citizen_output)

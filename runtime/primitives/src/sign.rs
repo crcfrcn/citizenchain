@@ -19,12 +19,12 @@ pub const QR_KIND_USER_TRANSFER: u8 = 4;
 pub const QR_ACTION_LOGIN: u16 = 1;
 /// QR_V1 公民档案上链确认签名动作。
 pub const QR_ACTION_CITIZEN_IDENTITY: u16 = 2;
-/// QR_V1 链上中国平台管理员治理/Passkey 更新签名动作。
-pub const QR_ACTION_ONCHINA_ADMIN: u16 = 3;
-/// QR_V1 管理员激活二进制原始签名动作。
-pub const QR_ACTION_ACTIVATE_ADMIN: u16 = 5;
-/// QR_V1 清算行管理员解密二进制原始签名动作。
-pub const QR_ACTION_DECRYPT_ADMIN: u16 = 6;
+/// QR_V1 链上中国操作确认签名动作。
+pub const QR_ACTION_ONCHINA_CONFIRM: u16 = 3;
+/// QR_V1 本机岗位授权原始签名动作。
+pub const QR_ACTION_ROLE_ACCESS: u16 = 5;
+/// QR_V1 清算行解密授权原始签名动作。
+pub const QR_ACTION_CLEARING_DECRYPT: u16 = 6;
 /// QR_V1 runtime 升级 32 字节哈希直签动作。
 pub const QR_ACTION_RUNTIME_UPGRADE_HASH: u16 = 7;
 /// QR_V1 广场账户动作（订阅/取消/…）链下签名动作，映射 op_tag OP_SIGN_SQUARE_ACTION(0x1D)。
@@ -42,7 +42,7 @@ pub const fn qr_chain_action(pallet_index: u8, call_index: u8) -> u16 {
 //   链下服务验证；签名摘要仍走统一signing_message。
 // - 0x1E:GRANDPA 验证密钥更换证明哈希域，由旧、新 ed25519 私钥签同一摘要。
 // - 0x1F:注册局代办换绑哈希域,与首次占号(0x12)域分离。
-// - 0x20:OnChina管理员治理哈希域；账户派生段与签名段分离。
+// - 0x20:链上中国操作确认哈希域；账户派生段与签名段分离。
 // - 0x21:CitizenApp 本机默认账户切换哈希域。只证明原默认账户授权完整目标顺序,
 //   不包含 CID/binding revision,不进入 pallet、Storage、Extrinsic 或换绑流程。
 // - 0x23:CitizenApp 钱包账户签名模式确认哈希域。只用于本机验证热钱包私钥确实
@@ -62,10 +62,7 @@ pub const OP_SIGN_CID_OCCUPY: u8 = 0x12;
 /// CID 机构登记(历史 op_tag,已无独立凭证构造入口;仅作为四端 `SIGN_OP_TAGS` 金标
 /// 注册表成员保留,删除会扰动四端字节契约与金标向量)。
 pub const OP_SIGN_INST: u8 = 0x13;
-/// CID 机构/账户注销凭证(历史 op_tag)。注册局审批凭证已删除,机构自定义账户关闭改为
-/// 机构在册管理员直接冷签 `propose_close`(不含凭证),链端在 origin 处以 `is_institution_admin`
-/// 鉴权。本常量已无 message 构造入口,仅作为四端 `SIGN_OP_TAGS` 金标注册表成员保留,
-/// 删除会扰动四端字节契约与金标向量。
+/// 历史机构及账户注销证明域，原编号保留。新业务由人员 CID、有效任职和岗位权限校验。
 pub const OP_SIGN_DEREGISTER: u8 = 0x14;
 
 /// L3 支付。
@@ -75,10 +72,10 @@ pub const OP_SIGN_OFFCHAIN_BATCH: u8 = 0x16;
 /// L2 确认。
 pub const OP_SIGN_L2_ACK: u8 = 0x17;
 
-/// 管理员激活二进制前缀域;不走 `signing_message`。
-pub const OP_SIGN_ACTIVATE_ADMIN: u8 = 0x18;
+/// 本机岗位授权二进制前缀域;不走 `signing_message`。
+pub const OP_SIGN_ROLE_ACCESS: u8 = 0x18;
 /// 解密授权二进制前缀域;不走 `signing_message`。
-pub const OP_SIGN_DECRYPT: u8 = 0x19;
+pub const OP_SIGN_CLEARING_DECRYPT: u8 = 0x19;
 
 /// 同一MLS公钥登记；由当前CID绑定的sr25519账户授权，链下服务验签。
 pub const OP_SIGN_MLS_DEVICE_BIND: u8 = 0x1C;
@@ -88,14 +85,9 @@ pub const OP_SIGN_SQUARE_ACTION: u8 = 0x1D;
 pub const OP_SIGN_GRANDPA_KEY_CHANGE: u8 = 0x1E;
 /// 注册局代匿名或实名 CID 换绑：新账户签署 `CidRebindAuthorization` 控制证明。
 /// 与首次占号域分离，且载荷自带创世哈希、当前 revision 与过期时间。
-pub const OP_SIGN_CID_ADMIN_REBIND: u8 = 0x1F;
-/// 链上中国平台管理员治理动作(增删管理员、机构创建/更新、账户增删、文档、
-/// Passkey 更新、电子护照绑定确认等)的冷签授权。
-///
-/// 此前这条链路对**裸 JSON 文本直签**:无 `GMB` 前缀、无 op_tag、不进本表,
-/// 域分离只靠 JSON 里一个 `domain` 字符串字段 —— 结构性违反「签名唯一入口」死规则,
-/// 新增其它 JSON 直签域时没有任何编译期或金标机制能挡住结构碰撞。已收敛到本域。
-pub const OP_SIGN_ONCHINA_ADMIN: u8 = 0x20;
+pub const OP_SIGN_CID_REGISTRAR_REBIND: u8 = 0x1F;
+/// 链上中国操作确认，包括 Passkey、机构资料和电子护照绑定等操作。
+pub const OP_SIGN_ONCHINA_CONFIRM: u8 = 0x20;
 /// CitizenApp 本机切换默认账户：变化前的原默认账户签署完整目标账户顺序。
 /// 该证明只在移动端本机验签，不提交链，也不得复用 CID 换绑域。
 pub const OP_SIGN_SWITCH_DEFAULT_ACCOUNT: u8 = 0x21;
@@ -107,16 +99,16 @@ pub const OP_SIGN_PUBLISH: u8 = 0x24;
 
 /// 二进制前缀域(0x18/0x19)统一前缀长度:`GMB`(3B) + op_tag(1B) = 4 字节。
 pub const BINARY_PREFIX_LEN: usize = 4;
-/// 管理员激活载荷中的 CID 固定槽长度，与链上 CID 上限一致。
-pub const ACTIVATE_ADMIN_CID_LEN: usize = crate::core_const::CID_NUMBER_MAX_BYTES as usize;
-/// 管理员激活原始签名载荷固定长度。
-pub const ACTIVATE_ADMIN_PAYLOAD_LEN: usize =
-    BINARY_PREFIX_LEN + ACTIVATE_ADMIN_CID_LEN + 4 + 1 + 32 + 8 + 16;
-/// 管理员解密载荷中的 CID 固定槽长度，与链上 CID 上限一致。
-pub const DECRYPT_ADMIN_CID_LEN: usize = crate::core_const::CID_NUMBER_MAX_BYTES as usize;
-/// 管理员解密原始签名载荷固定长度。
-pub const DECRYPT_ADMIN_PAYLOAD_LEN: usize =
-    BINARY_PREFIX_LEN + DECRYPT_ADMIN_CID_LEN + 32 + 8 + 16;
+/// 本机岗位授权载荷中的 CID 固定槽长度，与链上 CID 上限一致。
+pub const ROLE_ACCESS_CID_LEN: usize = crate::core_const::CID_NUMBER_MAX_BYTES as usize;
+/// 本机岗位授权原始签名载荷固定长度。
+pub const ROLE_ACCESS_PAYLOAD_LEN: usize =
+    BINARY_PREFIX_LEN + ROLE_ACCESS_CID_LEN + 4 + 1 + 32 + 8 + 16;
+/// 清算行解密载荷中的 CID 固定槽长度，与链上 CID 上限一致。
+pub const CLEARING_DECRYPT_CID_LEN: usize = crate::core_const::CID_NUMBER_MAX_BYTES as usize;
+/// 清算行解密原始签名载荷固定长度。
+pub const CLEARING_DECRYPT_PAYLOAD_LEN: usize =
+    BINARY_PREFIX_LEN + CLEARING_DECRYPT_CID_LEN + 32 + 8 + 16;
 
 /// 构造二进制前缀域的 4 字节前缀 `GMB || op_tag`(0x18/0x19 用)。
 pub fn binary_domain_prefix(op_tag: u8) -> [u8; BINARY_PREFIX_LEN] {
@@ -126,12 +118,12 @@ pub fn binary_domain_prefix(op_tag: u8) -> [u8; BINARY_PREFIX_LEN] {
     prefix
 }
 
-/// 构造机构管理员本地激活原始签名载荷。
+/// 构造本机岗位授权使用的钱包持有证明原始签名载荷。
 ///
 /// 布局固定为 `GMB || 0x18 || cid_number(32B,右补零) || institution_code(4B)
 /// || kind(1B) || signer_public_key(32B) || timestamp_le(8B) || nonce(16B)`。
-/// CID 是机构唯一主键，协议账户不参与本地管理员身份绑定。
-pub fn activate_admin_payload(
+/// 岗位和人员 CID 由宿主会话固定并复核。
+pub fn role_access_payload(
     cid_number: &[u8],
     institution_code: &[u8; 4],
     kind: u8,
@@ -139,13 +131,13 @@ pub fn activate_admin_payload(
     timestamp: u64,
     nonce: &[u8; 16],
 ) -> Option<Vec<u8>> {
-    if cid_number.is_empty() || cid_number.len() > ACTIVATE_ADMIN_CID_LEN {
+    if cid_number.is_empty() || cid_number.len() > ROLE_ACCESS_CID_LEN {
         return None;
     }
-    let mut payload = Vec::with_capacity(ACTIVATE_ADMIN_PAYLOAD_LEN);
-    payload.extend_from_slice(&binary_domain_prefix(OP_SIGN_ACTIVATE_ADMIN));
+    let mut payload = Vec::with_capacity(ROLE_ACCESS_PAYLOAD_LEN);
+    payload.extend_from_slice(&binary_domain_prefix(OP_SIGN_ROLE_ACCESS));
     payload.extend_from_slice(cid_number);
-    payload.resize(BINARY_PREFIX_LEN + ACTIVATE_ADMIN_CID_LEN, 0);
+    payload.resize(BINARY_PREFIX_LEN + ROLE_ACCESS_CID_LEN, 0);
     payload.extend_from_slice(institution_code);
     payload.push(kind);
     payload.extend_from_slice(signer_public_key);
@@ -154,24 +146,24 @@ pub fn activate_admin_payload(
     Some(payload)
 }
 
-/// 构造清算行管理员本地解密原始签名载荷。
+/// 构造清算行解密授权的原始签名载荷。
 ///
 /// 布局固定为 `GMB || 0x19 || cid_number(32B,右补零) || signer_public_key(32B)
 /// || timestamp_le(8B) || nonce(16B)`。构造方、解析方和冷钱包必须共同使用
 /// 本函数及同组长度常量，禁止另设 48B CID 槽或手工第二布局。
-pub fn decrypt_admin_payload(
+pub fn clearing_decrypt_payload(
     cid_number: &[u8],
     signer_public_key: &[u8; 32],
     timestamp: u64,
     nonce: &[u8; 16],
 ) -> Option<Vec<u8>> {
-    if cid_number.is_empty() || cid_number.len() > DECRYPT_ADMIN_CID_LEN {
+    if cid_number.is_empty() || cid_number.len() > CLEARING_DECRYPT_CID_LEN {
         return None;
     }
-    let mut payload = Vec::with_capacity(DECRYPT_ADMIN_PAYLOAD_LEN);
-    payload.extend_from_slice(&binary_domain_prefix(OP_SIGN_DECRYPT));
+    let mut payload = Vec::with_capacity(CLEARING_DECRYPT_PAYLOAD_LEN);
+    payload.extend_from_slice(&binary_domain_prefix(OP_SIGN_CLEARING_DECRYPT));
     payload.extend_from_slice(cid_number);
-    payload.resize(BINARY_PREFIX_LEN + DECRYPT_ADMIN_CID_LEN, 0);
+    payload.resize(BINARY_PREFIX_LEN + CLEARING_DECRYPT_CID_LEN, 0);
     payload.extend_from_slice(signer_public_key);
     payload.extend_from_slice(&timestamp.to_le_bytes());
     payload.extend_from_slice(nonce);
@@ -179,7 +171,7 @@ pub fn decrypt_admin_payload(
 }
 
 /// 全部哈希域签名 op_tag。新增哈希域 op_tag 必须同步追加并刷新金标。
-pub const SIGN_OP_TAGS: [u8; 17] = [
+pub const SIGN_OP_TAGS: [u8; 16] = [
     OP_SIGN_CITIZEN_IDENTITY,
     OP_SIGN_CID_REBIND,
     OP_SIGN_CID_OCCUPY,
@@ -191,12 +183,11 @@ pub const SIGN_OP_TAGS: [u8; 17] = [
     OP_SIGN_MLS_DEVICE_BIND,
     OP_SIGN_SQUARE_ACTION,
     OP_SIGN_GRANDPA_KEY_CHANGE,
-    OP_SIGN_CID_ADMIN_REBIND,
-    OP_SIGN_ONCHINA_ADMIN,
+    OP_SIGN_CID_REGISTRAR_REBIND,
+    OP_SIGN_ONCHINA_CONFIRM,
     OP_SIGN_SWITCH_DEFAULT_ACCOUNT,
     OP_SIGN_WALLET_MODE,
     OP_SIGN_PUBLISH,
-    OP_SIGN_INSTITUTION_WALLET,
 ];
 
 /// 构造哈希域签名消息:`BLAKE2-256(GMB || op_tag || scale_payload)`。
@@ -207,10 +198,3 @@ pub fn signing_message(op_tag: u8, scale_payload: &[u8]) -> [u8; 32] {
     data.extend_from_slice(scale_payload);
     blake2_256(&data)
 }
-
-// 机构登记/创建/治理/账户关闭均已收敛为「发起管理员账户直接冷签一笔普通 extrinsic」,由 runtime
-// 在 origin 处以 `is_institution_admin` 鉴权,不再有任何独立凭证签名消息。原
-// `institution_account_close_message`(注册局审批凭证)连同 OnChina 平台签名钥已整体删除。
-
-/// 机构新钱包接收证明专属域，不触及个人CID换绑。
-pub const OP_SIGN_INSTITUTION_WALLET: u8 = 0x25;

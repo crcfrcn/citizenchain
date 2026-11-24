@@ -119,10 +119,6 @@ function domExceptionText(error: DOMException, fallback: string): string {
 function translateErrorCode(code: string): string | null {
   const map: Record<string, string> = {
     ONCHINA_PASSKEY_SETUP_REQUIRED: '请先完成 Passkey 密钥设置',
-    ONCHINA_ACCOUNT_ID_EXISTS_AS_FEDERAL_REGISTRY_ADMIN: '该账户已是联邦注册局管理员，不能作为新账户使用',
-    ONCHINA_ACCOUNT_ID_EXISTS_AS_CITY_REGISTRY_ADMIN: '该账户已是市注册局管理员，不能作为新账户使用',
-    ONCHINA_ADMIN_REPLACEMENT_NOT_ONCHAIN: '新账户还不是链上有效管理员，不能完成更换',
-    ONCHINA_ADMIN_CITY_REGISTRY_CITY_LIMIT_REACHED: '本市市注册局管理员已满 30 人，不能继续新增',
     ONCHINA_ADMIN_SECURITY_GRANT_REQUIRED: '请先完成扫码签名确认',
     ONCHINA_AUTH_FORBIDDEN: '权限不足，无法执行该操作',
     ONCHINA_AUTH_UNAUTHORIZED: '请先登录管理员账户',
@@ -162,7 +158,6 @@ function translateErrorCode(code: string): string | null {
     ONCHINA_LOGIN_COMPLETE_FAILED: '登录签名响应处理失败，请查看服务日志',
     ONCHINA_LOGIN_RESULT_SAVE_FAILED: '登录结果保存失败，请稍后重试',
     ONCHINA_LOGIN_RESULT_QUERY_FAILED: '查询登录结果失败，请稍后重试',
-    ONCHINA_LOGIN_ADMIN_NOT_ONCHAIN: '当前钱包不是本机构链上有效管理员',
     ONCHINA_LOGIN_CHAIN_UNREACHABLE: '无法连接区块链节点，请确认节点已启动并同步',
     ONCHINA_LOGIN_NODE_BINDING_REQUIRED: '请先确认本节点绑定机构',
     ONCHINA_LOGIN_NODE_BINDING_MISSING: '本节点尚未绑定机构，请重新扫码登录并确认绑定',
@@ -235,7 +230,6 @@ const KNOWN_ENGLISH_MESSAGES: Record<string, string> = {
   'account_id must match targeted account_id': '签名账户和登录目标账户不一致',
   'signature verify failed': '签名验签失败，请重新扫码签名',
   'login signature verify failed': '签名验签失败，请重新扫码签名',
-  'not an on-chain admin': '当前钱包不是本机构链上有效管理员',
   'desktop governance institution is not supported by OnChina': '国家储委会、省储委会、省储行使用节点桌面端管理，不支持登录链上中国平台',
   'personal multisig is not supported by OnChina': '个人多签账户不支持登录链上中国平台',
   'chain unreachable': '无法连接区块链节点，请确认节点已启动并同步',

@@ -69,12 +69,12 @@ fn cid_authorization_scale_contract_keeps_canonical_field_order() {
 fn self_rebind_cid_account_id_moves_binding_to_new_account_id() {
     new_test_ext().execute_with(|| {
         let cid_bytes = citizen_cid_number("rebind1");
-        assert_ok!(CitizenIdentity::self_occupy_cid(
+        assert_ok!(Identity::self_occupy_cid(
             RuntimeOrigin::signed(1),
             cid(&cid_bytes),
         ));
         // 新账户 2 作 origin(证新账户受控)，当前账户 1 授权签名。
-        assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
+        assert_ok!(Identity::self_rebind_cid_account_id(
             RuntimeOrigin::signed(2),
             cid(&cid_bytes),
             1,
@@ -85,6 +85,9 @@ fn self_rebind_cid_account_id_moves_binding_to_new_account_id() {
         assert_eq!(CidByAccountId::<Test>::get(2), Some(cid(&cid_bytes)));
         assert_eq!(CidByAccountId::<Test>::get(1), None);
         assert_eq!(BindingRevisionByCid::<Test>::get(cid(&cid_bytes)), Some(2));
+        assert_eq!(Identity::person_cid(&1), None);
+        assert_eq!(Identity::person_cid(&2), Some(cid(&cid_bytes)));
+        assert_eq!(Identity::person_account(&cid(&cid_bytes)), Some(2));
     });
 }
 
@@ -92,7 +95,7 @@ fn self_rebind_cid_account_id_moves_binding_to_new_account_id() {
 fn self_rebind_cid_account_id_rejects_unoccupied_cid() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(
+            Identity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(2),
                 cid(&citizen_cid_number("rebind_none")),
                 1,
@@ -107,13 +110,13 @@ fn self_rebind_cid_account_id_rejects_unoccupied_cid() {
 fn self_rebind_cid_account_id_rejects_invalid_current_account_signature() {
     new_test_ext().execute_with(|| {
         let cid_bytes = citizen_cid_number("rebind2");
-        assert_ok!(CitizenIdentity::self_occupy_cid(
+        assert_ok!(Identity::self_occupy_cid(
             RuntimeOrigin::signed(1),
             cid(&cid_bytes),
         ));
         let bad_sig: pallet::SignatureOf<Test> = b"nope".to_vec().try_into().expect("sig fits");
         assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(
+            Identity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(2),
                 cid(&cid_bytes),
                 1,
@@ -130,16 +133,16 @@ fn self_rebind_cid_account_id_rejects_new_account_bound_to_another_cid() {
         // 账户 1 占 cidA;账户 2 占 cidB;把 cidA 换绑到已绑 cidB 的账户 2 → 拒。
         let cid_a = citizen_cid_number("rebind3a");
         let cid_b = citizen_cid_number("rebind3b");
-        assert_ok!(CitizenIdentity::self_occupy_cid(
+        assert_ok!(Identity::self_occupy_cid(
             RuntimeOrigin::signed(1),
             cid(&cid_a),
         ));
-        assert_ok!(CitizenIdentity::self_occupy_cid(
+        assert_ok!(Identity::self_occupy_cid(
             RuntimeOrigin::signed(2),
             cid(&cid_b),
         ));
         assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(
+            Identity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(2),
                 cid(&cid_a),
                 1,
@@ -155,7 +158,7 @@ fn self_rebind_cid_account_id_rejects_civic_cid() {
     new_test_ext().execute_with(|| {
         // civic:占号 + 注册投票身份 → 有 VotingIdentity → 自助换绑拒(q1,走注册局)。
         occupy_tag("0001");
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -165,7 +168,7 @@ fn self_rebind_cid_account_id_rejects_civic_cid() {
             valid_signature(),
         ));
         assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(
+            Identity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(2),
                 cid(&citizen_cid_number("0001")),
                 1,
@@ -180,14 +183,14 @@ fn self_rebind_cid_account_id_rejects_civic_cid() {
 fn self_rebind_rejects_wrong_revision_same_account_and_cross_chain_signature() {
     new_test_ext().execute_with(|| {
         let cid_bytes = citizen_cid_number("rebind-guards");
-        assert_ok!(CitizenIdentity::self_occupy_cid(
+        assert_ok!(Identity::self_occupy_cid(
             RuntimeOrigin::signed(1),
             cid(&cid_bytes),
         ));
         let signature = self_rebind_signature(1, &cid_bytes, 1, 2, 1);
 
         assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(
+            Identity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(2),
                 cid(&cid_bytes),
                 2,
@@ -197,7 +200,7 @@ fn self_rebind_rejects_wrong_revision_same_account_and_cross_chain_signature() {
         );
 
         assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(
+            Identity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(1),
                 cid(&cid_bytes),
                 1,
@@ -208,7 +211,7 @@ fn self_rebind_rejects_wrong_revision_same_account_and_cross_chain_signature() {
 
         frame_system::BlockHash::<Test>::insert(0, sp_core::H256::repeat_byte(9));
         assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(
+            Identity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(2),
                 cid(&cid_bytes),
                 1,
@@ -223,27 +226,30 @@ fn self_rebind_rejects_wrong_revision_same_account_and_cross_chain_signature() {
 fn self_rebind_rejects_a_historical_authorization_after_two_later_rotations() {
     new_test_ext().execute_with(|| {
         let cid_bytes = citizen_cid_number("rebind-replay");
-        assert_ok!(CitizenIdentity::self_occupy_cid(
+        assert_ok!(Identity::self_occupy_cid(
             RuntimeOrigin::signed(1),
             cid(&cid_bytes),
         ));
         let historical = self_rebind_signature(1, &cid_bytes, 1, 2, 1);
-        assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
+        assert_ok!(Identity::self_rebind_cid_account_id(
             RuntimeOrigin::signed(2),
             cid(&cid_bytes),
             1,
             historical.clone(),
         ));
-        assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
+        assert_ok!(Identity::self_rebind_cid_account_id(
             RuntimeOrigin::signed(1),
             cid(&cid_bytes),
             2,
             self_rebind_signature(2, &cid_bytes, 2, 1, 2,),
         ));
         assert_eq!(BindingRevisionByCid::<Test>::get(cid(&cid_bytes)), Some(3));
+        assert_eq!(System::sufficients(&1), 0);
+        assert_eq!(System::sufficients(&2), 0);
+        assert_eq!(Identity::person_cid(&2), None);
 
         assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(
+            Identity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(2),
                 cid(&cid_bytes),
                 1,
@@ -255,14 +261,14 @@ fn self_rebind_rejects_a_historical_authorization_after_two_later_rotations() {
 }
 
 #[test]
-fn admin_rebind_cid_account_id_moves_binding_to_new_account_id() {
+fn registrar_rebind_cid_moves_binding_to_new_account_id() {
     new_test_ext().execute_with(|| {
         // 注册局占号绑账户 1（匿名），随后由有权限注册局直接换绑到账户 2；
         // 本入口只要求注册局鉴权与新账户签名，不要求当前账户签名。
         occupy_tag_as("adm1", 1);
         let cid_bytes = citizen_cid_number("adm1");
         let expires_at = rebind_expires_at();
-        assert_ok!(CitizenIdentity::admin_rebind_cid_account_id(
+        assert_ok!(Identity::registrar_rebind_cid(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -276,14 +282,17 @@ fn admin_rebind_cid_account_id_moves_binding_to_new_account_id() {
         assert_eq!(CidByAccountId::<Test>::get(2), Some(cid(&cid_bytes)));
         assert_eq!(CidByAccountId::<Test>::get(1), None);
         assert_eq!(BindingRevisionByCid::<Test>::get(cid(&cid_bytes)), Some(2));
+        assert_eq!(Identity::person_cid(&1), None);
+        assert_eq!(Identity::person_cid(&2), Some(cid(&cid_bytes)));
+        assert_eq!(Identity::person_account(&cid(&cid_bytes)), Some(2));
     });
 }
 
 #[test]
-fn admin_rebind_cid_account_id_rejects_unoccupied_cid() {
+fn registrar_rebind_cid_rejects_unoccupied_cid() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            CitizenIdentity::admin_rebind_cid_account_id(
+            Identity::registrar_rebind_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -299,11 +308,11 @@ fn admin_rebind_cid_account_id_rejects_unoccupied_cid() {
 }
 
 #[test]
-fn admin_rebind_cid_account_id_rebinds_civic_cid_with_scoped_registrar() {
+fn registrar_rebind_cid_rebinds_civic_cid_with_scoped_registrar() {
     new_test_ext().execute_with(|| {
         let cid_bytes = citizen_cid_number("0001");
         occupy_tag("0001");
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -317,7 +326,7 @@ fn admin_rebind_cid_account_id_rebinds_civic_cid_with_scoped_registrar() {
         let candidate_identity_before = CandidateIdentityByCid::<Test>::get(cid(&cid_bytes))
             .expect("candidate identity exists");
         let expires_at = rebind_expires_at();
-        assert_ok!(CitizenIdentity::admin_rebind_cid_account_id(
+        assert_ok!(Identity::registrar_rebind_cid(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -337,28 +346,28 @@ fn admin_rebind_cid_account_id_rebinds_civic_cid_with_scoped_registrar() {
             CandidateIdentityByCid::<Test>::get(cid(&cid_bytes)),
             Some(candidate_identity_before)
         );
-        assert!(CitizenIdentity::citizen_subject(&1).is_none());
-        assert!(CitizenIdentity::voting_subject(&1, &town_scope()).is_none());
-        assert!(CitizenIdentity::candidate_subject(&1, &town_scope()).is_none());
+        assert!(Identity::citizen_subject(&1).is_none());
+        assert!(Identity::voting_subject(&1, &town_scope()).is_none());
+        assert!(Identity::candidate_subject(&1, &town_scope()).is_none());
         assert_eq!(
-            CitizenIdentity::citizen_subject(&2)
+            Identity::citizen_subject(&2)
                 .expect("实名 CID 应由新钱包继续使用")
                 .cid_number,
             cid(&cid_bytes)
         );
-        assert!(CitizenIdentity::voting_subject(&2, &town_scope()).is_some());
-        assert!(CitizenIdentity::candidate_subject(&2, &town_scope()).is_some());
+        assert!(Identity::voting_subject(&2, &town_scope()).is_some());
+        assert!(Identity::candidate_subject(&2, &town_scope()).is_some());
     });
 }
 
 #[test]
-fn admin_rebind_cid_account_id_rejects_unauthorized_registrar() {
+fn registrar_rebind_cid_rejects_unauthorized_registrar() {
     new_test_ext().execute_with(|| {
         occupy_tag_as("adm3", 1);
         let cid_bytes = citizen_cid_number("adm3");
         let expires_at = rebind_expires_at();
         assert_noop!(
-            CitizenIdentity::admin_rebind_cid_account_id(
+            Identity::registrar_rebind_cid(
                 RuntimeOrigin::signed(999),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -374,12 +383,12 @@ fn admin_rebind_cid_account_id_rejects_unauthorized_registrar() {
 }
 
 #[test]
-fn admin_rebind_cid_account_id_rejects_invalid_new_signature() {
+fn registrar_rebind_cid_rejects_invalid_new_signature() {
     new_test_ext().execute_with(|| {
         occupy_tag_as("adm2", 1);
         let bad_sig: pallet::SignatureOf<Test> = b"nope".to_vec().try_into().expect("sig fits");
         assert_noop!(
-            CitizenIdentity::admin_rebind_cid_account_id(
+            Identity::registrar_rebind_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -389,13 +398,13 @@ fn admin_rebind_cid_account_id_rejects_invalid_new_signature() {
                 rebind_expires_at(),
                 bad_sig,
             ),
-            Error::<Test>::InvalidAdminRebindSignature
+            Error::<Test>::InvalidRegistrarRebindSignature
         );
     });
 }
 
 #[test]
-fn admin_rebind_rejects_stale_expired_same_account_and_cross_chain_authorizations() {
+fn registrar_rebind_rejects_stale_expired_same_account_and_cross_chain_authorizations() {
     new_test_ext().execute_with(|| {
         let cid_bytes = citizen_cid_number("adm-guards");
         occupy_tag_as("adm-guards", 1);
@@ -403,7 +412,7 @@ fn admin_rebind_rejects_stale_expired_same_account_and_cross_chain_authorization
         let signature = rebind_signature(2, &cid_bytes, 1, 2, 1, expires_at);
 
         assert_noop!(
-            CitizenIdentity::admin_rebind_cid_account_id(
+            Identity::registrar_rebind_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -416,7 +425,7 @@ fn admin_rebind_rejects_stale_expired_same_account_and_cross_chain_authorization
             Error::<Test>::BindingRevisionMismatch
         );
         assert_noop!(
-            CitizenIdentity::admin_rebind_cid_account_id(
+            Identity::registrar_rebind_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -429,7 +438,7 @@ fn admin_rebind_rejects_stale_expired_same_account_and_cross_chain_authorization
             Error::<Test>::CidAuthorizationExpired
         );
         assert_noop!(
-            CitizenIdentity::admin_rebind_cid_account_id(
+            Identity::registrar_rebind_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -444,7 +453,7 @@ fn admin_rebind_rejects_stale_expired_same_account_and_cross_chain_authorization
 
         frame_system::BlockHash::<Test>::insert(0, sp_core::H256::repeat_byte(6));
         assert_noop!(
-            CitizenIdentity::admin_rebind_cid_account_id(
+            Identity::registrar_rebind_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -454,7 +463,7 @@ fn admin_rebind_rejects_stale_expired_same_account_and_cross_chain_authorization
                 expires_at,
                 signature,
             ),
-            Error::<Test>::InvalidAdminRebindSignature
+            Error::<Test>::InvalidRegistrarRebindSignature
         );
         assert_eq!(AccountIdByCid::<Test>::get(cid(&cid_bytes)), Some(1));
         assert_eq!(BindingRevisionByCid::<Test>::get(cid(&cid_bytes)), Some(1));
@@ -462,7 +471,7 @@ fn admin_rebind_rejects_stale_expired_same_account_and_cross_chain_authorization
 }
 
 #[test]
-fn admin_rebind_cid_account_id_rejects_new_account_bound_to_another_cid() {
+fn registrar_rebind_cid_rejects_new_account_bound_to_another_cid() {
     new_test_ext().execute_with(|| {
         // adm4a 绑账户 1、adm4b 绑账户 2;把 adm4a 换绑到已绑 adm4b 的账户 2 → 拒。
         occupy_tag_as("adm4a", 1);
@@ -470,7 +479,7 @@ fn admin_rebind_cid_account_id_rejects_new_account_bound_to_another_cid() {
         let cid_bytes = citizen_cid_number("adm4a");
         let expires_at = rebind_expires_at();
         assert_noop!(
-            CitizenIdentity::admin_rebind_cid_account_id(
+            Identity::registrar_rebind_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -490,7 +499,7 @@ fn occupy_cid_rejects_invalid_signature() {
     new_test_ext().execute_with(|| {
         let cid_bytes = citizen_cid_number("BAD-SIG");
         assert_noop!(
-            CitizenIdentity::occupy_cid(
+            Identity::occupy_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -509,7 +518,7 @@ fn occupy_cid_rejects_expired_overlong_and_cross_chain_authorizations() {
     new_test_ext().execute_with(|| {
         let cid_bytes = citizen_cid_number("OCC-GUARDS");
         assert_noop!(
-            CitizenIdentity::occupy_cid(
+            Identity::occupy_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -522,7 +531,7 @@ fn occupy_cid_rejects_expired_overlong_and_cross_chain_authorizations() {
         );
         let overlong = test_time_secs() + MAX_CID_AUTHORIZATION_LIFETIME_SECS + 1;
         assert_noop!(
-            CitizenIdentity::occupy_cid(
+            Identity::occupy_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -538,7 +547,7 @@ fn occupy_cid_rejects_expired_overlong_and_cross_chain_authorizations() {
         let signature = occupy_signature(1, &cid_bytes, expires_at);
         frame_system::BlockHash::<Test>::insert(0, sp_core::H256::repeat_byte(7));
         assert_noop!(
-            CitizenIdentity::occupy_cid(
+            Identity::occupy_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -557,7 +566,7 @@ fn occupy_cid_rejects_unauthorized_registrar_and_bad_number() {
     new_test_ext().execute_with(|| {
         // 非在册注册局账户:匿名鉴权拒。
         assert_noop!(
-            CitizenIdentity::occupy_cid(
+            Identity::occupy_cid(
                 RuntimeOrigin::signed(999),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -570,7 +579,7 @@ fn occupy_cid_rejects_unauthorized_registrar_and_bad_number() {
         );
         // 公权机构号打公民占号入口:类型断言拒(CTZN|NATP 之外)。
         assert_noop!(
-            CitizenIdentity::occupy_cid(
+            Identity::occupy_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -585,7 +594,7 @@ fn occupy_cid_rejects_unauthorized_registrar_and_bad_number() {
 }
 
 #[test]
-fn revoked_cid_rejects_self_and_admin_rebind_without_state_changes() {
+fn revoked_cid_rejects_self_and_registrar_rebind_without_state_changes() {
     new_test_ext().execute_with(|| {
         let cid_bytes = citizen_cid_number("RV-REBIND");
         occupy_tag_as("RV-REBIND", 1);
@@ -593,7 +602,7 @@ fn revoked_cid_rejects_self_and_admin_rebind_without_state_changes() {
         let previous_self_authorization = self_rebind_signature(1, &cid_bytes, 1, 2, 1);
         let previous_admin_authorization = rebind_signature(2, &cid_bytes, 1, 2, 1, expires_at);
 
-        assert_ok!(CitizenIdentity::revoke_cid(
+        assert_ok!(Identity::revoke_cid(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -604,7 +613,7 @@ fn revoked_cid_rejects_self_and_admin_rebind_without_state_changes() {
         assert_eq!(BindingRevisionByCid::<Test>::get(&cid_number), Some(2));
 
         assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(
+            Identity::self_rebind_cid_account_id(
                 RuntimeOrigin::signed(2),
                 cid_number.clone(),
                 1,
@@ -613,7 +622,7 @@ fn revoked_cid_rejects_self_and_admin_rebind_without_state_changes() {
             Error::<Test>::CidAlreadyRevoked
         );
         assert_noop!(
-            CitizenIdentity::admin_rebind_cid_account_id(
+            Identity::registrar_rebind_cid(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -641,7 +650,7 @@ fn expired_identity_authorization_is_rejected() {
         occupy_tag("IDENT-EXPIRED");
         let cid_bytes = citizen_cid_number("IDENT-EXPIRED");
         assert_noop!(
-            CitizenIdentity::register_voting_identity(
+            Identity::register_voting_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -662,7 +671,7 @@ fn overlong_identity_authorization_lifetime_is_rejected() {
         occupy_tag("IDENT-LONG");
         let cid_bytes = citizen_cid_number("IDENT-LONG");
         assert_noop!(
-            CitizenIdentity::register_voting_identity(
+            Identity::register_voting_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -701,14 +710,14 @@ fn citizen_identity_authorization_scale_contract_is_stable() {
 fn self_rebind_authorization_has_no_chain_clock_deadline() {
     new_test_ext().execute_with(|| {
         let id = citizen_cid_number("no-clock");
-        assert_ok!(CitizenIdentity::self_occupy_cid(
+        assert_ok!(Identity::self_occupy_cid(
             RuntimeOrigin::signed(1),
             cid(&id)
         ));
         let proof = self_rebind_signature(1, &id, 1, 2, 1);
         TEST_TIME_SECS.with(|clock| clock.set(test_time_secs() + 3600));
         System::set_block_number(10000);
-        assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
+        assert_ok!(Identity::self_rebind_cid_account_id(
             RuntimeOrigin::signed(2),
             cid(&id),
             1,

@@ -320,7 +320,7 @@ export async function prepareCitizenRebind(
   auth: AdminAuth,
   cidNumber: string,
 ): Promise<PrepareCitizenRebindResult> {
-  // 链上写(admin_rebind_cid_account_id)= passkey + 冷签:prepare 段消费一次 passkey 断言(冷签在段3)。
+  // 链上写(registrar_rebind_cid)= passkey + 冷签:prepare 段消费一次 passkey 断言(冷签在段3)。
   const assertion = await assertPasskey(auth);
   const headers = { ...jsonAdminHeaders(auth), [PASSKEY_ASSERTION_HEADER]: assertion };
   return request<PrepareCitizenRebindResult>('/api/admin/citizens/rebind/prepare', {
@@ -332,7 +332,7 @@ export async function prepareCitizenRebind(
 
 /**
  * 换绑段2 submit:回传新钱包的换绑签名(new_account_id + new_account_signature),
- * 后端验签 → 组装 admin_rebind_cid_account_id → 返回管理员冷签 QR(段3 用)。
+ * 后端验签 → 组装 registrar_rebind_cid → 返回管理员冷签 QR(段3 用)。
  */
 export async function submitCitizenRebind(
   auth: AdminAuth,

@@ -27,12 +27,6 @@ pub enum AdminOperationAuth {
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AdminActionType {
-    /// Tier1 创世注册局新增一名 Tier2 下级注册局管理员。
-    #[serde(rename = "CREATE_SUBORDINATE_REGISTRY")]
-    CreateCityRegistry,
-    /// Tier1 删除一名 Tier2 下级注册局管理员。
-    #[serde(rename = "DELETE_SUBORDINATE_REGISTRY")]
-    DeleteCityRegistry,
     InstitutionCreate,
     InstitutionUpdate,
     InstitutionCreateAccount,
@@ -82,8 +76,6 @@ impl<'de> Deserialize<'de> for AdminActionType {
 impl AdminActionType {
     pub fn as_str(&self) -> &str {
         match self {
-            Self::CreateCityRegistry => "CREATE_SUBORDINATE_REGISTRY",
-            Self::DeleteCityRegistry => "DELETE_SUBORDINATE_REGISTRY",
             Self::InstitutionCreate => "INSTITUTION_CREATE",
             Self::InstitutionUpdate => "INSTITUTION_UPDATE",
             Self::InstitutionCreateAccount => "INSTITUTION_CREATE_ACCOUNT",
@@ -114,8 +106,6 @@ impl AdminActionType {
         match self {
             // 本地写(Passkey):只改 onchina 本地库,不产生 extrinsic。
             Self::InstitutionUpdate
-            | Self::CreateCityRegistry
-            | Self::DeleteCityRegistry
             | Self::InstitutionUploadDocument
             | Self::InstitutionDeleteDocument
             | Self::NodeBindingUnbind
@@ -141,13 +131,7 @@ impl AdminActionType {
     }
 
     pub(crate) fn requires_module(&self) -> bool {
-        matches!(
-            self,
-            Self::CreateCityRegistry
-                | Self::DeleteCityRegistry
-                | Self::InstitutionCreate
-                | Self::Module(_)
-        )
+        matches!(self, Self::InstitutionCreate | Self::Module(_))
     }
 
     /// 本地目录治理/解绑使用原挑战协议但不冷签；其它本地写直接消费Passkey。
@@ -156,26 +140,12 @@ impl AdminActionType {
     }
 
     pub(crate) fn is_governance(&self) -> bool {
-        matches!(
-            self,
-            Self::CreateCityRegistry | Self::DeleteCityRegistry | Self::NodeBindingUnbind
-        )
-    }
-
-    /// 是否要求 Tier1 创世注册局治理能力。注册局自身管理(增删下级注册局、更新/换届本档)
-    /// 归此边界；机构元数据更新与文档上传不在其中——任一辖区管理员可对本辖区机构执行,
-    /// 注册局资格与 `scope` 共同限定办理权限。机构自定义账户增删属机构自管(不经注册局审批),也不在此边界:
-    /// 由机构在册管理员直接冷签 propose_close,链端以 `is_institution_admin` 鉴权。
-    /// 与鉴权档正交:不依赖 auth_type,故动作在档间迁移不改变此权限边界。
-    pub(crate) fn requires_governing_capability(&self) -> bool {
-        matches!(self, Self::CreateCityRegistry | Self::DeleteCityRegistry)
+        matches!(self, Self::NodeBindingUnbind)
     }
 }
 
 pub fn parse_action_type(action_type: &str) -> Result<AdminActionType, axum::response::Response> {
     match action_type {
-        "CREATE_SUBORDINATE_REGISTRY" => Ok(AdminActionType::CreateCityRegistry),
-        "DELETE_SUBORDINATE_REGISTRY" => Ok(AdminActionType::DeleteCityRegistry),
         "INSTITUTION_CREATE" => Ok(AdminActionType::InstitutionCreate),
         "INSTITUTION_UPDATE" => Ok(AdminActionType::InstitutionUpdate),
         "INSTITUTION_CREATE_ACCOUNT" => Ok(AdminActionType::InstitutionCreateAccount),
@@ -196,8 +166,13 @@ pub fn parse_action_type(action_type: &str) -> Result<AdminActionType, axum::res
         "CITIZEN_ONCHAIN_PUSH" => Ok(AdminActionType::CitizenOnchainPush),
         // 旧注册局名不是模块扩展动作，也不作为新名称的兼容别名。
         other
-            if !matches!(other, "CREATE_CITY_REGISTRY" | "DELETE_CITY_REGISTRY")
-                && !other.is_empty()
+            if !matches!(
+                other,
+                "CREATE_CITY_REGISTRY"
+                    | "DELETE_CITY_REGISTRY"
+                    | "CREATE_SUBORDINATE_REGISTRY"
+                    | "DELETE_SUBORDINATE_REGISTRY"
+            ) && !other.is_empty()
                 && other.len() <= 128
                 && other
                     .bytes()
@@ -219,31 +194,13 @@ pub(crate) fn ensure_action_role_allowed(
 ) -> Result<(), axum::response::Response> {
     if matches!(
         action_type,
-        AdminActionType::CreateCityRegistry
-            | AdminActionType::DeleteCityRegistry
-            | AdminActionType::InstitutionCreate
+        AdminActionType::InstitutionCreate
             | AdminActionType::CitizenOnchainPush
             | AdminActionType::InstitutionUpdate
             | AdminActionType::InstitutionUploadDocument
             | AdminActionType::InstitutionDeleteDocument
     ) {
         crate::authorization::rules::ensure_registry_admin(ctx)?;
-    }
-    if ctx.scope_province_name.is_none() && action_type.requires_governing_capability() {
-        return Err(api_error(
-            StatusCode::FORBIDDEN,
-            1003,
-            "admin province scope missing",
-        ));
-    }
-    if action_type.requires_governing_capability()
-        && !crate::chain_runtime::is_tier1_registry(&ctx.institution_code)
-    {
-        return Err(api_error(
-            StatusCode::FORBIDDEN,
-            1003,
-            "governing registry admin required",
-        ));
     }
     Ok(())
 }

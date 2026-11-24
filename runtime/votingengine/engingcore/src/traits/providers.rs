@@ -5,6 +5,16 @@ use crate::types::InstitutionCode;
 /// 公民身份只读接口。投票引擎只能读链上公民身份模块的资格和人口数，
 /// 不再接收注册局链下签发的人口快照或投票凭证。
 pub trait CitizenIdentityReader<AccountId> {
+    /// 从当前签名钱包读取有效、双向一致的人员 CID，包括公民与居民。
+    fn person_cid(_who: &AccountId) -> Option<crate::types::CidNumber> {
+        None
+    }
+
+    /// 查询有效人员 CID 的当前签名钱包。
+    fn person_account(_person_cid: &crate::types::CidNumber) -> Option<AccountId> {
+        None
+    }
+
     /// 读取 CID↔账户双向绑定、身份状态和 CID 状态全部有效的完整公民主体。
     fn citizen_subject(_who: &AccountId) -> Option<identity::CitizenSubject<AccountId>> {
         None
@@ -57,27 +67,9 @@ impl<AccountId> CitizenIdentityReader<AccountId> for () {
     }
 }
 
-/// 内部管理员动态提供器。
-///
-/// 机构管理员查询只用于当前业务入口确认真实签名钱包；机构投票资格只能来自
-/// 提案冻结的钱包和版本。岗位提供器仅用于建案。个人多签继续使用独立管理员快照。
-pub trait InternalAdminProvider<AccountId> {
-    fn is_institution_admin(
-        institution_code: InstitutionCode,
-        cid_number: &[u8],
-        who: &AccountId,
-    ) -> bool;
-
-    /// 仅在建案时将已批准岗位人员引用转换为同区块的实际管理员钱包及其版本。
-    /// 缺失/重复数据必须返回None；旧提案投票不调用当前名单或此接口。
-    fn institution_wallet_snapshot(
-        _cid_number: &[u8],
-        _references: &[AccountId],
-    ) -> Option<sp_std::vec::Vec<(AccountId, u64)>> {
-        None
-    }
-
-    /// FRAME benchmark 专用：把指定账户写成目标机构可解析的当前管理员。
+/// 内部投票只读接口，返回实体的治理阈值及个人多签成员。
+pub trait InternalVoteProvider<AccountId> {
+    /// 基准专用：写入目标机构的测试岗位任职。
     #[cfg(feature = "runtime-benchmarks")]
     fn benchmark_seed_institution_voter(_cid_number: &[u8], _voter: &AccountId) {}
 
@@ -113,14 +105,6 @@ pub trait InternalAdminProvider<AccountId> {
         None
     }
 
-    /// 获取护宪大法官成员集(ADR-027 修订:修宪最终否决,宪法第21条)。
-    /// 护宪大法官归口国家司法院，生产读取 NJD `CONSTITUTION_GUARD` 岗位的
-    /// 当前有效任职账户。立法投票模块要求成员数恰好 7 人，并按 4 名及以上
-    /// 赞成判定修宪终审通过。
-    fn constitution_guard_members() -> sp_std::vec::Vec<AccountId> {
-        sp_std::vec::Vec::new()
-    }
-
     /// 获取 Pending 个人多签管理员列表。
     fn get_pending_personal_admins(
         _personal_account: AccountId,
@@ -129,15 +113,7 @@ pub trait InternalAdminProvider<AccountId> {
     }
 }
 
-impl<AccountId> InternalAdminProvider<AccountId> for () {
-    fn is_institution_admin(
-        _institution_code: InstitutionCode,
-        _cid_number: &[u8],
-        _who: &AccountId,
-    ) -> bool {
-        false
-    }
-}
+impl<AccountId> InternalVoteProvider<AccountId> for () {}
 
 /// 机构岗位任职快照提供器。
 ///
@@ -147,10 +123,10 @@ pub trait InstitutionRoleProvider<AccountId> {
     /// 当前签名钱包是否具备指定岗位的有效授权；仅用于建案和当前业务。
     fn is_active_assignment(cid_number: &[u8], who: &AccountId, role_code: &[u8]) -> bool;
 
-    /// 建案时读取该岗位的完整有效人员/授权引用，随后映射实际钱包及版本。
+    /// 建案时读取该岗位完整有效人员 CID。
     /// 不得预先排除缺钱包的有效任职，否则会降低原分母；不用于旧提案资格复查。
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8])
-        -> sp_std::vec::Vec<AccountId>;
+    fn active_persons_for_role(cid_number: &[u8], role_code: &[u8])
+        -> sp_std::vec::Vec<sp_std::vec::Vec<u8>>;
 }
 
 impl<AccountId> InstitutionRoleProvider<AccountId> for () {
@@ -158,10 +134,10 @@ impl<AccountId> InstitutionRoleProvider<AccountId> for () {
         false
     }
 
-    fn active_accounts_for_role(
+    fn active_persons_for_role(
         _cid_number: &[u8],
         _role_code: &[u8],
-    ) -> sp_std::vec::Vec<AccountId> {
+    ) -> sp_std::vec::Vec<sp_std::vec::Vec<u8>> {
         sp_std::vec::Vec::new()
     }
 }

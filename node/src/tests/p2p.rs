@@ -302,9 +302,9 @@ fn mutate_to_self_consistent_guarded_state(
         "本坏块样本只篡改主存储，若出现 child delta 必须显式扩展重算逻辑"
     );
 
-    // GenesisPallet::CitizenMax 是 NodeGuard 钉死的创世事实之一。
+    // Genesis::CitizenMax 是 NodeGuard 钉死的创世事实之一。
     // 这里写入一个自洽但非法的新值，证明 P2P 同步入口不是只靠 state root 拒绝。
-    let guarded_key = storage_value_key(b"GenesisPallet", b"CitizenMax");
+    let guarded_key = storage_value_key(b"Genesis", b"CitizenMax");
     let guarded_value = 1_443_497_379u64.encode();
     if let Some((_, value)) = changes
         .main_storage_changes
@@ -742,7 +742,7 @@ fn archive_default_survives_257_finalized_blocks_and_restart() {
         .build_storage()
         .unwrap();
     storage.top.insert(
-        storage_value_key(b"PowDifficulty", b"CurrentDifficulty"),
+        storage_value_key(b"Difficulty", b"CurrentDifficulty"),
         1u64.encode(),
     );
     config.chain_spec.set_storage(storage);

@@ -1,6 +1,6 @@
 // 组合节点模式、密钥、奖励账户和设备认证等设置区块。
 
-import { adminsChangeApi } from "../institution/admins";
+import { rolesApi } from "../institution/roles";
 import { MetricHelp } from "../desktop/MetricHelp";
 import { homeNodeApi, settingsApi } from "./api";
 import { RewardAccountSection } from "./RewardAccountSection";
@@ -36,7 +36,7 @@ export function SettingsSection({
     cidShortName: null,
   });
   const [chainStatus, setChainStatus] = useState<ChainStatus | null>(null);
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [hasAccess, setHasAccess] = useState(false);
 
   const loadSettings = useCallback(async () => {
     const [m, w, k, c, a] = await Promise.allSettled([
@@ -44,13 +44,13 @@ export function SettingsSection({
       settingsApi.getRewardAccount(),
       settingsApi.getBootnodeKey(),
       homeNodeApi.getChainStatus(),
-      adminsChangeApi.hasAnyActivatedAdmin(),
+      rolesApi.hasRoleAccess(),
     ]);
     if (m.status === 'fulfilled') setNodeMode(m.value);
     if (w.status === 'fulfilled') setRewardAccount(w.value);
     if (k.status === 'fulfilled') setNodeKey(k.value);
     if (c.status === 'fulfilled') setChainStatus(c.value);
-    if (a.status === 'fulfilled') setIsAdmin(a.value);
+    setHasAccess(a.status==='fulfilled'&&a.value);
   }, []);
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export function SettingsSection({
         rewardAccount={rewardAccount}
         onUpdated={setRewardAccount}
       />
-      {isAdmin && (
+      {hasAccess && (
         <NodeKeySection
           nodeKey={nodeKey}
           onUpdated={setNodeKey}

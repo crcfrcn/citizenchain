@@ -6,6 +6,9 @@ use scale_info::TypeInfo;
 use sp_runtime::Debug;
 use sp_std::vec::Vec;
 
+/// 个人成员名册及冻结投票快照的唯一人数上限，与机构岗位人数无关。
+pub const MAX_PERSONAL_ADMINS: u32 = 64;
+
 // 地址校验与资金保护抽象。
 
 /// 账户地址合法性校验。

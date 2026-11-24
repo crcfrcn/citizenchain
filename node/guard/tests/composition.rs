@@ -1,4 +1,4 @@
-//! 验证受保护机构组成、法定岗位及有效管理员资料约束。
+//! 验证受保护机构组成、法定岗位及规范人员CID及法定席位约束。
 
 use super::*;
 
@@ -7,10 +7,9 @@ use crate::guard::national_body_composition::check_transition;
 use crate::guard::national_body_composition::check_vote_state_keys;
 use crate::guard::national_body_composition::composition_state;
 use crate::guard::national_body_composition::decode_exact;
-use crate::guard::national_body_composition::DecodedAdminAccount;
 use crate::guard::national_body_composition::DecodedAssignment;
+use crate::guard::national_body_composition::DecodedInstitution;
 use crate::guard::national_body_composition::DecodedRole;
-use adminbase::Admin;
 use engingcore::types::ProposalSubjectCidNumbers;
 use engingcore::types::PROPOSAL_KIND_INTERNAL;
 use engingcore::types::STAGE_INTERNAL;
@@ -20,28 +19,44 @@ use primitives::institution_constraints::member_composition_specs;
 use primitives::institution_constraints::MemberCompositionSpec;
 use std::collections::BTreeMap;
 
-fn account(index: u32) -> [u8; 32] {
-    let mut account = [0u8; 32];
-    account[..4].copy_from_slice(&index.to_le_bytes());
-    account
+fn person(index: u32) -> Vec<u8> {
+    primitives::cid::generator::generate_cid_number(
+        primitives::cid::generator::GenerateCidNumberInput {
+            public_key: &format!("guard-person-{index}"),
+            p1: "1",
+            province_code: "GD",
+            province_name: "广东省",
+            city_code: "001",
+            city_name: "荔湾市",
+            year: 2026,
+            institution: "CTZN",
+        },
+    )
+    .unwrap()
+    .into_bytes()
 }
-
 fn formed_state(spec: &MemberCompositionSpec, count: u32) -> BTreeMap<Vec<u8>, Vec<u8>> {
-    let admin_accounts = (0..count).map(account).collect::<Vec<_>>();
+    let institution = DecodedInstitution {
+        cid_full_name: b"institution".to_vec(),
+        cid_short_name: b"inst".to_vec(),
+        town_code: vec![],
+        legal_representative: None,
+        institution_code: spec.institution.code,
+        created_at: 0,
+    };
     let role = DecodedRole {
         cid_number: spec.institution.cid_number.as_bytes().to_vec(),
         role_code: spec.role_code.to_vec(),
         role_name: spec.role_name.to_vec(),
         term_required: false,
         role_status: InstitutionRoleStatus::Active,
+        seats: spec.max_members,
     };
-    let assignments = admin_accounts
-        .iter()
-        .copied()
-        .map(|account_id| DecodedAssignment {
-            cid_number: spec.institution.cid_number.as_bytes().to_vec(),
-            account_id,
-            role_code: spec.role_code.to_vec(),
+    let assignments = (0..count)
+        .map(|i| DecodedAssignment {
+            cid_number: role.cid_number.clone(),
+            person_cid: person(i),
+            role_code: role.role_code.clone(),
             term_start: 0,
             term_end: 0,
             assignment_source: InstitutionAssignmentSource::PopularElection,
@@ -49,25 +64,15 @@ fn formed_state(spec: &MemberCompositionSpec, count: u32) -> BTreeMap<Vec<u8>, V
             assignment_status: InstitutionAssignmentStatus::Active,
         })
         .collect::<Vec<_>>();
-    let account = DecodedAdminAccount {
-        institution_code: spec.institution.code,
-        admins: admin_accounts
-            .into_iter()
-            .map(|account_id| Admin {
-                account_id,
-                // Phase 1: 公民 CID 与创世一致留空。
-                cid_number: Default::default(),
-                family_name: "管理".as_bytes().to_vec().try_into().expect("name fits"),
-                given_name: "员".as_bytes().to_vec().try_into().expect("name fits"),
-            })
-            .collect(),
-    };
-    let [admin_key, role_key, assignments_key] =
-        crate::guard::national_body_composition::storage_key::composition_keys(spec);
+    let [entity, key, rows, permissions] = storage_key::composition_keys(spec);
     BTreeMap::from([
-        (admin_key, account.encode()),
-        (role_key, role.encode()),
-        (assignments_key, assignments.encode()),
+        (entity, institution.encode()),
+        (key, role.encode()),
+        (rows, assignments.encode()),
+        (
+            permissions,
+            Vec::<entitybase::RoleBusinessPermission<Vec<u8>, Vec<u8>, Vec<u8>>>::new().encode(),
+        ),
     ])
 }
 
@@ -82,31 +87,59 @@ fn unconstituted_and_valid_constituted_states_pass() {
 }
 
 #[test]
-fn member_names_do_not_define_membership_but_must_be_valid() {
+fn registered_institution_can_await_member_role_without_orphan_data() {
     let spec = member_composition_specs()[0];
-    let admin_key =
-        crate::guard::national_body_composition::storage_key::composition_keys(&spec)[0].clone();
-    let mut state = formed_state(&spec, spec.min_members);
-    let mut account: DecodedAdminAccount =
-        decode_exact(state.get(&admin_key).expect("admin account exists"))
-            .expect("admin account decodes");
-    account.admins[0].family_name = "张".as_bytes().to_vec().try_into().expect("name fits");
-    account.admins[0].given_name = "三".as_bytes().to_vec().try_into().expect("name fits");
-    state.insert(admin_key.clone(), account.encode());
-    assert_eq!(check_full_state(|key| state.get(key).cloned()), Ok(()));
-
-    let mut account: DecodedAdminAccount =
-        decode_exact(state.get(&admin_key).expect("admin account exists"))
-            .expect("admin account decodes");
-    account.admins[0].given_name = Vec::new().try_into().expect("empty name fits");
-    state.insert(admin_key, account.encode());
+    let parent = formed_state(&spec, spec.min_members);
+    let keys = storage_key::composition_keys(&spec);
+    let mut state = BTreeMap::from([(keys[0].clone(), parent[&keys[0]].clone())]);
     assert_eq!(
-        check_full_state(|key| state.get(key).cloned()),
-        Err(
-            crate::guard::national_body_composition::GuardError::InvalidAdminPersonName(
-                spec.institution.code
-            )
-        )
+        composition_state(&spec, &|k| state.get(k).cloned()),
+        Ok(CompositionState::Unconstituted)
+    );
+    for orphan in [2, 3] {
+        state.insert(keys[orphan].clone(), parent[&keys[orphan]].clone());
+        assert_eq!(
+            composition_state(&spec, &|k| state.get(k).cloned()),
+            Err(GuardError::PartialUnconstitutedState(spec.institution.code))
+        );
+        state.remove(&keys[orphan]);
+    }
+    let delta = keys[1..].iter().map(|k| (k.clone(), None)).collect();
+    assert_eq!(
+        check_transition(
+            &delta,
+            |k| parent.get(k).cloned(),
+            |k| state.get(k).cloned(),
+            None
+        ),
+        Err(GuardError::ConstitutedBodyRemoved(spec.institution.code))
+    );
+    state.insert(keys[0].clone(), vec![0]);
+    assert_eq!(
+        composition_state(&spec, &|k| state.get(k).cloned()),
+        Err(GuardError::InstitutionDecodeFailed(spec.institution.code))
+    );
+}
+
+#[test]
+fn person_identity_and_unique_seat_are_required() {
+    let spec = member_composition_specs()[0];
+    let mut state = formed_state(&spec, spec.min_members);
+    let key = storage_key::composition_keys(&spec)[2].clone();
+    let original: Vec<DecodedAssignment> = decode_exact(state.get(&key).unwrap()).unwrap();
+    let mut rows = original.clone();
+    rows[1].person_cid = rows[0].person_cid.clone();
+    state.insert(key.clone(), rows.encode());
+    assert_eq!(
+        check_full_state(|k| state.get(k).cloned()),
+        Err(GuardError::DuplicateMember(spec.institution.code))
+    );
+    let mut rows = original;
+    rows[0].person_cid = b"invalid".to_vec();
+    state.insert(key, rows.encode());
+    assert_eq!(
+        check_full_state(|k| state.get(k).cloned()),
+        Err(GuardError::PersonCidInvalid(spec.institution.code))
     );
 }
 
@@ -419,4 +452,29 @@ fn exact_hashed_suffix_pairs_proposal_and_threshold_without_id_decoding() {
     let mut bad = proposal;
     bad[32] ^= 1;
     assert!(storage_key::threshold_for_proposal(&bad).is_err());
+}
+
+#[test]
+fn permission_subject_cannot_be_reassigned_to_a_different_body() {
+    let spec = member_composition_specs()[0];
+    let mut state = formed_state(&spec, spec.min_members);
+    let permission = entitybase::RoleBusinessPermission {
+        role_subject: entitybase::RoleSubject {
+            cid_number: b"other".to_vec(),
+            role_code: spec.role_code.to_vec(),
+        },
+        business_action_id: entitybase::BusinessActionId {
+            module_tag: b"leg-yuan".to_vec(),
+            action_code: 0,
+        },
+        operation: entitybase::RolePermissionOperation::Propose,
+    };
+    state.insert(
+        storage_key::composition_keys(&spec)[3].clone(),
+        vec![permission].encode(),
+    );
+    assert_eq!(
+        check_full_state(|k| state.get(k).cloned()),
+        Err(GuardError::PermissionsChanged(spec.institution.code))
+    );
 }

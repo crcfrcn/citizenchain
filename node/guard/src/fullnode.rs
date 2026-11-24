@@ -9,7 +9,7 @@ use runtime::opaque::Header;
 
 use sp_runtime::traits::Header as HeaderT;
 
-const FULLNODE_PALLET: &[u8] = b"FullnodeIssuance";
+const FULLNODE_PALLET: &[u8] = b"FullnodeIssue";
 
 const BALANCES_PALLET: &[u8] = b"Balances";
 

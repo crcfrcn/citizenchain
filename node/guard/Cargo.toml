@@ -15,7 +15,6 @@ workspace = true
 
 [dependencies]
 sc-service = { workspace = true, default-features = true, optional = true }
-adminbase = { path = "../../runtime/admins/adminbase", default-features = true }
 async-trait = { workspace = true }
 chain-signing = { path = "../../crates/signing" }
 codec = { workspace = true, default-features = true }
@@ -37,7 +36,6 @@ offchain = { path = "../../runtime/transaction/offchain", default-features = tru
 onchain = { path = "../../runtime/transaction/onchain", default-features = true }
 pallet-timestamp = { workspace = true, default-features = true }
 primitives = { path = "../../runtime/primitives" }
-publicadmin = { path = "../../runtime/admins/publicadmin", default-features = true }
 publicentity = { path = "../../runtime/entity/publicentity", default-features = true }
 runtime = { workspace = true }
 sc-client-api = { workspace = true, default-features = true }

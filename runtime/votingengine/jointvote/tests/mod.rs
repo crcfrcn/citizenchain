@@ -5,7 +5,7 @@ use engingcore::PopulationScope;
 
 use engingcore::{
     traits::{
-        CitizenIdentityReader, InternalAdminProvider, JointVoteEngine, JointVoteResultCallback,
+        CitizenIdentityReader, InternalVoteProvider, JointVoteEngine, JointVoteResultCallback,
     },
     ProposalExecutionOutcome, STAGE_REFERENDUM, STATUS_EXECUTED, STATUS_PASSED, STATUS_VOTING,
 };
@@ -58,6 +58,15 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
 
 pub struct TestCitizenIdentityReader;
 impl CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+    fn person_cid(who: &AccountId32) -> Option<engingcore::CidNumber> {
+        codec::Encode::encode(who).try_into().ok()
+    }
+
+    fn person_account(cid: &engingcore::CidNumber) -> Option<AccountId32> {
+        let bytes: [u8; 32] = cid.as_slice().try_into().ok()?;
+        Some(AccountId32::new(bytes))
+    }
+
     fn voting_subject(
         who: &AccountId32,
         _scope: &PopulationScope,
@@ -101,54 +110,34 @@ impl TestAdminProvider {
             engingcore::NRC | engingcore::PRC => CHINA_CB
                 .iter()
                 .find(|entry| entry.cid_number.as_bytes() == cid_number)
-                .map(|entry| entry.admins.iter().copied().map(AccountId32::new).collect()),
+                .map(|entry| seat_wallets(entry.cid_number)),
             engingcore::PRB => CHINA_CH
                 .iter()
                 .find(|entry| entry.cid_number.as_bytes() == cid_number)
-                .map(|entry| entry.admins.iter().copied().map(AccountId32::new).collect()),
+                .map(|entry| seat_wallets(entry.cid_number)),
             _ => None,
         }
     }
 }
 
-impl InternalAdminProvider<AccountId32> for TestAdminProvider {
-    fn institution_wallet_snapshot(
-        _cid: &[u8],
-        references: &[AccountId32],
-    ) -> Option<Vec<(AccountId32, u64)>> {
-        Some(
-            references
-                .iter()
-                .map(|reference| {
-                    let key = codec::Encode::encode(&(b"fixture-current-wallet", _cid, reference));
-                    sp_io::storage::get(&key)
-                        .map(|raw| {
-                            <(AccountId32, u64) as codec::Decode>::decode(&mut &raw[..])
-                                .expect("explicit fixture wallet")
-                        })
-                        .unwrap_or_else(|| (reference.clone(), 0))
-                })
-                .collect(),
-        )
-    }
+impl InternalVoteProvider<AccountId32> for TestAdminProvider {
 
-    fn is_institution_admin(
-        institution_code: engingcore::InstitutionCode,
-        cid_number: &[u8],
-        who: &AccountId32,
-    ) -> bool {
-        Self::institution_admins(institution_code, cid_number)
-            .map(|admins| admins.contains(who))
-            .unwrap_or(false)
-    }
+
+
 }
 
 impl engingcore::InstitutionRoleProvider<AccountId32> for TestAdminProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
-        Self::active_accounts_for_role(cid_number, role_code).contains(who)
+        Self::fixture_wallets_for_role(cid_number, role_code).contains(who)
     }
 
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
+    fn active_persons_for_role(cid: &[u8], role: &[u8]) -> Vec<Vec<u8>> {
+        Self::fixture_wallets_for_role(cid, role).iter().map(codec::Encode::encode).collect()
+    }
+
+}
+impl TestAdminProvider {
+    fn fixture_wallets_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
         let Ok(cid_text) = core::str::from_utf8(cid_number) else {
             return Vec::new();
         };
@@ -168,6 +157,7 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestAdminProvider {
         Self::institution_admins(code, cid_number).unwrap_or_default()
     }
 }
+
 
 pub struct TestJointCallback;
 impl JointVoteResultCallback for TestJointCallback {
@@ -206,8 +196,8 @@ impl engingcore::Config for Test {
     type CitizenIdentityReader = TestCitizenIdentityReader;
     type JointVoteResultCallback = TestJointCallback;
     type InternalVoteResultCallback = ();
-    type InternalAdminProvider = TestAdminProvider;
-    type MaxAdminsPerInstitution = ConstU32<32>;
+    type InternalVoteProvider = TestAdminProvider;
+    type MaxSnapshotVoters = ConstU32<32>;
     type TimeProvider = TestTimeProvider;
     type WeightInfo = ();
     type TrackHandlers = (JointVote, ());
@@ -260,7 +250,7 @@ fn referendum_subject(who: &AccountId32) -> Option<engingcore::CitizenSubject<Ac
 }
 
 fn nrc_admin() -> AccountId32 {
-    AccountId32::new(CHINA_CB[0].admins[0])
+    seat_wallet(CHINA_CB[0].cid_number, 0)
 }
 
 fn nrc_cid_number() -> Vec<u8> {
@@ -368,7 +358,7 @@ fn finalize_institution(
     .try_into()
     .expect("institution role code should fit");
     for admin in admins.into_iter().take(required) {
-        assert_ok!(JointVote::cast_admin(
+        assert_ok!(JointVote::cast_role_vote(
             RuntimeOrigin::signed(admin),
             proposal_id,
             cid_number
@@ -383,10 +373,13 @@ fn finalize_institution(
 
 mod unit;
 
-/// 仅测试的当前机构凭据事实；不改岗位人员，不触碰个人身份。
-fn set_fixture_wallet(cid: &[u8], reference: &AccountId32, wallet: AccountId32, revision: u64) {
-    sp_io::storage::set(
-        &codec::Encode::encode(&(b"fixture-current-wallet", cid, reference)),
-        &codec::Encode::encode(&(wallet, revision)),
-    );
+// 合成账户由机构与席位得出，普通测试和可选的 FRAME 基准用同一输入。
+fn seat_wallet(cid: &'static str, index: usize) -> AccountId32 {
+    AccountId32::new(sp_io::hashing::blake2_256(&codec::Encode::encode(&(cid, index as u32, 0u32))))
+}
+
+fn seat_wallets(cid: &'static str) -> Vec<AccountId32> {
+    let seats = primitives::governance_skeleton::fixed_institution_by_cid(cid.as_bytes())
+        .expect("测试机构存在固定席位").expected_len;
+    (0..seats as usize).map(|index| seat_wallet(cid, index)).collect()
 }

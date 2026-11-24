@@ -78,16 +78,14 @@ impl BatchSubmitter for PoolBatchSubmitter {
         let batch_bounded = crate::submitter::encode_bounded_batch::<runtime::Runtime>(batch)?;
 
         // 4. 拼 RuntimeCall
-        let call = runtime::RuntimeCall::OffchainTransaction(
-            offchain::pallet::Call::submit_offchain_batch {
-                actor_cid_number: actor_cid_number.clone(),
-                actor_role_code,
-                institution_account_id: institution_account_id.clone(),
-                batch_seq,
-                batch: batch_bounded,
-                batch_signature: sig_bounded,
-            },
-        );
+        let call = runtime::RuntimeCall::Offchain(offchain::pallet::Call::submit_offchain_batch {
+            actor_cid_number: actor_cid_number.clone(),
+            actor_role_code,
+            institution_account_id: institution_account_id.clone(),
+            batch_seq,
+            batch: batch_bounded,
+            batch_signature: sig_bounded,
+        });
 
         // 5. 从 signing_key 拿 sr25519 pair
         let guard = self

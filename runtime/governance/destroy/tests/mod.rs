@@ -46,7 +46,7 @@ mod runtime {
     pub type InternalVote = internalvote;
 
     #[runtime::pallet_index(3)]
-    pub type ResolutionDestroy = super;
+    pub type Destroy = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -76,6 +76,15 @@ impl pallet_balances::Config for Test {
 
 pub struct TestCitizenIdentityReader;
 impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+    fn person_cid(who: &AccountId32) -> Option<engingcore::CidNumber> {
+        codec::Encode::encode(who).try_into().ok()
+    }
+
+    fn person_account(cid: &engingcore::CidNumber) -> Option<AccountId32> {
+        let bytes: [u8; 32] = cid.as_slice().try_into().ok()?;
+        Some(AccountId32::new(bytes))
+    }
+
     fn voting_subject(
         who: &AccountId32,
         _scope: &engingcore::PopulationScope,
@@ -101,9 +110,9 @@ fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<Account
     }
 }
 
-pub struct TestInternalAdminProvider;
+pub struct TestInternalVoteProvider;
 
-impl TestInternalAdminProvider {
+impl TestInternalVoteProvider {
     fn institution_admins(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -112,39 +121,20 @@ impl TestInternalAdminProvider {
             NRC | PRC => CHINA_CB
                 .iter()
                 .find(|n| n.cid_number.as_bytes() == cid_number)
-                .map(|n| n.admins.iter().copied().map(AccountId32::new).collect()),
+                .map(|n| seat_wallets(n.cid_number)),
             PRB => CHINA_CH
                 .iter()
                 .find(|n| n.cid_number.as_bytes() == cid_number)
-                .map(|n| n.admins.iter().copied().map(AccountId32::new).collect()),
+                .map(|n| seat_wallets(n.cid_number)),
             _ => None,
         }
     }
 }
 
-impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
-    fn institution_wallet_snapshot(
-        _cid: &[u8],
-        references: &[AccountId32],
-    ) -> Option<Vec<(AccountId32, u64)>> {
-        Some(
-            references
-                .iter()
-                .cloned()
-                .map(|wallet| (wallet, 0))
-                .collect(),
-        )
-    }
+impl engingcore::InternalVoteProvider<AccountId32> for TestInternalVoteProvider {
 
-    fn is_institution_admin(
-        institution_code: InstitutionCode,
-        cid_number: &[u8],
-        who: &AccountId32,
-    ) -> bool {
-        Self::institution_admins(institution_code, cid_number)
-            .map(|admins| admins.contains(who))
-            .unwrap_or(false)
-    }
+
+
 
     fn institution_threshold(institution_code: InstitutionCode, cid_number: &[u8]) -> Option<u32> {
         Self::institution_admins(institution_code, cid_number)?;
@@ -172,10 +162,16 @@ fn bounded_test_role(institution_code: InstitutionCode) -> engingcore::types::Ro
 
 impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
-        Self::active_accounts_for_role(cid_number, role_code).contains(who)
+        Self::fixture_wallets_for_role(cid_number, role_code).contains(who)
     }
 
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
+    fn active_persons_for_role(cid: &[u8], role: &[u8]) -> Vec<Vec<u8>> {
+        Self::fixture_wallets_for_role(cid, role).iter().map(codec::Encode::encode).collect()
+    }
+
+}
+impl TestInstitutionRoleProvider {
+    fn fixture_wallets_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
         let Some(code) = core::str::from_utf8(cid_number)
             .ok()
             .and_then(engingcore::types::institution_code_from_cid_number)
@@ -185,9 +181,10 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRolePro
         if test_role_code(code) != Some(role_code) {
             return Vec::new();
         }
-        TestInternalAdminProvider::institution_admins(code, cid_number).unwrap_or_default()
+        TestInternalVoteProvider::institution_admins(code, cid_number).unwrap_or_default()
     }
 }
+
 
 impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestInstitutionRoleProvider {
     fn role_has_permission(
@@ -261,7 +258,7 @@ impl engingcore::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type MaxVoteNonceLength = ConstU32<64>;
     type MaxVoteSignatureLength = ConstU32<64>;
-    type MaxAdminsPerInstitution = ConstU32<32>;
+    type MaxSnapshotVoters = ConstU32<32>;
     type MaxAutoFinalizePerBlock = ConstU32<64>;
     type MaxAutoFinalizeWeightPerBlock = LogicBudget;
     type MaxExecutionWeightPerBlock = LogicBudget;
@@ -283,7 +280,7 @@ impl engingcore::Config for Test {
     type JointVoteResultCallback = ();
     // 挂上本模块 Executor,让提案通过后自动触发销毁执行。
     type InternalVoteResultCallback = crate::InternalVoteExecutor<Test>;
-    type InternalAdminProvider = TestInternalAdminProvider;
+    type InternalVoteProvider = TestInternalVoteProvider;
     type TimeProvider = TestTimeProvider;
     type WeightInfo = ();
     type TrackHandlers = (InternalVote, ());
@@ -349,17 +346,7 @@ impl entitybase::InstitutionMultisigQuery<AccountId32> for TestInstitutionQuery 
         test_institution(addr).map(|(_, institution_code, _)| institution_code)
     }
 
-    fn lookup_admin_config(
-        addr: &AccountId32,
-    ) -> Option<primitives::multisig::MultisigConfigSnapshot<AccountId32>> {
-        let (_, _, admins) = test_institution(addr)?;
-        let admins_len = u32::try_from(admins.len()).ok()?;
-        Some(primitives::multisig::MultisigConfigSnapshot {
-            admins,
-            admins_len,
-            threshold: admins_len,
-        })
-    }
+
 
     fn account_exists(addr: &AccountId32) -> bool {
         test_institution(addr).is_some()
@@ -406,12 +393,7 @@ fn test_institution(addr: &AccountId32) -> Option<(Vec<u8>, InstitutionCode, Vec
                     (
                         institution.cid_number.as_bytes().to_vec(),
                         institution_code,
-                        institution
-                            .admins
-                            .iter()
-                            .copied()
-                            .map(AccountId32::new)
-                            .collect(),
+                        seat_wallets(institution.cid_number),
                     )
                 })
                 .filter(|_| AccountId32::new(institution.main_account) == *addr)
@@ -426,12 +408,7 @@ fn test_institution(addr: &AccountId32) -> Option<(Vec<u8>, InstitutionCode, Vec
                         (
                             institution.cid_number.as_bytes().to_vec(),
                             institution_code,
-                            institution
-                                .admins
-                                .iter()
-                                .copied()
-                                .map(AccountId32::new)
-                                .collect(),
+                            seat_wallets(institution.cid_number),
                         )
                     })
             })
@@ -439,15 +416,15 @@ fn test_institution(addr: &AccountId32) -> Option<(Vec<u8>, InstitutionCode, Vec
 }
 
 fn nrc_admin(index: usize) -> AccountId32 {
-    AccountId32::new(CHINA_CB[0].admins[index])
+    seat_wallet(CHINA_CB[0].cid_number, index)
 }
 
 fn prc_admin(index: usize) -> AccountId32 {
-    AccountId32::new(CHINA_CB[1].admins[index])
+    seat_wallet(CHINA_CB[1].cid_number, index)
 }
 
 fn prb_admin(index: usize) -> AccountId32 {
-    AccountId32::new(CHINA_CH[0].admins[index])
+    seat_wallet(CHINA_CH[0].cid_number, index)
 }
 
 fn nrc_cid() -> CidNumber {
@@ -558,3 +535,14 @@ fn new_test_ext() -> sp_io::TestExternalities {
 }
 
 mod unit;
+
+// 合成账户由机构与席位得出，普通测试和可选的 FRAME 基准用同一输入。
+fn seat_wallet(cid: &'static str, index: usize) -> AccountId32 {
+    AccountId32::new(sp_io::hashing::blake2_256(&codec::Encode::encode(&(cid, index as u32, 0u32))))
+}
+
+fn seat_wallets(cid: &'static str) -> Vec<AccountId32> {
+    let seats = primitives::governance_skeleton::fixed_institution_by_cid(cid.as_bytes())
+        .expect("测试机构存在固定席位").expected_len;
+    (0..seats as usize).map(|index| seat_wallet(cid, index)).collect()
+}

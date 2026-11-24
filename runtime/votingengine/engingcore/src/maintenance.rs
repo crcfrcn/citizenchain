@@ -91,11 +91,11 @@ impl<T: Config> Pallet<T> {
                 | PendingCleanupStage::VoterSnapshots
                 | PendingCleanupStage::InstitutionTicketCounts,
             ) => T::WeightInfo::cleanup_step(limit),
-            Some(PendingCleanupStage::FrozenWalletVersions) => T::WeightInfo::cleanup_step(limit)
+            Some(PendingCleanupStage::HistoricalVoterSnapshots) => T::WeightInfo::cleanup_step(limit)
                 .saturating_add(
                     Weight::from_parts(
                         100_000_000,
-                        u64::from(T::MaxAdminsPerInstitution::get()).saturating_mul(8),
+                        u64::from(T::MaxSnapshotVoters::get()).saturating_mul(8),
                     )
                     .saturating_mul(u64::from(limit).saturating_add(1)),
                 )
@@ -137,30 +137,31 @@ impl<T: Config> Pallet<T> {
                 )
             }
             PendingCleanupStage::VoterSnapshots => {
-                let result = VoterSnapshot::<T>::clear_prefix(proposal_id, cleanup_limit, None);
+                let result = RoleVoters::<T>::clear_prefix(proposal_id, cleanup_limit, None);
                 let next = if result.maybe_cursor.is_some() {
                     PendingCleanupStage::VoterSnapshots
                 } else {
-                    PendingCleanupStage::FrozenWalletVersions
+                    PendingCleanupStage::HistoricalVoterSnapshots
                 };
                 (
                     Some(next),
                     db.reads_writes(u64::from(result.loops), u64::from(result.unique)),
                 )
             }
-            PendingCleanupStage::FrozenWalletVersions => {
-                let result =
-                    FrozenWalletVersions::<T>::clear_prefix(proposal_id, cleanup_limit, None);
+            PendingCleanupStage::HistoricalVoterSnapshots => {
+                // 旧快照只按原定保留期清除原始键，禁止解码或参与新提案资格。
+                use codec::Encode;
+                use frame_support::traits::PalletInfoAccess;
+                let mut prefix = frame_support::storage::storage_prefix(Self::name().as_bytes(), b"VoterSnapshot").to_vec();
+                let key = <frame_support::Blake2_128Concat as frame_support::StorageHasher>::hash(&proposal_id.encode());
+                prefix.extend_from_slice(&key);
+                let result = frame_support::storage::unhashed::clear_prefix(&prefix, Some(cleanup_limit), None);
                 let next = if result.maybe_cursor.is_some() {
-                    PendingCleanupStage::FrozenWalletVersions
+                    PendingCleanupStage::HistoricalVoterSnapshots
                 } else {
-                    FrozenGovernanceWalletState::<T>::remove(proposal_id);
                     PendingCleanupStage::InstitutionTicketCounts
                 };
-                (
-                    Some(next),
-                    db.reads_writes(u64::from(result.loops), u64::from(result.unique)),
-                )
+                (Some(next), db.reads_writes(u64::from(result.loops), u64::from(result.unique)))
             }
             PendingCleanupStage::InstitutionTicketCounts => {
                 let result = InstitutionTicketCountSnapshot::<T>::clear_prefix(

@@ -386,7 +386,7 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         with_transaction(|| {
             let result = (|| -> DispatchResult {
-                Self::ensure_retry_admin(who, proposal_id)?;
+                Self::ensure_retry_voter(who, proposal_id)?;
                 let proposal =
                     Proposals::<T>::get(proposal_id).ok_or(Error::<T>::ProposalNotFound)?;
                 ensure!(
@@ -472,7 +472,7 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         with_transaction(|| {
             let result = (|| -> DispatchResult {
-                Self::ensure_retry_admin(who, proposal_id)?;
+                Self::ensure_retry_voter(who, proposal_id)?;
                 let proposal =
                     Proposals::<T>::get(proposal_id).ok_or(Error::<T>::ProposalNotFound)?;
                 ensure!(

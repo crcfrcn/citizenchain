@@ -252,7 +252,7 @@ fn institution_from_subject_row(
             row.get::<_, Option<String>>(22),
             row.get::<_, Option<String>>(27),
         ) {
-            (Some(family_name), Some(given_name), Some(cid_number), Some(account_id)) => {
+            (Some(family_name), Some(given_name), Some(cid_number), account_id) => {
                 Some(crate::institutions::LegalRepresentative {
                     family_name,
                     given_name,

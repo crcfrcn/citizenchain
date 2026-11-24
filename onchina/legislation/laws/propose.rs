@@ -4,7 +4,7 @@ use codec::{Compact, Decode, Encode};
 use onchina::institutions::{chain_action_code, ChainCall};
 use primitives::genesis::LawRegion;
 
-/// LegislationYuan pallet 在 construct_runtime 的索引。
+/// Legislation pallet 在 construct_runtime 的索引。
 pub const LEGISLATION_YUAN_PALLET_INDEX: u8 = 25;
 /// `propose_enact_law` call index。
 pub const PROPOSE_ENACT_LAW_CALL_INDEX: u8 = 0;

@@ -2,10 +2,11 @@
 
 import { IdentityCidText } from '../client/identityCid';
 import { sanitizeError } from "../client/tauri";
-import { adminsChangeApi } from "../institution/admins";
+import { roleSigners as selectedRoleSigners } from "../institution/assignments";
+import { rolesApi } from "../institution/roles";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignatureModal } from "../desktop/signing";
-import type { ActivatedAdmin, AdminSignerMatch } from "../institution/council";
+import type { RoleSigner } from "../institution/council";
 import type { VoteSignRequestResult } from "../client/signing";
 import { offchainApi } from "./api";
 import type { ConnectivityTestReport } from "./types";
@@ -41,9 +42,9 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
   const [rpcPort, setRpcPort] = useState<string>('9944');
   const [report, setReport] = useState<ConnectivityTestReport | null>(null);
 
-  // 管理员 = 已激活的清算行管理员中第一个;Step 3 完工后改为下拉选(支持多管理员)
-  const [admins, setAdmins] = useState<AdminSignerMatch[]>([]);
-  const [selectedAdmin, setSelectedAdmin] = useState<AdminSignerMatch | null>(null);
+  // 按人员与岗位选择本机授权；同一钱包的不同岗位分别展示。
+  const [signers, setSigners] = useState<RoleSigner[]>([]);
+  const [selectedSigner, setSelectedSigner] = useState<RoleSigner | null>(null);
 
   // QR 流程
   const [signRequest, setSignRequest] = useState<VoteSignRequestResult | null>(null);
@@ -53,24 +54,23 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
   const signRequestRef = useRef(signRequest);
   signRequestRef.current = signRequest;
 
-  // 初始化：拉本机 PeerId + 按身份CID号 拉已激活管理员。
+  // 初始化：读取本机 PeerId、现行岗位及匹配的本机授权。
   useEffect(() => {
     let cancelled = false;
+    setSigners([]);
+    setSelectedSigner(null);
     Promise.all([
       offchainApi.queryLocalPeerId().catch(() => ''),
-      adminsChangeApi.getActivatedAdmins(cidNumber, { cidNumber })
-        .catch(() => [] as ActivatedAdmin[]),
-    ]).then(([pid, aa]) => {
+      rolesApi.getRoleAccess(cidNumber, { cidNumber }),
+      rolesApi.getInstitutionRoles({cidNumber}),
+    ]).then(([pid, aa, state]) => {
       if (cancelled) return;
       setPeerId(pid);
-      const matches: AdminSignerMatch[] = aa.map(a => ({
-
-        accountId: a.accountId,
-        accountLabel: '',
-      }));
-      setAdmins(matches);
-      if (matches.length === 1) setSelectedAdmin(matches[0]);
-    });
+      const matches=selectedRoleSigners(state?.roles??[],aa).filter(s=>s.permissions.some(p=>p.moduleTag==='offchain'&&p.actionCode===50&&p.operation===0));
+      if (state?.cidNumber !== cidNumber) throw new Error('机构岗位响应不匹配');
+      setSigners(matches);
+      if (matches.length === 1) setSelectedSigner(matches[0]);
+    }).catch(e => { if (!cancelled) setError(sanitizeError(e)); });
     return () => { cancelled = true; };
   }, [cidNumber]);
 
@@ -112,8 +112,8 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
   }, [peerId, rpcDomain, rpcPort]);
 
   const startSign = useCallback(async () => {
-    if (!selectedAdmin) {
-      setError('请先在治理-管理员列表激活管理员后再来声明节点');
+    if (!selectedSigner) {
+      setError('请先在岗位任职页授权具有节点声明权限的岗位');
       return;
     }
     if (!report || !report.allOk) {
@@ -126,8 +126,9 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
     setCountdown(90);
     try {
       const r = await offchainApi.buildRegisterClearingBankRequest(
-        selectedAdmin.accountId,
+        selectedSigner.accountId,
         cidNumber,
+        selectedSigner.roleCode,
         peerId,
         rpcDomain.trim(),
         portNum,
@@ -137,18 +138,19 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
       setError(sanitizeError(e));
       setStep('error');
     }
-  }, [selectedAdmin, report, cidNumber, peerId, rpcDomain, rpcPort]);
+  }, [selectedSigner, report, cidNumber, peerId, rpcDomain, rpcPort]);
 
   const handleScan = useCallback(async (responseJson: string) => {
     const sr = signRequestRef.current;
-    if (!sr || !selectedAdmin) return;
+    if (!sr || !selectedSigner) return;
     setStep('submit');
     try {
       const r = await offchainApi.submitRegisterClearingBank(
         sr.requestId,
-        selectedAdmin.accountId,
+        selectedSigner.accountId,
         sr.expectedPayloadHash,
         cidNumber,
+        selectedSigner.roleCode,
         peerId,
         rpcDomain.trim(),
         parseInt(rpcPort, 10),
@@ -163,21 +165,21 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
       setError(sanitizeError(e));
       setStep('error');
     }
-  }, [selectedAdmin, cidNumber, peerId, rpcDomain, rpcPort, onSuccess]);
+  }, [selectedSigner, cidNumber, peerId, rpcDomain, rpcPort, onSuccess]);
 
   return (
     <>
       <button className="back-button" onClick={onBack}>← 返回</button>
-      <div className="admin-list-header">
+      <div className="institution-list-header">
         <h2>声明清算行节点</h2>
-        <span className="admin-list-summary">{cidFullName} (<IdentityCidText value={cidNumber} />)</span>
+        <span className="institution-list-summary">{cidFullName} (<IdentityCidText value={cidNumber} />)</span>
       </div>
 
       {step === 'form' || step === 'testing' || step === 'tested' || step === 'error' ? (
         <>
           <div className="form-group">
             <label>本机 PeerId(自动获取,不可改)</label>
-            <code className="admin-card-address">{peerId || '加载中…'}</code>
+            <code className="institution-card-address">{peerId || '加载中…'}</code>
           </div>
           <div className="form-group">
             <label>对外 RPC 域名</label>
@@ -199,23 +201,23 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
             />
           </div>
           <div className="form-group">
-            <label>已激活管理员</label>
-            {admins.length === 0 ? (
-              <p className="muted">本机构尚无已激活管理员。请先回到治理 tab 激活至少 1 名清算行管理员后再来声明节点。</p>
-            ) : admins.length === 1 ? (
-              <code className="admin-card-address">{accountIdToSs58(admins[0].accountId)}</code>
+            <label>已授权岗位</label>
+            {signers.length === 0 ? (
+              <p className="muted">本机构尚无可声明节点的本机岗位授权，请先在岗位任职页完成授权。</p>
+            ) : signers.length === 1 ? (
+              <code className="institution-card-address">{accountIdToSs58(signers[0].accountId)}</code>
             ) : (
               <select
-                value={selectedAdmin?.accountId ?? ''}
+                value={selectedSigner ? `${selectedSigner.personCid}:${selectedSigner.roleCode}` : ''}
                 onChange={(e) => {
-                  const found = admins.find(a => a.accountId === e.target.value);
-                  setSelectedAdmin(found ?? null);
+                  const found = signers.find(a => `${a.personCid}:${a.roleCode}` === e.target.value);
+                  setSelectedSigner(found ?? null);
                 }}
               >
-                <option value="">— 选择管理员 —</option>
-                {admins.map((a) => (
-                  <option key={a.accountId} value={a.accountId}>
-                    {accountIdToSs58(a.accountId)}
+                <option value="">— 选择岗位 —</option>
+                {signers.map((a) => (
+                  <option key={`${a.personCid}:${a.roleCode}`} value={`${a.personCid}:${a.roleCode}`}>
+                    {a.roleName} · {accountIdToSs58(a.accountId)}
                   </option>
                 ))}
               </select>
@@ -229,7 +231,7 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
             <button
               className="primary-button"
               onClick={startSign}
-              disabled={!report || !report.allOk || !selectedAdmin}
+              disabled={!report || !report.allOk || !selectedSigner}
             >
               扫码签名并提交
             </button>
@@ -274,7 +276,7 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
         <div className="modal-overlay">
           <div className="modal-content">
             <p>声明成功!</p>
-            <code className="admin-card-address">{txHash}</code>
+            <code className="institution-card-address">{txHash}</code>
           </div>
         </div>
       )}

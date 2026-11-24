@@ -1,16 +1,14 @@
 //! 从链上读取机构及代表人，构造CID键并派生协议账户。
 
 use crate::types::AccountWithBalance;
-use crate::types::InstitutionAdminDisplay;
 use crate::types::InstitutionDetail;
 use crate::types::InstitutionProposalPage;
-use codec::Decode;
+use codec::DecodeAll;
 use codec::Encode;
 use nodedesktop::constants::RPC_RESPONSE_LIMIT_SMALL;
 use primitives::account_derive::institution_kind_by_name;
 use primitives::account_derive::AccountKind;
 use primitives::account_derive::InstitutionProtocolAccountKind;
-use primitives::cid::code::InstitutionCode;
 use primitives::core_const::SS58_FORMAT;
 use serde_json::Value;
 use sp_core::ConstU32;
@@ -47,45 +45,7 @@ fn encode_cid_key_data(cid_number: &str) -> Result<Vec<u8>, String> {
     Ok(bv.encode())
 }
 
-// ─── 机构最小集镜像(PublicManage/PrivateManage::Institutions) ──────
-
-/// 链端 `InstitutionInfo<BlockNumber, AccountName, CidNumber, AccountId>` 的 SCALE 镜像。
-/// 字段顺序必须与 `runtime/entity/{public,private}-manage/src/institution/types.rs::InstitutionInfo`
-/// 严格一致(两 pallet 同形态;Encode/Decode 派生按声明顺序)。
-///
-/// runtime 实例化的具体类型:
-/// - `BlockNumber = u32`(citizenchain runtime)
-/// - `AccountName = BoundedVec<u8, ConstU32<128>>`
-/// - `CidNumber = BoundedVec<u8, ConstU32<32>>`
-/// - `AccountId = AccountId32`
-#[derive(Decode)]
-#[allow(dead_code)] // SCALE 解码镜像:未读字段只保序,删字段会破坏 Decode 对齐。
-pub(crate) struct OnChainInstitution {
-    cid_full_name: BoundedVec<u8, ConstU32<128>>,
-    cid_short_name: BoundedVec<u8, ConstU32<128>>,
-    town_code: BoundedVec<u8, ConstU32<128>>,
-    legal_representative: Option<OnChainLegalRepresentative>,
-    institution_code: InstitutionCode,
-    created_at: u32,
-}
-
-#[derive(Decode)]
-#[allow(dead_code)] // SCALE 解码镜像:未读字段只保序,删字段会破坏 Decode 对齐。
-struct OnChainLegalRepresentative {
-    family_name: BoundedVec<u8, ConstU32<128>>,
-    given_name: BoundedVec<u8, ConstU32<128>>,
-    cid_number: BoundedVec<u8, ConstU32<32>>,
-    account: AccountId32,
-}
-
-/// 链端 `InstitutionAccountInfo<AccountId, Balance, BlockNumber>` 镜像。
-#[derive(Decode)]
-#[allow(dead_code)] // SCALE 解码镜像:未读字段只保序,删字段会破坏 Decode 对齐。
-pub(crate) struct OnChainInstitutionAccount {
-    address: AccountId32,
-    initial_balance: u128,
-    created_at: u32,
-}
+type Account = entitybase::InstitutionAccountInfo<AccountId32, u128, u32>;
 
 /// 按 GMB 协议确定性派生机构主账户 32 字节地址。
 fn derive_main_account(cid_number: &str) -> AccountId32 {
@@ -107,33 +67,9 @@ fn derive_fee_account(cid_number: &str) -> AccountId32 {
     )
 }
 
-/// 读取机构管理员账户集合（岗位/任职需另查 entity）及人数。
-///
-/// 真源 = 机构码对应管理员 pallet 的 `AdminAccounts[cid_number]`,值为钱包账户列表;
-/// 机构码不匹配视为数据不一致,降级为空集合。
-fn fetch_admin_set(
-    institution_code: &InstitutionCode,
-    cid_number: &str,
-    finalized_hash: &str,
-) -> Result<(Vec<InstitutionAdminDisplay>, u32), String> {
-    let Some(state) = crate::storage::fetch_institution_admins_for_code_at(
-        cid_number,
-        *institution_code,
-        finalized_hash,
-    )?
-    else {
-        return Ok((Vec::new(), 0));
-    };
-    if &state.institution_code != institution_code {
-        return Ok((Vec::new(), 0));
-    }
-    let admins_len = state.admins.len() as u32;
-    Ok((state.admins, admins_len))
-}
-
 /// 读取机构治理阈值。
 ///
-/// 真源 = `PublicManage/PrivateManage::InstitutionGovernanceThresholds[cid_number]`；
+/// 真源 = `PublicEntity/PrivateEntity::InstitutionGovernanceThresholds[cid_number]`；
 /// 投票引擎只消费该值，不保存第二份机构阈值。
 fn fetch_institution_threshold(
     cid_number: &str,
@@ -156,58 +92,29 @@ fn fetch_institution_threshold(
             let clean = hex_data.strip_prefix("0x").unwrap_or(&hex_data);
             let bytes = hex::decode(clean)
                 .map_err(|e| format!("InstitutionGovernanceThresholds hex 解码失败:{e}"))?;
-            u32::decode(&mut &bytes[..])
+            u32::decode_all(&mut &bytes[..])
                 .map_err(|e| format!("InstitutionGovernanceThresholds SCALE 解码失败:{e}"))
         }
         _ => Err("state_getStorage 返回格式无效".to_string()),
     }
 }
 
-/// 机构生命周期 storage 所在 pallet 名:私权法人码→`PrivateManage`,否则→`PublicManage`。
-///
-/// 链端机构管理已拆分 `PublicManage`(idx30)/`PrivateManage`(idx31),storage 名
-/// (`Institutions`/`InstitutionAccounts`)不变但前缀(twox_128(pallet 名))随之变;前缀由
-/// cid_number 派生的 institution_code 经 `is_private_legal_code` 路由(与链端单源一致),
-/// 取代已删的 `OrganizationManage`。
-fn institution_manage_pallet(cid_number: &str) -> &'static str {
-    match primitives::cid::code::institution_code_from_cid_number(cid_number) {
-        Some(code) if primitives::cid::code::is_private_legal_code(&code) => "PrivateManage",
-        _ => "PublicManage",
-    }
-}
-
 /// 链上查询某机构的多签信息。返回 `None` = 该 cid_number 尚未创建机构(进入创建流程)。
 ///
 /// 数据来源:
-/// 1. `PublicManage/PrivateManage::Institutions[cid_number]` 取机构身份最小集(按机构码路由 pallet)
+/// 1. `PublicEntity/PrivateEntity::Institutions[cid_number]` 取机构身份最小集(按机构码路由 pallet)
 /// 2. `state_getKeysPaged` + `…::InstitutionAccounts[cid_number, *]` 取账户列表
 /// 3. 每个账户的 `System::Account[address].data.free + reserved` 取链上总余额
-/// 4. 主/费账户由 GMB 协议派生地址定位；管理员集合取 admins，阈值取 entity
+/// 4. 主/费账户由 GMB 协议派生地址定位；任职和席位取实体岗位，阈值取 entity
 pub(crate) fn fetch_institution_detail(
     cid_number: &str,
 ) -> Result<Option<InstitutionDetail>, String> {
     // (ADR-017):取一次 finalized 快照,机构详情/账户列表/余额/阈值全部钉同一块。
     let finalized_hash = nodeclient::query::fetch_finalized_head()?;
-    let key_data = encode_cid_key_data(cid_number)?;
-    // 机构生命周期已拆 PublicManage/PrivateManage,按机构码路由 storage 前缀。
-    let manage_pallet = institution_manage_pallet(cid_number);
-    let key = nodeclient::query::map_key(manage_pallet, "Institutions", &key_data);
-    let result = rpc_post(
-        "state_getStorage",
-        Value::Array(vec![
-            Value::String(key),
-            Value::String(finalized_hash.clone()),
-        ]),
-    )?;
-    let raw = match result {
-        Value::Null => return Ok(None),
-        Value::String(s) => s,
-        _ => return Err("state_getStorage 返回格式无效".to_string()),
+    let Some((owner, inst)) = crate::storage::entity_at(cid_number, &finalized_hash)? else {
+        return Ok(None);
     };
-    let clean = raw.strip_prefix("0x").unwrap_or(&raw);
-    let bytes = hex::decode(clean).map_err(|e| format!("Institutions hex 解码失败:{e}"))?;
-    let inst = crate::chain::OnChainInstitution::decode(&mut &bytes[..])
-        .map_err(|e| format!("Institutions SCALE 解码失败:{e}"))?;
+    let manage_pallet = owner.name();
 
     // 主/费账户地址由 (cid_number, 保留名) 确定性派生(与 InstitutionAccounts 中存储的一致)。
     let main_account_id = derive_main_account(cid_number);
@@ -237,12 +144,13 @@ pub(crate) fn fetch_institution_detail(
     let main_account_info = main_account_info.ok_or_else(|| "机构缺少唯一主账户".to_string())?;
     let fee_account_info = fee_account_info.ok_or_else(|| "机构缺少唯一费用账户".to_string())?;
 
-    let (admins, admins_len) =
-        fetch_admin_set(&inst.institution_code, cid_number, &finalized_hash)?;
+    let roles = crate::storage::fetch_roles_at(cid_number, &finalized_hash)?
+        .ok_or("同块机构岗位状态缺失")?
+        .roles;
     let threshold = fetch_institution_threshold(cid_number, manage_pallet, &finalized_hash)?;
 
-    let cid_full_name = String::from_utf8(inst.cid_full_name.into_inner())
-        .map_err(|_| "cid_full_name 非 UTF-8".to_string())?;
+    let cid_full_name =
+        String::from_utf8(inst.cid_full_name).map_err(|_| "cid_full_name 非 UTF-8".to_string())?;
     // 私权机构链上 cid_full_name 为空时回退展示 cid_number,避免详情页标题空白。
     let cid_full_name = if cid_full_name.trim().is_empty() {
         cid_number.to_string()
@@ -257,9 +165,8 @@ pub(crate) fn fetch_institution_detail(
         main_account_info,
         fee_account_info,
         other_accounts,
-        admins_len,
         threshold,
-        admins,
+        roles,
         created_at: inst.created_at as u64,
         account_count,
     }))
@@ -273,7 +180,7 @@ fn fetch_institution_accounts(
     finalized_hash: &str,
 ) -> Result<Vec<AccountWithBalance>, String> {
     // 第一层 key 哈希器是 Blake2_128Concat,完整 storage key 前缀 =
-    //   twox_128(PublicManage|PrivateManage) ++ twox_128("InstitutionAccounts")
+    //   twox_128(PublicEntity|PrivateEntity) ++ twox_128("InstitutionAccounts")
     //   ++ blake2_128(cid_number_bytes) ++ cid_number_bytes(BoundedVec 编码)
     let cid_key = encode_cid_key_data(cid_number)?;
     let mut cid_prefix_data = Vec::with_capacity(16 + cid_key.len());
@@ -342,7 +249,7 @@ fn fetch_institution_accounts(
         };
         let clean = value_hex.strip_prefix("0x").unwrap_or(&value_hex);
         let bytes = hex::decode(clean).map_err(|e| format!("InstitutionAccounts hex:{e}"))?;
-        let acc = match crate::chain::OnChainInstitutionAccount::decode(&mut &bytes[..]) {
+        let acc = match Account::decode_all(&mut &bytes[..]) {
             Ok(v) => v,
             Err(e) => {
                 // 单条解码失败不应阻止整页;打 stderr 让运维看见,继续下一条。
@@ -354,7 +261,7 @@ fn fetch_institution_accounts(
             }
         };
         let acc_name = decode_account_name_from_key(&key, &prefix_hex).unwrap_or_default();
-        let account_id_bytes: [u8; 32] = acc.address.clone().into();
+        let account_id_bytes: [u8; 32] = acc.account_id.clone().into();
         // 机构账户列表复用同块总余额入口；读取失败保留错误，只有账户不存在才为零。
         let bal = crate::balance::fetch_balance_at(
             &format!("0x{}", hex::encode(account_id_bytes)),

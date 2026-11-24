@@ -1,155 +1,88 @@
-//! 持久化Passkey凭证、认证仪式状态和一次性断言令牌。
-
+//! Passkey凭证绑定真实人员和identity绑定；仪式及一次性断言同时锁定当前机构岗位。
+use crate::authentication::login::AdminAuthContext;
 use chrono::{DateTime, Utc};
 use postgres::GenericClient;
 use webauthn_rs::prelude::Passkey;
-
 pub(super) fn insert_credential_conn(
     conn: &mut impl GenericClient,
-    credential_id: &str,
-    account_id: &str,
+    id: &str,
+    subject: &AdminAuthContext,
     passkey: &Passkey,
 ) -> Result<(), String> {
-    let payload =
-        serde_json::to_value(passkey).map_err(|e| format!("encode passkey failed: {e}"))?;
-    let count = conn.execute(
-        "INSERT INTO credential(credential_id, account_id, passkey_data, created_at)
-         VALUES ($1, $2, $3, now())
-         ON CONFLICT (credential_id) DO UPDATE SET passkey_data = EXCLUDED.passkey_data WHERE credential.account_id = EXCLUDED.account_id",
-        &[&credential_id, &account_id, &payload],
-    )
-    .map_err(|e| format!("insert passkey credential failed: {e}"))?;
+    let data = serde_json::to_value(passkey).map_err(|e| e.to_string())?;
+    let count=conn.execute("INSERT INTO credential(credential_id,person_cid,binding_revision,account_id,passkey_data,created_at) VALUES($1,$2,$3,$4,$5,now()) ON CONFLICT(credential_id) DO UPDATE SET passkey_data=EXCLUDED.passkey_data WHERE credential.person_cid=EXCLUDED.person_cid AND credential.binding_revision=EXCLUDED.binding_revision AND credential.account_id=EXCLUDED.account_id",&[&id,&subject.person_cid,&subject.binding_revision,&subject.account_id,&data]).map_err(|e|e.to_string())?;
     if count != 1 {
-        return Err("http:forbidden:credential belongs to another account".into());
+        return Err("http:forbidden:credential belongs to another person binding".into());
     }
     Ok(())
 }
-
-pub(super) fn list_credentials_for_admin_conn(
+pub(super) fn list_credentials_conn(
     conn: &mut impl GenericClient,
-    account_id: &str,
+    subject: &AdminAuthContext,
 ) -> Result<Vec<Passkey>, String> {
-    let rows = conn
-        .query(
-            "SELECT passkey_data FROM credential WHERE account_id = $1",
-            &[&account_id],
-        )
-        .map_err(|e| format!("list passkey credentials failed: {e}"))?;
-    rows.iter()
-        .map(|r| {
-            serde_json::from_value::<Passkey>(r.get(0))
-                .map_err(|e| format!("decode passkey failed: {e}"))
-        })
-        .collect()
+    conn.query("SELECT passkey_data FROM credential WHERE person_cid=$1 AND binding_revision=$2 AND account_id=$3",&[&subject.person_cid,&subject.binding_revision,&subject.account_id]).map_err(|e|e.to_string())?.iter().map(|r|serde_json::from_value(r.get(0)).map_err(|e|e.to_string())).collect()
 }
-
 pub(super) fn update_credential_conn(
     conn: &mut impl GenericClient,
-    credential_id: &str,
+    id: &str,
+    subject: &AdminAuthContext,
     passkey: &Passkey,
 ) -> Result<(), String> {
-    let payload =
-        serde_json::to_value(passkey).map_err(|e| format!("encode passkey failed: {e}"))?;
-    conn.execute(
-        "UPDATE credential SET passkey_data = $2 WHERE credential_id = $1",
-        &[&credential_id, &payload],
-    )
-    .map_err(|e| format!("update passkey credential failed: {e}"))?;
+    let data = serde_json::to_value(passkey).map_err(|e| e.to_string())?;
+    conn.execute("UPDATE credential SET passkey_data=$2 WHERE credential_id=$1 AND person_cid=$3 AND binding_revision=$4 AND account_id=$5",&[&id,&data,&subject.person_cid,&subject.binding_revision,&subject.account_id]).map_err(|e|e.to_string())?;
     Ok(())
 }
-
 pub(super) fn insert_ceremony_conn(
     conn: &mut impl GenericClient,
-    ceremony_id: &str,
-    account_id: &str,
+    id: &str,
+    subject: &AdminAuthContext,
     kind: &str,
     state: &serde_json::Value,
-    expires_at: DateTime<Utc>,
+    expires: DateTime<Utc>,
 ) -> Result<(), String> {
-    conn.execute(
-        "INSERT INTO ceremony(ceremony_id, account_id, record_kind, state_data, expires_at)
-         VALUES ($1, $2, $3, $4, $5)",
-        &[&ceremony_id, &account_id, &kind, state, &expires_at],
-    )
-    .map_err(|e| format!("insert passkey ceremony failed: {e}"))?;
+    conn.execute("INSERT INTO ceremony(ceremony_id,person_cid,binding_revision,account_id,institution_cid,role_code,record_kind,state_data,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)",&[&id,&subject.person_cid,&subject.binding_revision,&subject.account_id,&subject.institution_cid_number,&subject.role_code,&kind,state,&expires]).map_err(|e|e.to_string())?;
     Ok(())
 }
-
-/// 一次性取出并删除 ceremony 状态(校验 admin / kind / 未过期);取不到返回 None。
 pub(super) fn take_ceremony_conn(
     conn: &mut impl GenericClient,
-    ceremony_id: &str,
-    account_id: &str,
+    id: &str,
+    subject: &AdminAuthContext,
     kind: &str,
     now: DateTime<Utc>,
 ) -> Result<Option<serde_json::Value>, String> {
-    let row = conn
-        .query_opt(
-            "DELETE FROM ceremony
-             WHERE ceremony_id = $1 AND account_id = $2
-               AND record_kind = $3 AND expires_at > $4
-             RETURNING state_data",
-            &[&ceremony_id, &account_id, &kind, &now],
-        )
-        .map_err(|e| format!("take passkey ceremony failed: {e}"))?;
-    Ok(row.map(|r| r.get(0)))
+    conn.query_opt("DELETE FROM ceremony WHERE ceremony_id=$1 AND person_cid=$2 AND binding_revision=$3 AND account_id=$4 AND institution_cid=$5 AND role_code=$6 AND record_kind=$7 AND expires_at>$8 RETURNING state_data",&[&id,&subject.person_cid,&subject.binding_revision,&subject.account_id,&subject.institution_cid_number,&subject.role_code,&kind,&now]).map(|r|r.map(|r|r.get(0))).map_err(|e|e.to_string())
 }
-
 pub(super) fn insert_assertion_conn(
     conn: &mut impl GenericClient,
-    assertion_id: &str,
-    account_id: &str,
-    expires_at: DateTime<Utc>,
+    id: &str,
+    subject: &AdminAuthContext,
+    expires: DateTime<Utc>,
 ) -> Result<(), String> {
-    conn.execute(
-        "INSERT INTO assertion(assertion_id, account_id, expires_at)
-         VALUES ($1, $2, $3)",
-        &[&assertion_id, &account_id, &expires_at],
-    )
-    .map_err(|e| format!("insert passkey assertion failed: {e}"))?;
+    conn.execute("INSERT INTO assertion(assertion_id,person_cid,binding_revision,account_id,institution_cid,role_code,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)",&[&id,&subject.person_cid,&subject.binding_revision,&subject.account_id,&subject.institution_cid_number,&subject.role_code,&expires]).map_err(|e|e.to_string())?;
     Ok(())
 }
-
-/// 当前 admin 是否已注册任一 passkey 凭证(驱动操作列红点)。
-pub(super) fn admin_has_credential_conn(
+pub(super) fn has_credential_conn(
     conn: &mut impl GenericClient,
-    account_id: &str,
+    subject: &AdminAuthContext,
 ) -> Result<bool, String> {
-    let row = conn
-        .query_one(
-            "SELECT EXISTS(SELECT 1 FROM credential WHERE account_id = $1)",
-            &[&account_id],
-        )
-        .map_err(|e| format!("query passkey credential existence failed: {e}"))?;
-    Ok(row.get(0))
+    conn.query_one("SELECT EXISTS(SELECT 1 FROM credential WHERE person_cid=$1 AND binding_revision=$2 AND account_id=$3)",&[&subject.person_cid,&subject.binding_revision,&subject.account_id]).map(|r|r.get(0)).map_err(|e|e.to_string())
 }
-
-/// 一次性消费断言令牌；接受官方连接或事务，随调用方事务一起提交或回滚。
+/// 只消费当前人员绑定和所选机构岗位的断言；事务回滚会保留它。
 pub(super) fn consume_assertion_conn(
-    conn: &mut impl postgres::GenericClient,
-    assertion_id: &str,
-    account_id: &str,
+    conn: &mut impl GenericClient,
+    id: &str,
+    subject: &AdminAuthContext,
     now: DateTime<Utc>,
 ) -> Result<bool, String> {
-    let row = conn
-        .query_opt(
-            "DELETE FROM assertion
-             WHERE assertion_id = $1 AND account_id = $2 AND expires_at > $3
-             RETURNING assertion_id",
-            &[&assertion_id, &account_id, &now],
-        )
-        .map_err(|e| format!("consume passkey assertion failed: {e}"))?;
-    Ok(row.is_some())
+    conn.query_opt("DELETE FROM assertion WHERE assertion_id=$1 AND person_cid=$2 AND binding_revision=$3 AND account_id=$4 AND institution_cid=$5 AND role_code=$6 AND expires_at>$7 RETURNING assertion_id",&[&id,&subject.person_cid,&subject.binding_revision,&subject.account_id,&subject.institution_cid_number,&subject.role_code,&now]).map(|r|r.is_some()).map_err(|e|e.to_string())
 }
-
-/// 清理过期 ceremony 与断言令牌(begin / assert 时顺带调用)。
 pub(super) fn cleanup_passkey_state_conn(
     conn: &mut impl GenericClient,
     now: DateTime<Utc>,
 ) -> Result<(), String> {
-    conn.execute("DELETE FROM ceremony WHERE expires_at < $1", &[&now])
-        .map_err(|e| format!("cleanup passkey ceremonies failed: {e}"))?;
-    conn.execute("DELETE FROM assertion WHERE expires_at < $1", &[&now])
-        .map_err(|e| format!("cleanup passkey assertions failed: {e}"))?;
+    conn.execute("DELETE FROM ceremony WHERE expires_at<$1", &[&now])
+        .map_err(|e| e.to_string())?;
+    conn.execute("DELETE FROM assertion WHERE expires_at<$1", &[&now])
+        .map_err(|e| e.to_string())?;
     Ok(())
 }

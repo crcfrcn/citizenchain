@@ -381,7 +381,7 @@ fn timestamp_now_storage_key() -> String {
 
 fn reward_account_storage_key(miner_account_id: &[u8; 32]) -> String {
     nodedesktop::storage::to_hex(&nodedesktop::storage::blake2_map(
-        b"FullnodeIssuance",
+        b"FullnodeIssue",
         b"RewardAccountIdByMiner",
         miner_account_id,
     ))

@@ -7,7 +7,7 @@ fn main() {
     let child = [7u8; 32];
     let public = mldsa::public_key(&child);
     let account = mldsa::account_id(&public);
-    let call = runtime::RuntimeCall::OnchainTransaction(onchain_call());
+    let call = runtime::RuntimeCall::Onchain(onchain_call());
     let genesis = H256::from(primitives::genesis::GENESIS_HASH);
     let material = build_signing_material_from_call(call.clone(), genesis, 7, 0, 0);
     let sr = sr25519::Pair::from_seed(&child);
@@ -18,7 +18,7 @@ fn main() {
     let metadata = runtime::Runtime::metadata_at_version(16).expect("V16 metadata");
     let metadata_bytes =
         Vec::<u8>::decode(&mut &metadata.encode()[..]).expect("opaque metadata bytes");
-    let transfer_call = runtime::RuntimeCall::OnchainTransaction(onchain::pallet::Call::<runtime::Runtime>::transfer_with_remark {
+    let transfer_call = runtime::RuntimeCall::Onchain(onchain::pallet::Call::<runtime::Runtime>::transfer_with_remark {
         beneficiary_account_id: runtime::AccountId::new([0x22;32]), amount: 123456,
         remark: b"CitizenSDK".to_vec().try_into().unwrap(),
     });

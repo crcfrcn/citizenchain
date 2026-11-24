@@ -22,7 +22,7 @@ pub type ActorRoleCode = frame_support::BoundedVec<u8, frame_support::pallet_pre
 /// 地址更新权限抽象。
 ///
 /// FRG/CREG 的省市授权规则由 runtime 统一实现,本 pallet 不直接依赖
-/// publicadmin/publicentity 的 storage,避免地址模块复制注册局权限细节。
+/// 由 Runtime 统一核验机构岗位和身份绑定，地址模块复用该权限入口。
 pub trait AddressUpdateAuthority<AccountId> {
     fn can_update_catalog(
         who: &AccountId,

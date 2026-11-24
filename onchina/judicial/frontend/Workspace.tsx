@@ -1,5 +1,4 @@
 // 按后端工作台清单展示司法操作、机构资料和记录。
-import { InstitutionWalletGovernancePanel } from '@gmb/onchina-platform/institutions/GovernanceReview';
 
 import { RolesView } from '@gmb/onchina-platform/institutions/RolesView';
 import { AssignmentsView } from '@gmb/onchina-platform/institutions/AssignmentsView';
@@ -8,7 +7,6 @@ import { InstitutionDetailNavLayout } from '@gmb/onchina-platform/workspace/Deta
 import type { AdminAuth } from "@gmb/onchina-platform/authentication/types";
 import { AccountManageSection } from "@gmb/onchina-platform/accounts/AccountManageSection";
 import { WorkspaceShell } from "@gmb/onchina-platform/workspace/WorkspaceShell";
-import { OwnInstitutionAdminsView } from "@gmb/onchina-platform/institutions/AdminsView";
 import { OwnInstitutionInfoPanel, type OwnInstitutionInfoProps } from "@gmb/onchina-platform/institutions/InfoPanel";
 import { AuditOutlined, TeamOutlined } from "@ant-design/icons";
 import { Button, Empty, Space } from "antd";
@@ -36,7 +34,6 @@ export function JudicialWorkspace({ auth }: JudicialWorkspaceProps) {
         // 账户管理归本机构在册管理员;司法类操作入口叠加显示。
         <InstitutionDetailNavLayout items={[
           {key:'accounts',label:'账户管理',content:<AccountManageSection auth={auth}/>},
-          {key:'governance',label:'机构治理',content:<InstitutionWalletGovernancePanel auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'roles',label:'岗位管理',content:<RolesView auth={auth} cidNumber={auth.institutionCidNumber}/>},
           {key:'assignments',label:'任职管理',content:<AssignmentsView auth={auth} cidNumber={auth.institutionCidNumber}/>},
           {key:'representative',label:'法定代表人',content:<RepresentativeView auth={auth} cidNumber={auth.institutionCidNumber}/>},
@@ -49,7 +46,7 @@ export function JudicialWorkspace({ auth }: JudicialWorkspaceProps) {
   );
 }
 
-// 司法显示页组合原有公共面板，组件顺序、样式和行为保持不变。
+// 司法显示页只展示当前机构资料。
 
 
 
@@ -57,7 +54,6 @@ export function JudicialDisplay({ auth }: OwnInstitutionInfoProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       <OwnInstitutionInfoPanel auth={auth} />
-      <OwnInstitutionAdminsView layout="table" />
     </div>
   );
 }
@@ -75,7 +71,7 @@ export type JudicialOperationsProps = {
 export function JudicialOperations({ auth }: JudicialOperationsProps) {
   const actions = auth.workspace?.workspace_sections
     .find((section) => section.workspace_section === 'operations')
-    ?.workspace_actions.filter(action => action.action !== 'manage_own_admins') ?? []; // 已由机构治理子tab承载。
+    ?.workspace_actions.filter(action => action.action === 'sign_legislation') ?? [];
 
   if (actions.length === 0) {
     return <Empty description="暂无可执行操作" />;

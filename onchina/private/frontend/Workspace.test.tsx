@@ -21,7 +21,6 @@ it('会员调价准备等待一次Passkey，保留请求且失败不重试', asy
     const { prepareInstitutionGovernance } = await import('@gmb/onchina-platform/institutions/governance');
     const { proposePlatformPrice } = await import("./Workspace");
     const governance = { cidNumber: 'fixture-institution', proposerRoleCode: 'REPRESENTATIVE' };
-    const registration = { cidNumber: 'fixture-institution', actorRoleCode: 'REGISTRY-ROLE', admins: [{ accountId: 'fixture-account', familyName: '测', givenName: '试' }] };
     const operations = [{ path: '/api/membership/platform-prices/propose', payload: { proposerRoleCode: 'COMMITTEE_MEMBER', membershipLevel: 'freedom', newPriceFen: '100' }, run: () => proposePlatformPrice(auth, 'COMMITTEE_MEMBER', 'freedom', '100') }];
     const assertion = vi.mocked(assertPasskey);
     const fetcher = vi.spyOn(globalThis, 'fetch');
@@ -76,23 +75,23 @@ it('会员调价准备等待一次Passkey，保留请求且失败不重试', asy
 
 vi.mock('@gmb/onchina-platform/workspace/WorkspaceShell', () => ({ WorkspaceShell: ({operations, display, records}: Record<string, never>) => createElement(Fragment, null, operations, display, records) }));
 vi.mock('@gmb/onchina-platform/accounts/AccountManageSection', () => ({ AccountManageSection: () => null }));
-vi.mock('@gmb/onchina-platform/institutions/AdminsView', () => ({ OwnInstitutionAdminsView: () => createElement('span', null, '本机构管理员') }));
-vi.mock('@gmb/onchina-platform/institutions/InfoPanel', () => ({ OwnInstitutionInfoPanel: () => null }));
+vi.mock('@gmb/onchina-platform/institutions/InfoPanel', () => ({ OwnInstitutionInfoPanel: () => createElement('span', null, '本机构信息') }));
 
-const auth = (kind: string, modules: string[] = []) => ({ capabilities: { canViewOwnAdmins: true }, workspace: { workspace_kind: kind, workspace_modules: modules } }) as never;
+const auth = (kind: string, modules: string[] = []) => ({ workspace: { workspace_kind: kind, workspace_modules: modules } }) as never;
 describe('私权本机构工作台', () => {
   it('缺少工作台和其他机构工作台均不渲染', () => {
     expect(renderToStaticMarkup(<PrivateInstitutionWorkspace auth={{} as never} />)).toBe('');
     for (const kind of ['registry', 'judicial', 'legislation']) expect(renderToStaticMarkup(<PrivateInstitutionWorkspace auth={auth(kind)} />)).toBe('');
   });
-  it('会员价格只按后端准确实例清单出现，基础管理员视图保留', () => {
+  it('会员价格只按后端准确实例清单出现，本机构资料保留', () => {
     const normal = renderToStaticMarkup(<PrivateInstitutionWorkspace auth={auth('private')} />);
-    expect(normal).toContain('本机构管理员'); expect(normal).not.toContain('ant-spin');
+    expect(normal).toContain('本机构信息'); expect(normal).not.toContain('管理员'); expect(normal).not.toContain('ant-spin');
     const pricing = renderToStaticMarkup(<PrivateInstitutionWorkspace auth={auth('private', ['platform_membership_price'])} />);
     expect(normal).not.toContain('会员定价');
     expect(pricing).toContain('会员定价');
     // 拆页后首屏仅挂载账户页，定价读取不能抢先发生。
     expect(pricing).not.toContain('ant-spin');
-    for (const label of ['机构治理', '岗位管理', '任职管理', '法定代表人']) expect(normal).toContain(label);
+    for (const label of ['岗位管理', '任职管理', '法定代表人']) expect(normal).toContain(label);
+    expect(normal).not.toContain('机构治理');
   });
 });

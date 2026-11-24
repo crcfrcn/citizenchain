@@ -11,7 +11,6 @@ use crate::*;
 use onchina::authentication::login::{require_admin_any, AdminAuthContext};
 use onchina::authorization::get_visible_scope;
 use onchina::codes::china::{city_code_by_name, province_code_by_name};
-use onchina::crypto::pubkey::{normalize_account_id, same_account_id};
 use onchina::institutions::{CreateInstitutionInput, InstitutionListFilter, InstitutionListRow};
 
 pub(crate) async fn create_institution(
@@ -221,33 +220,8 @@ pub(crate) fn precheck_institution_create_scope(
         payload.get("townName").and_then(|v| v.as_str()),
         "town",
     )?;
-    let admins = payload
-        .get("admins")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| "http:bad_request:admins is required".to_string())?;
-    if admins.len() < 2 {
-        return Err(
-            "http:bad_request:institution admins must contain at least two accounts".to_string(),
-        );
-    }
-    let mut normalized_account_ids: Vec<String> = Vec::with_capacity(admins.len());
-    for item in admins {
-        let raw = item
-            .get("accountId")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|v| !v.is_empty())
-            .ok_or_else(|| "http:bad_request:account_id is required".to_string())?;
-        let Some(normalized) = normalize_account_id(raw) else {
-            return Err("http:bad_request:account_id format invalid".to_string());
-        };
-        if normalized_account_ids
-            .iter()
-            .any(|account| same_account_id(account, normalized.as_str()))
-        {
-            return Err("http:bad_request:duplicate account_id".to_string());
-        }
-        normalized_account_ids.push(normalized);
+    if payload.get("admins").is_some() {
+        return Err("http:bad_request:机构创建不接收管理员钱包名单".into());
     }
     Ok(())
 }

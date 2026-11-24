@@ -22,16 +22,12 @@ it("checkVoteStatus保留唯一IPC合同且返回真实回执", async () => { co
 it("submitVote保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api.submitVote("request","public","digest","0x0102",3,9,"response")).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("submit_vote", {"requestId":"request","expectedPublicKey":"public","expectedPayloadHash":"digest","callDataHex":"0x0102","signNonce":3,"signBlockNumber":9,"responseJson":"response","frozenTicket":null}); });
 it('IPC失败保留拒绝状态且不自动重放', async()=>{const failure=new Error('合成失败');mocks.invoke.mockRejectedValueOnce(failure);await expect(api.getInstitutionProposalPage("44","7",20)).rejects.toBe(failure);expect(mocks.invoke).toHaveBeenCalledOnce();});
 
-it.each([0, 1])('提案类型 %i 只允许链上确认未投票的管理员岗位发起投票', async (kind) => {
+it.each([0, 1])('提案类型 %i 只允许链上确认未投票的人员岗位发起投票', async (kind) => {
   const cidNumber = 'TEST-CID';
   const roleCode = 'COMMITTEE_MEMBER';
   const accounts = ['01', '02', '03', '04'].map((byte) => '0x' + byte.repeat(32));
   const [approved, rejected, unvoted, failed] = accounts;
   const votes = new Map<string, boolean | null>([[approved, true], [rejected, false], [unvoted, null]]);
-  const admins = accounts.map((accountId) => ({
-    accountId, familyName: '', givenName: '',
-    assignments: [{ roleCode, roleName: '委员', termRequired: false }],
-  }));
   mocks.invoke.mockImplementation(async (command: string, args: { signerPublicKey: string }) => {
     switch (command) {
       case 'get_proposal_detail':
@@ -39,10 +35,10 @@ it.each([0, 1])('提案类型 %i 只允许链上确认未投票的管理员岗�
           meta: { proposalId: '7', kind, stage: kind, status: 0, subjectCidNumbers: [cidNumber] },
           voterRoleSubjects: [{ cidNumber, roleCode }],
           frozenVoteView: { genesisHash: '0xchain', blockHash: '0xfinal', blockNumber: '5', endBlock: '100', kind, stage: kind, status: 0, actorCidNumber: cidNumber, scopeError: null,
-            roles: [{ cidNumber, roleCode, error: null, voters: accounts.map(accountId => ({ accountId, walletRevision: '0', vote: votes.get(accountId) ?? null, voteError: accountId === failed ? '合成RPC失败' : null })) }] },
+            roles: [{ cidNumber, roleCode, error: null, voters: accounts.map(accountId => ({ personCid:'person-'+accountId,accountId, bindingRevision: '1', vote: votes.get(accountId) ?? null, voteError: accountId === failed ? '合成RPC失败' : null })) }] },
         };
       case 'get_proposal_display': return null;
-      case 'get_institution_detail': return { admins };
+      case 'get_institution_detail': return { roles: [] };
       case 'check_vote_status': {
         const vote = votes.get(args.signerPublicKey);
         if (vote === undefined) throw new Error('合成 RPC 失败');
@@ -56,11 +52,11 @@ it.each([0, 1])('提案类型 %i 只允许链上确认未投票的管理员岗�
   });
 
   render(<ProposalDetailPage proposalId={"7"} cidNumber={cidNumber}
-    adminSigners={accounts.map((accountId) => ({ accountId, accountLabel: '' }))}
+    roleSigners={accounts.map((accountId) => ({personCid:'person-'+accountId,roleCode,bindingRevision:'1',permissions:[], accountId, roleName: '' }))}
     onBack={() => {}} />);
-  await screen.findByRole('heading', { name: '原提案投票钱包（4 个 / 4 张岗位票）' });
+  await screen.findByRole('heading', { name: '原提案冻结资格（4 个当前绑定 / 4 张岗位票）' });
   expect(screen.getAllByText('姓名及岗位名称：历史资料未记录')).toHaveLength(4);
-  expect(mocks.invoke.mock.calls.some(([command]) => command === 'get_institution_detail' || command === 'get_activated_admins')).toBe(false);
+  expect(mocks.invoke.mock.calls.some(([command]) => command === 'get_institution_detail' || command === 'get_role_access')).toBe(false);
 
   const card = (accountId: string) =>
     within(screen.getByText(accountIdToSs58(accountId)).closest<HTMLElement>('.institution-assignment-card')!);
@@ -91,7 +87,7 @@ it.each(['transferDetail', 'safetyFundDetail', 'sweepDetail', 'runtimeUpgradeDet
       throw new Error(`意外调用 ${command}`);
     });
     const onBack = vi.fn();
-    render(<ProposalDetailPage proposalId="7" adminSigners={[]} onBack={onBack} />);
+    render(<ProposalDetailPage proposalId="7" roleSigners={[]} onBack={onBack} />);
     const title = await screen.findByRole('heading', { name: /内部投票/ });
     const heading = title.closest<HTMLElement>('.proposal-detail-heading')!;
     expect(within(heading).getByText('测试机构全称')).toBeTruthy();
@@ -117,7 +113,7 @@ it.each(['transferDetail', 'safetyFundDetail', 'sweepDetail', 'runtimeUpgradeDet
 );
 
 const oldWallet = '0x' + '11'.repeat(32);
-const frozenBinding = { genesisHash: 'chain-A', proposalId: '7', cidNumber: 'original-CID', roleCode: 'OLD_ROLE', accountId: oldWallet, walletRevision: '9007199254740993' };
+const frozenBinding = { genesisHash: 'chain-A', proposalId: '7', cidNumber: 'original-CID', roleCode: 'OLD_ROLE', personCid:'fixture-person',accountId: oldWallet, bindingRevision: '9007199254740993' };
 const fixtureB64 = (value: number, length: number) => btoa(String.fromCharCode(...Array(length).fill(value))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const oldWalletQr = fixtureB64(0x11,32);
 const originalRequest = { requestId: 'original-request', requestJson: JSON.stringify({p:'QR_V1',k:1,i:'original-request',e:123,b:{a:20,g:1,u:oldWalletQr,d:'AQ'}}), callDataHex: '1400original-call', expectedPayloadHash: 'original-hash', signNonce: 8, signBlockNumber: 0 };
@@ -126,9 +122,9 @@ const originalResponse = JSON.stringify({p:'QR_V1',k:2,i:'original-request',e:12
 
 function renderFrozenFlow(onSuccess=vi.fn(),onClose=vi.fn()) {
   return { ...render(<VoteSigningFlow proposalId="7" proposalKind={0} cidNumber={frozenBinding.cidNumber}
-    adminSigners={[{accountId:oldWallet,accountLabel:''}]} frozenTicket={frozenBinding} onClose={onClose} onSuccess={onSuccess} />), onSuccess, onClose };
+    roleSigners={[{...frozenBinding,roleName:'原岗位',permissions:[]}]} frozenTicket={frozenBinding} onClose={onClose} onSuccess={onSuccess} />), onSuccess, onClose };
 }
-it('响应丢失保留原钱包版本、nonce、调用及签名，恢复不重新准备且不伪造hash', async () => {
+it('响应丢失保留原人员绑定版本、nonce、调用及签名，恢复不重新准备且不伪造hash', async () => {
   let attempts=0;
   mocks.invoke.mockImplementation(async (command:string) => {
     if(command==='build_vote_request') return originalRequest;
@@ -173,15 +169,15 @@ it('已广播回执保持待确认，重新打开只能恢复原会话', async (
   await screen.findByRole('button',{name:'恢复原会话'});expect(screen.queryByRole('button',{name:'生成签名请求'})).toBeNull();
 });
 
-it('同钱包跨岗位保留两张原票，现任新钱包不进入名单', async () => {
+it('同人跨岗位保留两张冻结票，前端外传钱包不能改写冻结资格', async () => {
   const cid='original-CID';
   mocks.invoke.mockImplementation(async (c:string) => {
     if(c==='get_proposal_display') return null;
-    if(c==='get_proposal_detail') return {meta:{proposalId:'7',kind:0,stage:0,status:0,actorCidNumber:cid,subjectCidNumbers:[cid]},voterRoleSubjects:[],frozenVoteView:{genesisHash:'A',blockHash:'final',blockNumber:'1',endBlock:'100',kind:0,stage:0,status:0,scopeError:null,actorCidNumber:cid,roles:[{cidNumber:cid,roleCode:'ROLE_1',error:null,voters:[{accountId:oldWallet,walletRevision:'0',vote:false,voteError:null}]},{cidNumber:cid,roleCode:'ROLE_2',voters:[{accountId:oldWallet,walletRevision:null,vote:null,voteError:null}],error:'冻结版本缺失'}]}};
+    if(c==='get_proposal_detail') return {meta:{proposalId:'7',kind:0,stage:0,status:0,actorCidNumber:cid,subjectCidNumbers:[cid]},voterRoleSubjects:[],frozenVoteView:{genesisHash:'A',blockHash:'final',blockNumber:'1',endBlock:'100',kind:0,stage:0,status:0,scopeError:null,actorCidNumber:cid,roles:[{cidNumber:cid,roleCode:'ROLE_1',error:null,voters:[{personCid:'fixture-person',accountId:oldWallet,bindingRevision:'1',vote:false,voteError:null}]},{cidNumber:cid,roleCode:'ROLE_2',voters:[{personCid:'fixture-person',accountId:oldWallet,bindingRevision:null,vote:null,voteError:null}],error:'人员当前绑定缺失'}]}};
     throw new Error('不应读取现任目录');
   });
-  render(<ProposalDetailPage proposalId="7" cidNumber={cid} adminSigners={[{accountId:'0x'+'33'.repeat(32),accountLabel:'新任'}]} onBack={()=>{}} />);
-  await screen.findByRole('heading',{name:'原提案投票钱包（1 个 / 2 张岗位票）'});
+  render(<ProposalDetailPage proposalId="7" cidNumber={cid} roleSigners={[{personCid:'new-person',bindingRevision:'1',roleCode:'ROLE_1',permissions:[],accountId:'0x'+'33'.repeat(32),roleName:'新任'}]} onBack={()=>{}} />);
+  await screen.findByRole('heading',{name:'原提案冻结资格（1 个当前绑定 / 2 张岗位票）'});
   expect(screen.getAllByText(accountIdToSs58(oldWallet))).toHaveLength(2);
   expect(screen.queryByText(accountIdToSs58('0x'+'33'.repeat(32)))).toBeNull();
   expect(screen.queryByRole('button',{name:'投票'})).toBeNull();
@@ -193,8 +189,8 @@ it('切换提案后丢弃旧提案迟到结果', async () => {
     if(a.proposalId==='7') return new Promise(resolve=>{resolveOld=resolve;});
     return {meta:{proposalId:'8',kind:0,stage:0,status:1,subjectCidNumbers:[]},cidFullName:'新提案机构',voterRoleSubjects:[],frozenVoteView:null};
   });
-  const view=render(<ProposalDetailPage proposalId="7" adminSigners={[]} onBack={()=>{}} />);
-  view.rerender(<ProposalDetailPage proposalId="8" adminSigners={[]} onBack={()=>{}} />);
+  const view=render(<ProposalDetailPage proposalId="7" roleSigners={[]} onBack={()=>{}} />);
+  view.rerender(<ProposalDetailPage proposalId="8" roleSigners={[]} onBack={()=>{}} />);
   await screen.findByText('新提案机构');
   await act(async()=>resolveOld({meta:{proposalId:'7',kind:0,stage:0,status:0,subjectCidNumbers:[]},cidFullName:'旧提案迟到',voterRoleSubjects:[]}));
   expect(screen.queryByText('旧提案迟到')).toBeNull();

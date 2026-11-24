@@ -6,8 +6,8 @@
 //!
 //! legislation 业务壳通过 `engingcore::Config` 复用投票引擎核心,
 //! 通过自身 `Config::LegislationVoteEngine` 接立法投票引擎(第1步装 `()`)。
-//! mock 里:System + VotingEngine + InternalVote(供引擎 finalizer)+ LegislationYuan,
-//! LegislationVoteEngine 装 `()`,InternalAdminProvider 用 TestInternalAdminProvider。
+//! mock 里:System + VotingEngine + InternalVote(供引擎 finalizer)+ Legislation,
+//! LegislationVoteEngine 装 `()`,InternalVoteProvider 用 TestInternalVoteProvider。
 
 use super::*;
 use crate::pallet::{Article, Chapter, ChaptersOf, Houses, LawProposalSummary, Section};
@@ -52,7 +52,7 @@ mod runtime {
     pub type InternalVote = internalvote;
 
     #[runtime::pallet_index(2)]
-    pub type LegislationYuan = super;
+    pub type Legislation = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -83,6 +83,15 @@ pub const OWNER_CODE: InstitutionCode = *b"NRP\0";
 
 pub struct TestCitizenIdentityReader;
 impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+    fn person_cid(who: &AccountId32) -> Option<engingcore::CidNumber> {
+        codec::Encode::encode(who).try_into().ok()
+    }
+
+    fn person_account(cid: &engingcore::CidNumber) -> Option<AccountId32> {
+        let bytes: [u8; 32] = cid.as_slice().try_into().ok()?;
+        Some(AccountId32::new(bytes))
+    }
+
     fn voting_subject(
         _who: &AccountId32,
         _scope: &engingcore::PopulationScope,
@@ -98,7 +107,7 @@ impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReade
     }
 }
 
-pub struct TestInternalAdminProvider;
+pub struct TestInternalVoteProvider;
 pub struct TestInstitutionRoleProvider;
 pub struct TestInstitutionRoleAuthorization;
 
@@ -106,29 +115,10 @@ const PROPOSER_ROLE: &[u8] = b"LAW_PROPOSER";
 const VOTER_ROLE: &[u8] = b"LAW_VOTER";
 
 /// legislator() 是测试发起机构 CID 的唯一管理员；其它一律不是。
-impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
-    fn institution_wallet_snapshot(
-        _cid: &[u8],
-        references: &[AccountId32],
-    ) -> Option<Vec<(AccountId32, u64)>> {
-        Some(
-            references
-                .iter()
-                .cloned()
-                .map(|wallet| (wallet, 0))
-                .collect(),
-        )
-    }
+impl engingcore::InternalVoteProvider<AccountId32> for TestInternalVoteProvider {
 
-    fn is_institution_admin(
-        institution_code: InstitutionCode,
-        cid_number: &[u8],
-        who: &AccountId32,
-    ) -> bool {
-        matches!(institution_code, code if code == *b"NRP\0" || code == *b"CSLF" || code == *b"CEDU")
-            && TestInstitutionCidQuery::cid_matches(institution_code, cid_number)
-            && *who == legislator()
-    }
+
+
 }
 
 impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
@@ -140,10 +130,17 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRolePro
                 .any(|code| TestInstitutionCidQuery::cid_matches(code, cid_number))
     }
 
-    fn active_accounts_for_role(_cid_number: &[u8], _role_code: &[u8]) -> Vec<AccountId32> {
+    fn active_persons_for_role(cid: &[u8], role: &[u8]) -> Vec<Vec<u8>> {
+        Self::fixture_wallets_for_role(cid, role).iter().map(codec::Encode::encode).collect()
+    }
+
+}
+impl TestInstitutionRoleProvider {
+    fn fixture_wallets_for_role(_cid_number: &[u8], _role_code: &[u8]) -> Vec<AccountId32> {
         vec![legislator()]
     }
 }
+
 
 impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32>
     for TestInstitutionRoleAuthorization
@@ -285,8 +282,8 @@ impl engingcore::Config for Test {
     type CitizenIdentityReader = TestCitizenIdentityReader;
     type JointVoteResultCallback = ();
     type InternalVoteResultCallback = ();
-    type InternalAdminProvider = TestInternalAdminProvider;
-    type MaxAdminsPerInstitution = ConstU32<32>;
+    type InternalVoteProvider = TestInternalVoteProvider;
+    type MaxSnapshotVoters = ConstU32<32>;
     type TimeProvider = TestTimeProvider;
     type WeightInfo = ();
     type TrackHandlers = (InternalVote, ());

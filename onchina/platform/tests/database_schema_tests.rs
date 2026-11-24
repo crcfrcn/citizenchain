@@ -84,10 +84,10 @@ fn current_schema_is_exact_and_reopens_without_schema_writes() {
                     (SELECT count(*) FROM pg_class c WHERE c.relnamespace=current_schema()::regnamespace AND c.relispartition AND c.relkind='r')",
                 &[],
             ).map_err(|e| e.to_string())?;
-            for (index,expected) in [27_i64,205,54,7,301].into_iter().enumerate() {
+            for (index,expected) in [26_i64,204,50,7,301].into_iter().enumerate() {
                 assert_eq!(counts.get::<_,i64>(index),expected);
             }
-            for table in ["member","replay","request","nonce","private"] {
+            for table in ["admin","member","replay","request","nonce","private"] {
                 let count:i64=conn.query_one("SELECT count(*) FROM pg_class WHERE relnamespace=current_schema()::regnamespace AND relname=$1", &[&table]).map_err(|e| e.to_string())?.get(0);
                 assert_eq!(count,0,"退役表不得重建: {table}");
             }

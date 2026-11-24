@@ -3,20 +3,12 @@
     "code": "SFGQ",
     "owner": "private",
     "kind": "private",
-    "flags": [
-      "canViewOwnAdmins"
-    ],
+    "flags": [],
     "sections": [
       {
         "workspace_section": "operations",
         "workspace_section_title": "操作",
-        "workspace_actions": [
-          {
-            "action": "manage_own_admins",
-            "title": "机构管理员钱包治理",
-            "enabled": true
-          }
-        ]
+        "workspace_actions": []
       },
       {
         "workspace_section": "display",
@@ -25,11 +17,6 @@
           {
             "action": "view_institution_profile",
             "title": "本机构信息",
-            "enabled": true
-          },
-          {
-            "action": "view_own_admins",
-            "title": "本机构管理员",
             "enabled": true
           }
         ]

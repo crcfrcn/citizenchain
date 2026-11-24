@@ -25,8 +25,7 @@ impl<T: Config> engingcore::traits::InternalCleanupHandler for Pallet<T> {
     fn cleanup_internal_terminal(proposal_id: u128) {
         InternalTallies::<T>::remove(proposal_id);
         InternalThresholdSnapshot::<T>::remove(proposal_id);
-        PendingPersonalThresholds::<T>::remove(proposal_id);
-        PendingPersonalAdminChangeThresholds::<T>::remove(proposal_id);
+        Self::clear_personal_pending(proposal_id);
         InternalProposalRoles::<T>::remove(proposal_id);
     }
 }

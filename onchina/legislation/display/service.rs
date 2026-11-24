@@ -2,11 +2,14 @@
 
 use std::collections::HashMap;
 
-use crate::chain_read_proposal::{fetch_proposal_state, LegProposalState};
+use crate::chain_read_proposal::{fetch_proposal_state_at, LegProposalState};
 use onchina::chain_runtime::NodeInstitutionIdentity;
-use onchina::institutions::{fetch_active_assignments_onchain, InstitutionAssignmentView};
+use onchina::institutions::fetch_active_assignments_onchain;
 
-use super::chain_read::{fetch_active_proposal_ids, fetch_representative_ballots, BallotKey};
+use super::chain_read::{
+    fetch_active_proposal_ids, fetch_frozen_seats, fetch_representative_ballots, BallotKey,
+    FrozenSeat,
+};
 use super::model::{ActiveProposalView, DisplayBoard, SeatView};
 
 /// 立法提案种类判别式(对齐链端 engingcore `PROPOSAL_KIND_LEGISLATION`)。
@@ -22,6 +25,7 @@ pub(crate) async fn build_display_board(
     cid_short_name: Option<String>,
     scope_label: String,
 ) -> Result<DisplayBoard, String> {
+    let at = onchina::chain_runtime::finalized_block_hash().await?;
     let roster = fetch_active_assignments_onchain(identity)
         .await?
         .unwrap_or_default();
@@ -29,22 +33,37 @@ pub(crate) async fn build_display_board(
     let active_ids = if onchina::chain_runtime::is_tier1_registry(&institution_code) {
         Vec::new()
     } else {
-        fetch_active_proposal_ids(&identity.cid_number).await?
+        fetch_active_proposal_ids(&identity.cid_number, at).await?
     };
 
     let mut active_proposals = Vec::new();
     for proposal_id in active_ids {
-        let Some(state) = fetch_proposal_state(proposal_id).await? else {
+        let Some(state) = fetch_proposal_state_at(proposal_id, at).await? else {
             continue;
         };
         if state.kind != PROPOSAL_KIND_LEGISLATION {
             continue;
         }
-        let ballots = fetch_representative_ballots(proposal_id, state.current_body).await?;
+        let subjects =
+            crate::chain_read_proposal::representative_subjects_at(proposal_id, at).await?;
+        let mut frozen = Vec::new();
+        let mut ballots = HashMap::new();
+        for (index, subject) in subjects
+            .iter()
+            .enumerate()
+            .filter(|(_, s)| s.cid_number == identity.cid_number.as_bytes())
+        {
+            let role = std::str::from_utf8(&subject.role_code).map_err(|_| "代表岗位非UTF-8")?;
+            frozen.extend(
+                fetch_frozen_seats(proposal_id, index as u32, &identity.cid_number, role, at)
+                    .await?,
+            );
+            ballots.extend(fetch_representative_ballots(proposal_id, index as u32, at).await?);
+        }
         active_proposals.push(build_active_proposal_view(
             state,
             &identity.cid_number,
-            &roster,
+            &frozen,
             &ballots,
         ));
     }
@@ -62,7 +81,7 @@ pub(crate) async fn build_display_board(
 fn build_active_proposal_view(
     state: LegProposalState,
     institution_cid: &str,
-    roster: &[InstitutionAssignmentView],
+    roster: &[FrozenSeat],
     ballots: &HashMap<BallotKey, bool>,
 ) -> ActiveProposalView {
     let mut seen = std::collections::HashSet::new();
@@ -71,10 +90,10 @@ fn build_active_proposal_view(
         .filter_map(|p| {
             let key = BallotKey {
                 proposal_id: state.proposal_id,
-                body_index: state.current_body,
+                body_index: p.body_index,
                 institution_cid_number: institution_cid.to_string(),
                 role_code: p.role_code.clone(),
-                account_id: p.account_id.clone(),
+                person_cid: p.person_cid.clone(),
             };
             if !seen.insert(key.clone()) {
                 return None;
@@ -83,7 +102,8 @@ fn build_active_proposal_view(
                 ticket_id: key.seat_id(),
                 role_code: p.role_code.clone(),
                 account_id: p.account_id.clone(),
-                name: String::new(),
+                person_cid: p.person_cid.clone(),
+                name: p.name.clone(),
                 role_name: p.role_name.clone(),
                 vote: ballots.get(&key).copied(),
             })

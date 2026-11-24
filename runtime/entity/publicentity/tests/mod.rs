@@ -5,7 +5,6 @@
 extern crate alloc;
 
 use super::*;
-use adminbase::InstitutionAdminQuery;
 use frame_support::{
     derive_impl,
     traits::{ConstU128, ConstU32, Currency, ExistenceRequirement, Hooks, WithdrawReasons},
@@ -49,14 +48,8 @@ mod runtime {
     #[runtime::pallet_index(3)]
     pub type InternalVote = internalvote;
 
-    #[runtime::pallet_index(4)]
-    pub type PublicAdmins = publicadmin;
-
-    #[runtime::pallet_index(5)]
-    pub type PrivateAdmins = privateadmin;
-
     #[runtime::pallet_index(6)]
-    pub type PublicManage = super;
+    pub type PublicEntity = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -122,7 +115,7 @@ impl primitives::institution_asset::InstitutionAsset<AccountId32> for TestInstit
 pub struct TestInstitutionQuery;
 impl entitybase::InstitutionMultisigQuery<AccountId32> for TestInstitutionQuery {
     fn lookup_institution_account(cid_number: &[u8], account_name: &[u8]) -> Option<AccountId32> {
-        <PublicManage as entitybase::InstitutionMultisigQuery<AccountId32>>::lookup_institution_account(
+        <PublicEntity as entitybase::InstitutionMultisigQuery<AccountId32>>::lookup_institution_account(
             cid_number,
             account_name,
         )
@@ -130,7 +123,7 @@ impl entitybase::InstitutionMultisigQuery<AccountId32> for TestInstitutionQuery 
 
     fn account_belongs_to(cid_number: &[u8], addr: &AccountId32) -> bool {
         (cid_number == b"REGISTRY-CID" && addr == &registry_funding_account())
-            || <PublicManage as entitybase::InstitutionMultisigQuery<AccountId32>>::account_belongs_to(
+            || <PublicEntity as entitybase::InstitutionMultisigQuery<AccountId32>>::account_belongs_to(
                 cid_number,
                 addr,
             )
@@ -140,27 +133,20 @@ impl entitybase::InstitutionMultisigQuery<AccountId32> for TestInstitutionQuery 
         (addr == &registry_funding_account())
             .then(|| b"REGISTRY-CID".to_vec())
             .or_else(|| {
-                <PublicManage as entitybase::InstitutionMultisigQuery<AccountId32>>::lookup_cid(
+                <PublicEntity as entitybase::InstitutionMultisigQuery<AccountId32>>::lookup_cid(
                     addr,
                 )
             })
     }
 
     fn lookup_org(addr: &AccountId32) -> Option<InstitutionCode> {
-        <PublicManage as entitybase::InstitutionMultisigQuery<AccountId32>>::lookup_org(addr)
+        <PublicEntity as entitybase::InstitutionMultisigQuery<AccountId32>>::lookup_org(addr)
     }
 
-    fn lookup_admin_config(
-        addr: &AccountId32,
-    ) -> Option<primitives::multisig::MultisigConfigSnapshot<AccountId32>> {
-        <PublicManage as entitybase::InstitutionMultisigQuery<AccountId32>>::lookup_admin_config(
-            addr,
-        )
-    }
 
     fn account_exists(addr: &AccountId32) -> bool {
         addr == &registry_funding_account()
-            || <PublicManage as entitybase::InstitutionMultisigQuery<AccountId32>>::account_exists(
+            || <PublicEntity as entitybase::InstitutionMultisigQuery<AccountId32>>::account_exists(
                 addr,
             )
     }
@@ -208,6 +194,16 @@ impl crate::traits::RegistryAuthority<AccountId32> for TestRegistryAuthority {
 
 pub struct TestCitizenIdentityReader;
 impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+    fn person_cid(who: &AccountId32) -> Option<engingcore::CidNumber> {
+        PEOPLE.with(|people| people.borrow().iter().find(|(_, wallet)| *wallet == who).map(|(cid, _)| cid.clone()))
+    }
+    fn person_account(cid: &engingcore::CidNumber) -> Option<AccountId32> {
+        PEOPLE.with(|people| people.borrow().get(cid).cloned())
+    }
+    #[cfg(feature = "runtime-benchmarks")]
+    fn benchmark_seed_identity(who: &AccountId32, _: &engingcore::PopulationScope) {
+        fixture_person(who, "CTZN");
+    }
     fn voting_subject(
         who: &AccountId32,
         _scope: &engingcore::PopulationScope,
@@ -233,36 +229,9 @@ fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<Account
     }
 }
 
-pub struct TestInternalAdminProvider;
-impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
-    fn institution_wallet_snapshot(
-        cid: &[u8],
-        references: &[AccountId32],
-    ) -> Option<Vec<(AccountId32, u64)>> {
-        let key = adminbase::AdminCidNumber::try_from(cid.to_vec()).ok()?;
-        let roster = publicadmin::AdminAccounts::<Test>::get(&key)?;
-        let mut entries = std::collections::BTreeMap::new();
-        for admin in roster.admins {
-            let state = publicadmin::AdminWallets::<Test>::get(&key, &admin.account_id)?;
-            let reference = publicadmin::WalletRoleBindings::<Test>::get(&key, &admin.account_id)?;
-            if state.wallet.as_ref() != Some(&admin.account_id)
-                || entries
-                    .insert(reference, (admin.account_id, state.revision))
-                    .is_some()
-            {
-                return None;
-            }
-        }
-        references.iter().map(|r| entries.get(r).cloned()).collect()
-    }
+pub struct TestInternalVoteProvider;
+impl engingcore::InternalVoteProvider<AccountId32> for TestInternalVoteProvider {
 
-    fn is_institution_admin(
-        institution_code: InstitutionCode,
-        cid_number: &[u8],
-        who: &AccountId32,
-    ) -> bool {
-        PublicAdmins::is_institution_admin(institution_code, cid_number, who)
-    }
 
     fn institution_threshold(_institution_code: InstitutionCode, cid_number: &[u8]) -> Option<u32> {
         let cid = pallet::CidNumberOf::<Test>::try_from(cid_number.to_vec()).ok()?;
@@ -299,10 +268,10 @@ impl engingcore::Config for Test {
     type JointVoteResultCallback = ();
     // 接 publicentity 的 InternalVoteExecutor (lib.rs 末尾导出)
     type InternalVoteResultCallback = crate::InternalVoteExecutor<Test>;
-    type InternalAdminProvider = TestInternalAdminProvider;
+    type InternalVoteProvider = TestInternalVoteProvider;
     // 公权机构多签上限=1989(同真实 runtime);全链创世测试含联邦注册局 215 管理员,须覆盖。
     // 个人多签上限是另一项 MaxPersonalAccountAdmins=64,不受此影响。
-    type MaxAdminsPerInstitution = ConstU32<1989>;
+    type MaxSnapshotVoters = ConstU32<1989>;
     type MaxProposalDataLen = ConstU32<2048>;
     type MaxProposalObjectLen = ConstU32<{ 10 * 1024 }>;
     type MaxModuleTagLen = ConstU32<32>;
@@ -333,8 +302,8 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRolePro
         )
     }
 
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
-        crate::Pallet::<Test>::snapshot_role_references(cid_number, role_code)
+    fn active_persons_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<Vec<u8>> {
+        crate::Pallet::<Test>::snapshot_role_persons(cid_number, role_code)
     }
 }
 
@@ -346,13 +315,13 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
         role_name: account_name("关闭账户岗位".as_bytes()),
         term_required: false,
         role_status: entitybase::InstitutionRoleStatus::Active,
+        seats: 3,
     };
     pallet::InstitutionRoles::<Test>::insert(cid_number, &role_code, role);
-    let assignments = institution_admins(3)
-        .into_iter()
-        .map(|admin| entitybase::InstitutionAdminAssignment {
+    let assignments = (0..3).map(admin)
+        .map(|wallet| entitybase::InstitutionAssignment {
             cid_number: cid_number.clone(),
-            account_id: admin.account_id,
+            person_cid: fixture_person(&wallet, "CTZN"),
             role_code: role_code.clone(),
             term_start: 0,
             term_end: 0,
@@ -395,60 +364,6 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
     role_code
 }
 
-thread_local! {
-    static IS_OPERATION: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
-    static CID_WALLET: core::cell::RefCell<Option<(alloc::vec::Vec<u8>, AccountId32)>> =
-        const { core::cell::RefCell::new(None) };
-}
-
-/// 可切换相位 mock：默认 Genesis，测试可切 Operation。
-pub struct TestChainPhase;
-impl adminbase::ChainPhaseCheck for TestChainPhase {
-    fn is_operation() -> bool {
-        IS_OPERATION.with(|cell| cell.get())
-    }
-}
-
-/// 可换绑的 identity 绑定 mock：某 CID 当前只绑定一个钱包，可改绑以模拟换绑。
-pub struct TestCitizenBinding;
-impl adminbase::CitizenIdentityBindingQuery<AccountId32> for TestCitizenBinding {
-    fn current_account(cid_number: &[u8]) -> Option<AccountId32> {
-        CID_WALLET.with(|cell| {
-            cell.borrow().as_ref().filter(|(cid, _)| cid.as_slice() == cid_number).map(|(_, wallet)| wallet.clone())
-        })
-    }
-    fn matches_citizen_account(cid_number: &[u8], account: &AccountId32) -> bool {
-        CID_WALLET.with(|cell| {
-            cell.borrow()
-                .as_ref()
-                .map(|(cid, wallet)| cid.as_slice() == cid_number && wallet == account)
-                .unwrap_or(false)
-        })
-    }
-}
-
-pub fn set_operation_phase(is_operation: bool) {
-    IS_OPERATION.with(|cell| cell.set(is_operation));
-}
-
-/// 把某 CID 绑定到某钱包（再次调用即换绑，旧钱包随即失去该 CID 的授权）。
-pub fn bind_cid(cid_number: &[u8], wallet: AccountId32) {
-    CID_WALLET.with(|cell| *cell.borrow_mut() = Some((cid_number.to_vec(), wallet)));
-}
-
-impl publicadmin::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
-    type MaxAdminsPerInstitution = ConstU32<1989>;
-    type CitizenIdentityBinding = TestCitizenBinding;
-    type ChainPhase = TestChainPhase;
-}
-
-impl privateadmin::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
-    type MaxAdminsPerInstitution = ConstU32<1989>;
-}
-
-/// 岗位生命周期单测只验证 entity 约束，允许测试 CID 持有提交的业务动作权限。
 pub struct TestInstitutionCapabilityPolicy;
 impl entitybase::InstitutionCapabilityPolicy for TestInstitutionCapabilityPolicy {
     fn allows(
@@ -472,19 +387,9 @@ impl frame_support::traits::Get<frame_support::weights::Weight> for RecordAccoun
     fn get() -> frame_support::weights::Weight { frame_support::weights::Weight::zero() }
 }
 
-pub struct TestInstitutionWalletVerifier;
-impl adminbase::InstitutionWalletSignatureVerifier<AccountId32> for TestInstitutionWalletVerifier {
-    fn verify(account: &AccountId32, payload: &[u8], proof: &[u8]) -> bool {
-        let Ok(signature) = <[u8;64]>::try_from(proof) else { return false; };
-        let raw: [u8;32] = *account.as_ref();
-        let message = primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, payload,
-        );
-        sp_io::crypto::sr25519_verify(&signature.into(), &message, &raw.into())
-    }
-}
+
 
 impl pallet::Config for Test {
-    type WalletSignatureVerifier = TestInstitutionWalletVerifier;
     type OnAccountRegistered = RecordAccountRegistration;
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
@@ -496,11 +401,9 @@ impl pallet::Config for Test {
     type InstitutionQuery = TestInstitutionQuery;
     type OnchainFeeCharger = TestOnchainFeeCharger;
     type RegistryAuthority = TestRegistryAuthority;
-    type AdminLifecycle = PublicAdmins;
     type SiblingInstitutionQuery = ();
-    type InstitutionAdminQuery = PublicAdmins;
     type InstitutionCapabilityPolicy = TestInstitutionCapabilityPolicy;
-    type MaxAdmins = ConstU32<10>;
+    type MaxRoleEntries = ConstU32<10>;
     type MaxCidNumberLength = ConstU32<{ primitives::core_const::CID_NUMBER_MAX_BYTES }>;
     type MaxAccountNameLength = ConstU32<128>;
     type MaxInstitutionAccounts = ConstU32<8>;
@@ -512,7 +415,7 @@ impl pallet::Config for Test {
 /// 派生 sr25519 admin 账户。seed 区分本测试套命名空间。
 pub fn derive_admin_pair(index: u8) -> (AccountId32, sr25519::Pair) {
     let mut seed_bytes = [0u8; 32];
-    seed_bytes[0] = 2; // publicentity 命名空间(personaladmin 用 1)
+    seed_bytes[0] = 2; // publicentity 命名空间(personal 用 1)
     seed_bytes[1] = index;
     seed_bytes[2] = 0xAB;
     let pair = sr25519::Pair::from_seed(&seed_bytes);
@@ -574,18 +477,6 @@ pub fn empty_town_code() -> pallet::AccountNameOf<Test> {
     BoundedVec::new()
 }
 
-pub fn institution_admins(count: u8) -> crate::InstitutionAdminsInputOf<Test> {
-    (0..count)
-        .map(|seed| adminbase::Admin {
-            account_id: admin(seed),
-            cid_number: Default::default(),
-            family_name: Default::default(),
-            given_name: Default::default(),
-        })
-        .collect::<alloc::vec::Vec<_>>()
-        .try_into()
-        .expect("admins fit")
-}
 
 pub fn account_name(s: &[u8]) -> pallet::AccountNameOf<Test> {
     BoundedVec::try_from(s.to_vec()).expect("account_name fits")
@@ -640,7 +531,7 @@ pub fn propose_named_account_close(
 ) -> sp_runtime::DispatchResult {
     let proposer_role_code: crate::RoleCodeOf =
         b"TEST_CLOSE_ROLE".to_vec().try_into().expect("role fits");
-    PublicManage::propose_close_public_institution(
+    PublicEntity::propose_close_public_institution(
         origin,
         actor_cid_number,
         proposer_role_code,
@@ -658,7 +549,7 @@ pub fn propose_add_custom_account(
 ) -> sp_runtime::DispatchResult {
     let proposer_role_code: crate::RoleCodeOf =
         b"TEST_CLOSE_ROLE".to_vec().try_into().expect("role fits");
-    PublicManage::propose_add_institution_account(
+    PublicEntity::propose_add_institution_account(
         origin,
         cid_number,
         account_names_bv(names),
@@ -670,7 +561,7 @@ pub fn propose_add_custom_account(
 /// 关闭账户等测试无需先跑一整轮新增投票即可获得可关闭的自定义账户。
 pub fn insert_custom_account(cid_number: &pallet::CidNumberOf<Test>, name: &[u8]) -> AccountId32 {
     let stored_name = account_name(name);
-    let (account_id, _) = PublicManage::derive_institution_account(cid_number.as_slice(), name)
+    let (account_id, _) = PublicEntity::derive_institution_account(cid_number.as_slice(), name)
         .expect("custom account_id derives");
     pallet::InstitutionAccounts::<Test>::insert(
         cid_number,
@@ -692,8 +583,7 @@ pub fn insert_custom_account(cid_number: &pallet::CidNumberOf<Test>, name: &[u8]
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
-    set_operation_phase(false); // 每个测试默认 Genesis 期
-    CID_WALLET.with(|cell| *cell.borrow_mut() = None); // 清空换绑状态
+    PEOPLE.with(|people| people.borrow_mut().clear());
     let storage = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .expect("test storage should build");
@@ -710,12 +600,25 @@ mod cases;
 mod accounts;
 
 
-fn seed_institution_admins(cid:&pallet::CidNumberOf<Test>,code:InstitutionCode,rows:&pallet::InstitutionAdminsInputOf<Test>)->frame_support::dispatch::DispatchResult {
-    use adminbase::{InstitutionAdminLifecycle,InstitutionAdminWalletQuery};
-    let old=PublicAdmins::institution_admins(code,cid).unwrap_or_default();
-    let removed=old.into_iter().map(|a|{let v=PublicAdmins::institution_wallet_state(code,cid,&a).unwrap().revision;(a,v)}).collect::<Vec<_>>();
-    if !removed.is_empty(){PublicAdmins::update_institution_wallets(cid.to_vec(),code,vec![],removed,vec![])?;}
-    if !rows.is_empty(){PublicAdmins::update_institution_wallets(cid.to_vec(),code,rows.to_vec(),vec![],vec![])?;}
-    pallet::InstitutionRoleNonce::<Test>::mutate(cid,|n|*n+=1);
-    Ok(())
+thread_local! {
+    static PEOPLE: core::cell::RefCell<std::collections::BTreeMap<engingcore::CidNumber, AccountId32>> =
+        const { core::cell::RefCell::new(std::collections::BTreeMap::new()) };
+}
+
+fn fixture_person(wallet: &AccountId32, kind: &str) -> engingcore::CidNumber {
+    use engingcore::CitizenIdentityReader as _;
+    if let Some(person_cid) = TestCitizenIdentityReader::person_cid(wallet) {
+        return person_cid;
+    }
+    let person_cid = generated_cid_bytes(&alloc::format!("fixture-person-{wallet:?}"), kind).try_into().unwrap();
+    bind_test_wallet(&person_cid, wallet.clone());
+    person_cid
+}
+
+fn bind_test_wallet(person_cid: &engingcore::CidNumber, wallet: AccountId32) {
+    PEOPLE.with(|people| {
+        let mut people = people.borrow_mut();
+        people.retain(|_, bound| *bound != wallet);
+        people.insert(person_cid.clone(), wallet);
+    });
 }

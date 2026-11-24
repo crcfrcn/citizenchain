@@ -28,17 +28,18 @@ pub(crate) struct LoginSignRequest {
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AdminSession {
-    /// 机构实际钱包的在用版本（十进制字符串）与真实存储namespace。
-    pub(crate) wallet_revision: String,
-    pub(crate) wallet_namespace: crate::chain_runtime::AdminPallet,
+    /// identity的真实个人绑定版本、人员CID及本次所选岗位。
+    pub(crate) binding_revision: String,
+    pub(crate) person_cid: String,
+    pub(crate) role_code: String,
     /// 明文只来自本次请求，Serde不写入数据库；定位键另存原SHA-256。
     #[serde(skip)]
     pub(crate) token: String,
     pub(crate) account_id: String,
     pub(crate) institution_code: String,
-    /// 会话签发时命中的链上机构候选。每次鉴权必须与节点当前绑定严格一致。
+    /// 会话签发时命中的链上机构候选。每次鉴权只定位本次所选任职，不从节点缓存取得授权。
     pub(crate) candidate_id: String,
-    /// 登录时核验的准确机构；受保护请求和广播前复核当前钱包及版本。
+    /// 本次所选准确机构；受保护请求和广播前复核人员绑定及有效任职。
     pub(crate) institution_cid_number: String,
     pub(crate) admin_level: Option<String>,
     pub(crate) family_name: String,
@@ -69,8 +70,9 @@ impl AdminSession {
             candidate_id,
             expires_at: now + chrono::Duration::hours(8),
             last_active_at: now,
-            wallet_revision: admin.wallet_revision,
-            wallet_namespace: admin.wallet_namespace,
+            binding_revision: admin.binding_revision,
+            person_cid: admin.person_cid,
+            role_code: admin.role_code,
             account_id: admin.account_id,
             institution_code: admin.institution_code,
             institution_cid_number: admin.institution_cid_number,
@@ -89,8 +91,9 @@ impl AdminSession {
 
     pub(crate) fn context(&self) -> AdminAuthContext {
         AdminAuthContext {
-            wallet_revision: self.wallet_revision.clone(),
-            wallet_namespace: self.wallet_namespace,
+            binding_revision: self.binding_revision.clone(),
+            person_cid: self.person_cid.clone(),
+            role_code: self.role_code.clone(),
             account_id: self.account_id.clone(),
             institution_code: self.institution_code.clone(),
             institution_cid_number: self.institution_cid_number.clone(),
@@ -106,8 +109,9 @@ impl AdminSession {
 
     pub(crate) fn identify(&self) -> AdminIdentifyOutput {
         AdminIdentifyOutput {
-            wallet_revision: self.wallet_revision.clone(),
-            wallet_namespace: self.wallet_namespace,
+            binding_revision: self.binding_revision.clone(),
+            person_cid: self.person_cid.clone(),
+            role_code: self.role_code.clone(),
             account_id: self.account_id.clone(),
             institution_code: self.institution_code.clone(),
             institution_cid_number: self.institution_cid_number.clone(),
@@ -130,6 +134,9 @@ impl AdminSession {
 #[serde(rename_all = "camelCase")]
 pub struct AdminInstitutionCandidate {
     pub candidate_id: String,
+    pub person_cid: String,
+    pub role_code: String,
+    pub role_name: String,
     pub institution_code: String,
     pub admin_level: Option<String>,
     pub institution_cid_number: Option<String>,
@@ -183,9 +190,10 @@ pub(crate) struct QrLoginResultRecord {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AdminAuthContext {
-    /// 机构实际钱包的在用版本（十进制字符串）与真实存储namespace。
-    pub wallet_revision: String,
-    pub wallet_namespace: crate::chain_runtime::AdminPallet,
+    /// identity的真实个人绑定版本、人员CID及本次所选岗位。
+    pub binding_revision: String,
+    pub person_cid: String,
+    pub role_code: String,
     pub account_id: String,
     /// 当前会话绑定的准确机构 CID；机构码只负责分类，不能代替机构唯一身份。
     pub institution_cid_number: String,
@@ -207,9 +215,10 @@ pub struct AdminAuthContext {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AdminAuthOutput {
-    /// 机构实际钱包的在用版本（十进制字符串）与真实存储namespace。
-    pub(crate) wallet_revision: String,
-    pub(crate) wallet_namespace: crate::chain_runtime::AdminPallet,
+    /// identity的真实个人绑定版本、人员CID及本次所选岗位。
+    pub(crate) binding_revision: String,
+    pub(crate) person_cid: String,
+    pub(crate) role_code: String,
     pub(crate) setup_required: bool,
     pub(crate) ok: bool,
     pub(crate) account_id: String,
@@ -231,9 +240,10 @@ pub(crate) struct AdminAuthOutput {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AdminIdentifyOutput {
-    /// 机构实际钱包的在用版本（十进制字符串）与真实存储namespace。
-    pub(crate) wallet_revision: String,
-    pub(crate) wallet_namespace: crate::chain_runtime::AdminPallet,
+    /// identity的真实个人绑定版本、人员CID及本次所选岗位。
+    pub(crate) binding_revision: String,
+    pub(crate) person_cid: String,
+    pub(crate) role_code: String,
     pub(crate) setup_required: bool,
     pub(crate) account_id: String,
     /// 扫码登录成功后由节点激活绑定派生，禁止浏览器自报。
@@ -338,9 +348,13 @@ pub(crate) struct AdminVerifyOutput {
 }
 
 impl AdminAuthContext {
-    pub(crate) fn matches_wallet(&self, admin: &crate::chain_runtime::OnChainAdmin) -> bool {
-        self.account_id == admin.account_id
-            && self.wallet_namespace == admin.wallet_namespace
-            && self.wallet_revision == admin.wallet_revision.to_string()
+    pub(crate) fn matches_assignment(
+        &self,
+        a: &crate::institutions::InstitutionAssignmentView,
+    ) -> bool {
+        self.account_id == a.account_id
+            && self.person_cid == a.person_cid
+            && self.role_code == a.role_code
+            && self.binding_revision == a.binding_revision
     }
 }

@@ -39,8 +39,46 @@ pub(crate) async fn require_admin_session_middleware(
     };
     // 提交入口自己区分首次广播与只读恢复；已成功交易不受事后撤权影响。
     if request.uri().path() != "/api/admin/chain/submit" {
-        if let Err(resp) = super::guards::validate_current_wallet(&state, &context).await {
+        if let Err(resp) = super::guards::validate_current_assignment(&state, &context).await {
             return resp;
+        }
+    }
+    let path = request.uri().path();
+    let local_write = !matches!(request.method().as_str(), "GET" | "HEAD" | "OPTIONS")
+        && (path.starts_with("/api/institutions/")
+            && (request.method() == axum::http::Method::PATCH
+                || path.contains("/docs")
+                || path.contains("legal-representative/photo"))
+            || path.starts_with("/api/admin/citizens/")
+                && (path.ends_with("/edit") || path.contains("/documents")));
+    if local_write {
+        let permission = if path.starts_with("/api/admin/citizens/") {
+            super::guards::validate_selected_permission(
+                &state,
+                &context,
+                Some(entitybase::business_action::MODULE_CITIZEN_IDENTITY),
+                None,
+            )
+            .await
+        } else if matches!(context.institution_code.as_str(), "FRG" | "CREG") {
+            super::guards::validate_selected_permission(
+                &state,
+                &context,
+                Some(entitybase::business_action::MODULE_INSTITUTION_REGISTRATION),
+                Some(entitybase::business_action::ACTION_REGISTER_INSTITUTION),
+            )
+            .await
+        } else {
+            super::guards::validate_selected_permission(
+                &state,
+                &context,
+                None,
+                Some(entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE),
+            )
+            .await
+        };
+        if let Err(response) = permission {
+            return response;
         }
     }
     next.run(request).await
@@ -55,7 +93,7 @@ pub(crate) async fn admin_auth_check(
         Err(response) => return response,
     };
     let ctx = session.context();
-    if let Err(response) = super::guards::validate_current_wallet(&state, &ctx).await {
+    if let Err(response) = super::guards::validate_current_assignment(&state, &ctx).await {
         return response;
     }
     let capabilities = session.capabilities;
@@ -66,8 +104,9 @@ pub(crate) async fn admin_auth_check(
         data: AdminAuthOutput {
             setup_required: session.setup_required,
             ok: true,
-            wallet_revision: ctx.wallet_revision,
-            wallet_namespace: ctx.wallet_namespace,
+            binding_revision: ctx.binding_revision,
+            person_cid: ctx.person_cid,
+            role_code: ctx.role_code,
             account_id: ctx.account_id,
             institution_cid_number: ctx.institution_cid_number,
             institution_code: ctx.institution_code,

@@ -368,3 +368,49 @@ fn cid_guard_keeps_its_existing_rules_for_u32_year_cids() {
         }
     }
 }
+
+#[test]
+fn frozen_institution_identity_is_read_from_original_records_and_cannot_be_deleted() {
+    use sc_service::ChainSpec;
+    let spec =
+        node::chain::ChainSpec::from_json_bytes(include_bytes!("../../citizenchain.json").to_vec())
+            .unwrap();
+    let storage = spec.as_storage_builder().build_storage().unwrap();
+    let executor = sc_executor::WasmExecutor::<sp_io::SubstrateHostFunctions>::default();
+    let version =
+        sc_service::resolve_state_version_from_wasm::<_, sp_runtime::traits::BlakeTwo256>(
+            &storage, &executor,
+        )
+        .unwrap();
+    let state = crate::guard::GenesisState::new(storage, version).unwrap();
+    let reference = GenesisReference::from_frozen(&state).unwrap();
+    assert!(!reference.institutions.is_empty());
+    let ((namespace, cid), identity) = reference.institutions.iter().next().unwrap();
+    let namespace = if *namespace == Namespace::Public.id() {
+        Namespace::Public
+    } else {
+        Namespace::Private
+    };
+    let record = InstitutionRecord {
+        cid_full_name: b"fixture".to_vec(),
+        cid_short_name: b"fixture".to_vec(),
+        town_code: identity.town_code.clone(),
+        legal_representative: None,
+        institution_code: identity.institution_code,
+        created_at: identity.created_at,
+    };
+    let key = storage_key::institution(namespace, cid);
+    assert!(state.read(&key).is_none(), "冻结原始命名空间没有被改写");
+    let parent = BTreeMap::from([(key.clone(), record.encode())]);
+    let deleted = BTreeMap::from([(key, None)]);
+    assert_eq!(
+        check_transition(
+            1,
+            &deleted,
+            |k| parent.get(k).cloned(),
+            |_| None,
+            &reference
+        ),
+        Err(GuardError::GenesisInstitutionDeleted)
+    );
+}

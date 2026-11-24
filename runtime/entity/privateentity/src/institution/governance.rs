@@ -1,13 +1,11 @@
 //! 原子应用私权机构治理及注册局登记，核对状态指纹和派生不变量。
 
 extern crate alloc;
-use adminbase::InstitutionAdminWalletQuery;
 
-use adminbase::{ChainPhaseCheck as _, InstitutionAdminQuery as _};
 use alloc::{collections::BTreeMap, vec::Vec};
-use entitybase::RegistryAuthority as _;
+use entitybase::{ChainPhaseCheck as _, RegistryAuthority as _};
 use entitybase::{
-    InstitutionAdminAssignment, InstitutionAssignmentSource, InstitutionAssignmentStatus,
+    InstitutionAssignment, InstitutionAssignmentSource, InstitutionAssignmentStatus,
     InstitutionCapabilityPolicy as _, InstitutionGovernanceResult,
     InstitutionLegalRepresentativeChange, InstitutionRole, InstitutionRoleMutation,
     InstitutionRoleStatus, RoleBusinessPermission, RoleSubject,
@@ -34,15 +32,14 @@ enum LegalRepresentativeTarget<T: Config> {
         AccountNameOf<T>,
         AccountNameOf<T>,
         CidNumberOf<T>,
-        T::AccountId,
     ),
     Clear,
 }
 
 impl<T: Config> Pallet<T> {
-    /// 原子应用私权机构岗位、任职和法定代表人最终状态；管理员集合保持独立。
+    /// 原子应用私权机构岗位、任职和法定代表人最终状态。
     pub fn apply_institution_governance_result(
-        result: InstitutionGovernanceResult<T::AccountId>,
+        result: InstitutionGovernanceResult,
     ) -> DispatchResult {
         Self::apply_role_changes(
             result.institution_code,
@@ -60,16 +57,16 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn apply_role_changes(
         institution_code: primitives::cid::code::InstitutionCode,
         cid_number: Vec<u8>,
-        role_mutations: Vec<entitybase::InstitutionRoleMutation<T::AccountId>>,
-        assignment_changes_input: Vec<entitybase::InstitutionRoleAssignmentChange<T::AccountId>>,
+        role_mutations: Vec<entitybase::InstitutionRoleMutation>,
+        assignment_changes_input: Vec<entitybase::InstitutionRoleAssignmentChange>,
         legal_representative_change_input: Option<
-            entitybase::InstitutionLegalRepresentativeChange<T::AccountId>,
+            entitybase::InstitutionLegalRepresentativeChange,
         >,
         source_ref: Vec<u8>,
         proposal_id: Option<u128>,
     ) -> DispatchResult {
         ensure!(
-            adminbase::is_private_admin_code(&institution_code),
+            primitives::cid::code::is_private_legal_code(&institution_code),
             Error::<T>::InvalidInstitutionCode
         );
         ensure!(
@@ -80,8 +77,8 @@ impl<T: Config> Pallet<T> {
         );
         ensure!(!source_ref.is_empty(), Error::<T>::AssignmentSourceRefEmpty);
         ensure!(
-            role_mutations.len() as u32 <= T::MaxAdmins::get()
-                && assignment_changes_input.len() as u32 <= T::MaxAdmins::get(),
+            role_mutations.len() as u32 <= T::MaxRoleEntries::get()
+                && assignment_changes_input.len() as u32 <= T::MaxRoleEntries::get(),
             Error::<T>::TooManyGovernanceChanges
         );
         let result_source_ref: AssignmentSourceRefOf = source_ref
@@ -103,26 +100,6 @@ impl<T: Config> Pallet<T> {
                 institution_code,
                 cid_number.as_slice(),
             );
-        let current_wallets =
-            T::InstitutionAdminQuery::institution_admins(institution_code, cid_number.as_slice())
-                .unwrap_or_default();
-        let mut assignment_references = current_wallets
-            .iter()
-            .flat_map(|wallet| {
-                core::iter::once(wallet.clone()).chain(
-                    T::InstitutionAdminQuery::resolve_role_authorization(
-                        institution_code,
-                        &cid_number,
-                        wallet,
-                    ),
-                )
-            })
-            .collect::<BTreeSet<_>>();
-        // 人员任职不因钱包退役而被删除；签名授权仍要求当前有效管理员和原岗位权限。
-        for (_, records) in InstitutionRoleAssignments::<T>::iter_prefix(&cid_number) {
-            assignment_references.extend(records.into_iter().map(|a| a.account_id));
-        }
-
         let mut role_mutations = role_mutations;
         let mut assignment_changes_input = assignment_changes_input;
         if proposal_id.is_none() {
@@ -149,7 +126,7 @@ impl<T: Config> Pallet<T> {
                     .map_err(|_| Error::<T>::InvalidRoleCode)?;
                 let previous = InstitutionRoleAssignments::<T>::get(&cid_number, &code)
                     .into_iter()
-                    .map(|assignment| (assignment.account_id.clone(), assignment))
+                    .map(|assignment| (assignment.person_cid.to_vec(), assignment))
                     .collect::<BTreeMap<_, _>>();
                 // 受保护岗位的任职仍由既有治理/任免处理，登记只能透传未变更记录。
                 let protected_role = primitives::institution_constraints::is_legal_representative_role(&change.role_code)
@@ -160,14 +137,14 @@ impl<T: Config> Pallet<T> {
                     ensure!(
                         change.assignments.len() == previous.len()
                             && change.assignments.iter().all(|target| previous
-                                .get(&target.account_id)
+                                .get(&target.person_cid)
                                 .is_some_and(|stored| Self::same_assignment(stored, target))),
                         Error::<T>::RegistrationRoleChangeDenied
                     );
                 }
                 for target in &mut change.assignments {
                     if previous
-                        .get(&target.account_id)
+                        .get(&target.person_cid)
                         .is_some_and(|stored| Self::same_assignment(stored, target))
                     {
                         continue;
@@ -194,9 +171,11 @@ impl<T: Config> Pallet<T> {
                 InstitutionRoleMutation::Create {
                     role_name,
                     term_required,
+                    seats,
                     permissions,
                     assignments,
                 } => {
+                    ensure!((1..=T::MaxRoleEntries::get()).contains(&seats), Error::<T>::FixedRoleSeatsMismatch);
                     ensure!(!role_name.is_empty(), Error::<T>::InvalidRoleName);
                     ensure!(!permissions.is_empty(), Error::<T>::RolePermissionsEmpty);
                     let role_name: AccountNameOf<T> = role_name
@@ -218,6 +197,7 @@ impl<T: Config> Pallet<T> {
                         role_code: role_code.clone(),
                         role_name,
                         term_required,
+                        seats,
                         role_status: InstitutionRoleStatus::Active,
                     };
                     let mut seen_permissions = BTreeSet::new();
@@ -268,7 +248,7 @@ impl<T: Config> Pallet<T> {
                         &role_code,
                         &role,
                         assignments,
-                        &assignment_references,
+
                         proposal_id
                             .is_none()
                             .then_some(result_source_ref.as_slice()),
@@ -362,15 +342,15 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::DuplicateGovernanceAssignmentChange
             );
             ensure!(
-                change.assignments.len() as u32 <= T::MaxAdmins::get(),
-                Error::<T>::TooManyInstitutionAdmins
+                change.assignments.len() as u32 <= T::MaxRoleEntries::get(),
+                Error::<T>::TooManyInstitutionAssignments
             );
             let bounded = Self::build_governance_assignments(
                 &cid_number,
                 &role_code,
                 role,
                 change.assignments,
-                &assignment_references,
+
                 proposal_id
                     .is_none()
                     .then_some(result_source_ref.as_slice()),
@@ -391,11 +371,8 @@ impl<T: Config> Pallet<T> {
                 );
                 continue;
             }
+            ensure!(assignments.len() <= role.seats as usize, Error::<T>::FixedRoleSeatsMismatch);
             for assignment in &assignments {
-                ensure!(
-                    assignment_references.contains(&assignment.account_id),
-                    Error::<T>::InvalidAssignmentResultAdmins
-                );
                 ensure!(
                     assignment.assignment_status == InstitutionAssignmentStatus::Active,
                     Error::<T>::InitialAssignmentMustBeActive
@@ -439,40 +416,25 @@ impl<T: Config> Pallet<T> {
                     InstitutionLegalRepresentativeChange::Set {
                         family_name,
                         given_name,
-                        cid_number,
-                        account_id,
+                        person_cid,
                     } => {
-                        // 运行期(Operation):LR 岗四要素完整(单源自 required_admin_elements
-                        // 的私权 LR 岗真值);Genesis 放行=允许空。一次 runtime 升级即启用。
                         if T::ChainPhase::is_operation() {
-                            let req = adminbase::required_admin_elements(
-                                adminbase::AdminAccountKind::PrivateInstitution,
-                                true, // LR 岗
-                            );
-                            ensure!(
-                                (!req.family || !family_name.is_empty())
-                                    && (!req.given || !given_name.is_empty()),
-                                Error::<T>::EmptyLegalRepresentativeName
-                            );
-                            ensure!(
-                                !req.cid || !cid_number.is_empty(),
-                                Error::<T>::EmptyLegalRepresentativeCidNumber
-                            );
+                            ensure!(!family_name.is_empty() && !given_name.is_empty(), Error::<T>::EmptyLegalRepresentativeName);
                         }
+                        ensure!(Self::has_person_binding(&person_cid), Error::<T>::InvalidAssignmentPerson);
                         let family_name: AccountNameOf<T> = family_name
                             .try_into()
                             .map_err(|_| Error::<T>::EmptyLegalRepresentativeName)?;
                         let given_name: AccountNameOf<T> = given_name
                             .try_into()
                             .map_err(|_| Error::<T>::EmptyLegalRepresentativeName)?;
-                        let citizen_cid: CidNumberOf<T> = cid_number
+                        let person_cid: CidNumberOf<T> = person_cid
                             .try_into()
                             .map_err(|_| Error::<T>::EmptyLegalRepresentativeCidNumber)?;
                         Ok::<_, sp_runtime::DispatchError>(LegalRepresentativeTarget::<T>::Set(
                             family_name,
                             given_name,
-                            citizen_cid,
-                            account_id,
+                            person_cid,
                         ))
                     }
                     // 解除法定代表人只清空 InstitutionInfo 三字段，不影响 LR 岗位本身。
@@ -482,13 +444,13 @@ impl<T: Config> Pallet<T> {
                 }
             })
             .transpose()?;
-        let legal_representative_account = match &legal_representative_change {
-            Some(LegalRepresentativeTarget::Set(_, _, _, account_id)) => Some(account_id.clone()),
+        let legal_representative_cid = match &legal_representative_change {
+            Some(LegalRepresentativeTarget::Set(_, _, person_cid)) => Some(person_cid.clone()),
             Some(LegalRepresentativeTarget::Clear) => None,
             None => institution
                 .legal_representative
                 .as_ref()
-                .map(|representative| representative.account_id.clone()),
+                .map(|representative| representative.person_cid.clone()),
         };
         let legal_role_code: RoleCodeOf =
             primitives::institution_constraints::ROLE_CODE_LEGAL_REPRESENTATIVE
@@ -500,9 +462,9 @@ impl<T: Config> Pallet<T> {
             .cloned()
             .unwrap_or_else(|| InstitutionRoleAssignments::<T>::get(&cid_number, &legal_role_code));
         ensure!(
-            match legal_representative_account {
-                Some(account_id) => {
-                    legal_assignments.len() == 1 && legal_assignments[0].account_id == account_id
+            match legal_representative_cid {
+                Some(person_cid) => {
+                    legal_assignments.len() == 1 && legal_assignments[0].person_cid == person_cid
                 }
                 None => legal_assignments.is_empty(),
             },
@@ -510,7 +472,6 @@ impl<T: Config> Pallet<T> {
         );
         let role_mutations_len = (role_writes.len() + role_deletes.len()) as u32;
         let assignment_changes_len = assignment_changes.len() as u32;
-        let admins_len = current_wallets.len() as u32;
         let legal_representative_updated = legal_representative_change.is_some();
 
         with_transaction(|| {
@@ -552,14 +513,12 @@ impl<T: Config> Pallet<T> {
                             LegalRepresentativeTarget::Set(
                                 family_name,
                                 given_name,
-                                citizen_cid,
-                                account_id,
+                                person_cid,
                             ) => {
                                 info.legal_representative = Some(entitybase::LegalRepresentative {
                                     family_name,
                                     given_name,
-                                    cid_number: citizen_cid,
-                                    account_id,
+                                    person_cid,
                                 });
                             }
                             LegalRepresentativeTarget::Clear => {
@@ -573,7 +532,6 @@ impl<T: Config> Pallet<T> {
                 cid_number,
                 role_mutations: role_mutations_len,
                 assignment_changes: assignment_changes_len,
-                admins_len,
                 legal_representative_updated,
                 result_source_ref,
             });
@@ -581,21 +539,16 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// 只读授权状态哈希：名册规范账户、岗位/权限/任职、nonce、阈值和机构信息。
-    /// 名册每次成功写入都推进现有nonce，因此并发人员资料变更也使旧签名失效。
+    /// 登记并发校验覆盖岗位、权限、任职、岗位 nonce、阈值和机构信息。
     pub fn registration_state_hash(
         cid: &CidNumberOf<T>,
     ) -> Result<[u8; 32], sp_runtime::DispatchError> {
         let institution = Institutions::<T>::get(cid).ok_or(Error::<T>::InstitutionNotFound)?;
-        let admins = T::InstitutionAdminQuery::institution_admins(
-            institution.institution_code,
-            cid.as_slice(),
-        );
         let roles = InstitutionRoles::<T>::iter_prefix(cid)
-            .take(T::MaxAdmins::get() as usize + 1)
+            .take(T::MaxRoleEntries::get() as usize + 1)
             .collect::<BTreeMap<_, _>>();
         ensure!(
-            roles.len() <= T::MaxAdmins::get() as usize,
+            roles.len() <= T::MaxRoleEntries::get() as usize,
             Error::<T>::TooManyGovernanceChanges
         );
         let permissions = roles
@@ -621,7 +574,6 @@ impl<T: Config> Pallet<T> {
             &(
                 cid,
                 institution,
-                admins,
                 roles,
                 permissions,
                 assignments,
@@ -634,12 +586,12 @@ impl<T: Config> Pallet<T> {
     /// 权重涵盖当前快照以及本次载荷，遍历上限与实际登记校验相同。
     pub fn registration_weight(
         cid: &CidNumberOf<T>,
-        action: &crate::pallet::InstitutionGovernanceActionOf<T>,
+        action: &entitybase::InstitutionRoleRegistration,
     ) -> frame_support::weights::Weight {
         let (n, mut r, mut p, mut a) = action.registration_work();
         // 只读compact长度估价，避免在入池/报价阶段解码整批任职或权限值。
         for (role, _) in
-            InstitutionRoles::<T>::iter_prefix(cid).take(T::MaxAdmins::get() as usize + 1)
+            InstitutionRoles::<T>::iter_prefix(cid).take(T::MaxRoleEntries::get() as usize + 1)
         {
             r = r.saturating_add(1);
             p = p.saturating_add(
@@ -649,16 +601,8 @@ impl<T: Config> Pallet<T> {
                 InstitutionRoleAssignments::<T>::decode_len(cid, &role).unwrap_or(0) as u32,
             );
         }
-        let previous_admins = Institutions::<T>::get(cid)
-            .and_then(|institution| {
-                T::InstitutionAdminQuery::institution_admins_len(
-                    institution.institution_code,
-                    cid.as_slice(),
-                )
-            })
-            .unwrap_or(0);
-        <<T as Config>::WeightInfo as crate::weights::WeightInfo>::register_institution_admins(
-            n.saturating_add(previous_admins),
+        <<T as Config>::WeightInfo as crate::weights::WeightInfo>::register_institution_roles(
+            n,
             r,
             p,
             a,
@@ -669,16 +613,12 @@ impl<T: Config> Pallet<T> {
     pub(crate) fn apply_registration(
         who: T::AccountId,
         cid: CidNumberOf<T>,
-        action: crate::pallet::InstitutionGovernanceActionOf<T>,
+        action: entitybase::InstitutionRoleRegistration,
         actor_cid: Vec<u8>,
         actor_role: Vec<u8>,
         expected_state_hash: [u8; 32],
         initial_threshold: Option<u32>,
     ) -> DispatchResult {
-        ensure!(
-            action.allowed_in_registration(),
-            Error::<T>::InvalidRegistrationAction
-        );
         let institution = Institutions::<T>::get(&cid).ok_or(Error::<T>::InstitutionNotFound)?;
         Self::ensure_lifecycle_institution_code(&institution.institution_code)?;
         ensure!(
@@ -696,50 +636,6 @@ impl<T: Config> Pallet<T> {
             Error::<T>::StaleRegistrationState
         );
         // 钱包维护与岗位配置是不同动作；登记方的原签名覆盖完整状态指纹。
-        if let crate::InstitutionGovernanceAction::RegisterAdminWalletChanges {
-            added,
-            removed,
-            replaced,
-        } = action
-        {
-            ensure!(
-                initial_threshold.is_none(),
-                Error::<T>::InvalidRegistrationAction
-            );
-
-            return with_transaction(|| {
-                let apply = || -> DispatchResult {
-                    use adminbase::InstitutionAdminLifecycle;
-                    T::AdminLifecycle::update_institution_wallets(
-                        cid.to_vec(),
-                        institution.institution_code,
-                        added,
-                        removed,
-                        replaced,
-                    )?;
-                    InstitutionRoleNonce::<T>::try_mutate(&cid, |nonce| -> DispatchResult {
-                        *nonce = nonce.checked_add(1).ok_or(Error::<T>::RoleNonceOverflow)?;
-                        Ok(())
-                    })?;
-                    let len = T::InstitutionAdminQuery::institution_admins_len(
-                        institution.institution_code,
-                        &cid,
-                    )
-                    .ok_or(Error::<T>::InvalidAssignmentResultAdmins)?;
-                    Self::deposit_event(crate::pallet::Event::<T>::InstitutionAdminsRegistered {
-                        cid_number: cid,
-                        admins_len: len,
-                        submitter: who,
-                    });
-                    Ok(())
-                };
-                match apply() {
-                    Ok(()) => TransactionOutcome::Commit(Ok(())),
-                    Err(e) => TransactionOutcome::Rollback(Err(e)),
-                }
-            });
-        }
-        // 来源绑定已签名登记载荷和origin；不接受客户端自造来源，也不伪造proposal_id。
         let reference = entitybase::institution_governance::registration_reference(
             crate::MODULE_TAG,
             &(
@@ -752,12 +648,13 @@ impl<T: Config> Pallet<T> {
                 initial_threshold,
             ),
         );
-        let (mutations, assignments) = action
-            .into_registration_parts()
-            .ok_or(Error::<T>::InvalidRegistrationAction)?;
+        let entitybase::InstitutionRoleRegistration {
+            role_mutations: mutations,
+            assignment_changes: assignments,
+        } = action;
         ensure!(
-            mutations.len() <= T::MaxAdmins::get() as usize
-                && assignments.len() <= T::MaxAdmins::get() as usize,
+            mutations.len() <= T::MaxRoleEntries::get() as usize
+                && assignments.len() <= T::MaxRoleEntries::get() as usize,
             Error::<T>::TooManyGovernanceChanges
         );
         let initialized = crate::pallet::InstitutionGovernanceThresholds::<T>::get(&cid);
@@ -781,42 +678,12 @@ impl<T: Config> Pallet<T> {
                 .all(|mutation| matches!(mutation, InstitutionRoleMutation::Create { .. })),
             Error::<T>::RegistrationRoleChangeDenied
         );
-        let admins_len =
-            T::InstitutionAdminQuery::institution_admins_len(institution.institution_code, &cid)
-                .ok_or(Error::<T>::InvalidAssignmentResultAdmins)?;
-        ensure!(admins_len > 0, Error::<T>::InvalidAssignmentResultAdmins);
-        for wallet in
-            T::InstitutionAdminQuery::institution_admins(institution.institution_code, &cid)
-                .ok_or(Error::<T>::InvalidAssignmentResultAdmins)?
-        {
-            ensure!(
-                T::AdminLifecycle::current_institution_wallet(
-                    institution.institution_code,
-                    &cid,
-                    &wallet
-                )
-                .as_ref()
-                    == Some(&wallet)
-                    && T::InstitutionAdminQuery::resolve_role_authorization(
-                        institution.institution_code,
-                        &cid,
-                        &wallet
-                    )
-                    .is_some(),
-                Error::<T>::InvalidAssignmentResultAdmins
-            );
-        }
         ensure!(
             !mutations.is_empty() || !assignments.is_empty(),
             Error::<T>::GovernanceResultEmpty
         );
         with_transaction(|| {
             let apply = || -> DispatchResult {
-                // 保留原状态nonce推进，不再把现任钱包名册写回。
-                InstitutionRoleNonce::<T>::try_mutate(&cid, |n| -> DispatchResult {
-                    *n = n.checked_add(1).ok_or(Error::<T>::RoleNonceOverflow)?;
-                    Ok(())
-                })?;
                 if !mutations.is_empty() || !assignments.is_empty() {
                     Self::apply_role_changes(
                         institution.institution_code,
@@ -832,10 +699,9 @@ impl<T: Config> Pallet<T> {
                     crate::pallet::InstitutionGovernanceThresholds::<T>::insert(&cid, threshold);
                 }
                 Self::ensure_registration_configuration(&cid)?;
-                Self::deposit_event(crate::pallet::Event::<T>::InstitutionAdminsRegistered {
+                Self::deposit_event(crate::pallet::Event::<T>::InstitutionRolesRegistered {
                     cid_number: cid,
-                    admins_len,
-                    submitter: who,
+                        submitter: who,
                 });
                 Ok(())
             };
@@ -848,26 +714,8 @@ impl<T: Config> Pallet<T> {
 
     /// 阈值来自显式机构配置，按有效岗位票据校验；不由管理员钱包人数推导。
     fn ensure_registration_configuration(cid: &CidNumberOf<T>) -> DispatchResult {
-        let institution = Institutions::<T>::get(cid).ok_or(Error::<T>::InstitutionNotFound)?;
         let threshold = crate::pallet::InstitutionGovernanceThresholds::<T>::get(cid)
             .ok_or(Error::<T>::MissingInitialConfiguration)?;
-        let mut personnel_references =
-            T::InstitutionAdminQuery::institution_admins(institution.institution_code, cid)
-                .unwrap_or_default()
-                .into_iter()
-                .flat_map(|wallet| {
-                    core::iter::once(wallet.clone()).chain(
-                        T::InstitutionAdminQuery::resolve_role_authorization(
-                            institution.institution_code,
-                            cid,
-                            &wallet,
-                        ),
-                    )
-                })
-                .collect::<BTreeSet<_>>();
-        for (_, rows) in InstitutionRoleAssignments::<T>::iter_prefix(cid) {
-            personnel_references.extend(rows.into_iter().map(|a| a.account_id));
-        }
         let action = entitybase::BusinessActionId {
             module_tag: crate::MODULE_TAG.to_vec(),
             action_code: entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
@@ -876,20 +724,14 @@ impl<T: Config> Pallet<T> {
         let mut voters = 0u32;
         let mut role_count = 0u32;
         for (code, role) in
-            InstitutionRoles::<T>::iter_prefix(cid).take(T::MaxAdmins::get() as usize + 1)
+            InstitutionRoles::<T>::iter_prefix(cid).take(T::MaxRoleEntries::get() as usize + 1)
         {
             role_count = role_count.saturating_add(1);
             ensure!(
-                role_count <= T::MaxAdmins::get(),
+                role_count <= T::MaxRoleEntries::get(),
                 Error::<T>::TooManyGovernanceChanges
             );
             let assignments = InstitutionRoleAssignments::<T>::get(cid, &code);
-            ensure!(
-                assignments
-                    .iter()
-                    .all(|assignment| personnel_references.contains(&assignment.account_id)),
-                Error::<T>::InvalidAssignmentResultAdmins
-            );
             if role.role_status == InstitutionRoleStatus::Inactive {
                 ensure!(
                     assignments.is_empty(),
@@ -899,7 +741,7 @@ impl<T: Config> Pallet<T> {
             }
             let active = assignments
                 .iter()
-                .filter(|assignment| Self::is_assignment_effective(&role, assignment))
+                .filter(|assignment| Self::is_assignment_effective(&role, assignment) && Self::has_person_binding(&assignment.person_cid))
                 .count() as u32;
             let subject = RoleSubject {
                 cid_number: cid.to_vec(),
@@ -927,28 +769,27 @@ impl<T: Config> Pallet<T> {
         cid_number: &CidNumberOf<T>,
         role_code: &RoleCodeOf,
         role: &InstitutionRoleOf<T>,
-        targets: Vec<entitybase::InstitutionAssignmentTarget<T::AccountId>>,
-        assignment_references: &BTreeSet<T::AccountId>,
+        targets: Vec<entitybase::InstitutionAssignmentTarget>,
         registry_ref: Option<&[u8]>,
     ) -> Result<RoleAssignmentsOf<T>, sp_runtime::DispatchError> {
         ensure!(
-            targets.len() as u32 <= T::MaxAdmins::get(),
-            Error::<T>::TooManyInstitutionAdmins
+            targets.len() <= role.seats as usize,
+            Error::<T>::FixedRoleSeatsMismatch
         );
         let previous = if registry_ref.is_some() {
             InstitutionRoleAssignments::<T>::get(cid_number, role_code)
                 .into_iter()
-                .map(|assignment| (assignment.account_id.clone(), assignment))
+                .map(|assignment| (assignment.person_cid.to_vec(), assignment))
                 .collect::<BTreeMap<_, _>>()
         } else {
             BTreeMap::new()
         };
-        let mut seen_accounts = BTreeSet::new();
+        let mut seen_persons = BTreeSet::new();
         let mut stored_assignments = Vec::with_capacity(targets.len());
         for target in targets {
             ensure!(
-                assignment_references.contains(&target.account_id),
-                Error::<T>::InvalidAssignmentResultAdmins
+                Self::has_person_binding(&target.person_cid),
+                Error::<T>::InvalidAssignmentPerson
             );
             ensure!(
                 target.assignment_status == InstitutionAssignmentStatus::Active,
@@ -960,7 +801,7 @@ impl<T: Config> Pallet<T> {
                         (target.assignment_source == InstitutionAssignmentSource::Registry
                             && target.assignment_source_ref.as_slice() == reference)
                             || previous
-                                .get(&target.account_id)
+                                .get(&target.person_cid)
                                 .is_some_and(|stored| Self::same_assignment(stored, &target))
                     }
                     None => matches!(
@@ -978,7 +819,7 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::AssignmentSourceRefEmpty
             );
             ensure!(
-                seen_accounts.insert(target.account_id.clone()),
+                seen_persons.insert(target.person_cid.clone()),
                 Error::<T>::DuplicateAssignment
             );
             Self::ensure_governance_assignment_term(role, target.term_start, target.term_end)?;
@@ -986,9 +827,9 @@ impl<T: Config> Pallet<T> {
                 .assignment_source_ref
                 .try_into()
                 .map_err(|_| Error::<T>::AssignmentSourceRefEmpty)?;
-            stored_assignments.push(InstitutionAdminAssignment {
+            stored_assignments.push(InstitutionAssignment {
                 cid_number: cid_number.clone(),
-                account_id: target.account_id,
+                person_cid: target.person_cid.try_into().map_err(|_| Error::<T>::InvalidAssignmentPerson)?,
                 role_code: role_code.clone(),
                 term_start: target.term_start,
                 term_end: target.term_end,
@@ -999,15 +840,15 @@ impl<T: Config> Pallet<T> {
         }
         stored_assignments
             .try_into()
-            .map_err(|_| Error::<T>::TooManyInstitutionAdmins.into())
+            .map_err(|_| Error::<T>::TooManyInstitutionAssignments.into())
     }
 
     /// 存量任职逐字段相同时才保留来源，不能借旧引用改人或改任期。
     fn same_assignment(
-        stored: &crate::institution::role::InstitutionAdminAssignmentOf<T>,
-        target: &entitybase::InstitutionAssignmentTarget<T::AccountId>,
+        stored: &crate::institution::role::InstitutionAssignmentOf<T>,
+        target: &entitybase::InstitutionAssignmentTarget,
     ) -> bool {
-        stored.account_id == target.account_id
+        stored.person_cid.as_slice() == target.person_cid.as_slice()
             && stored.term_start == target.term_start
             && stored.term_end == target.term_end
             && stored.assignment_source == target.assignment_source

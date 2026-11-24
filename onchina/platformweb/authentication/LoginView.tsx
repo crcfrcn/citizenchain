@@ -1,4 +1,4 @@
-// 呈现管理员二维码登录及节点机构绑定选择。
+// 呈现管理员二维码登录及任职机构和岗位选择。
 
 import { IdentityCidText } from '../codes/identityCid';
 // 独立的登录页组件:渲染未登录态(QR 扫码登录 + 签名请求/响应),
@@ -51,8 +51,9 @@ export function LoginView() {
 
   const finishLogin = useCallback((accessToken: string, admin: AdminIdentifyResult) => {
     const nextAuth: AdminAuth = {
-      walletRevision: admin.walletRevision,
-      walletNamespace: admin.walletNamespace,
+      bindingRevision: admin.bindingRevision,
+      personCid: admin.personCid,
+      roleCode: admin.roleCode,
       setupRequired: admin.setupRequired,
       accessToken: accessToken,
       accountId: admin.accountId,
@@ -100,7 +101,7 @@ export function LoginView() {
       // 管理员姓名在会话签发后由链上/数据库记录提供，不信二维码自述。
       setDisplayName(shortAccountId(body.account_id));
       setPendingQrLogin(challenge);
-      notice.success('已生成该管理员专用登录二维码');
+      notice.success('已生成该账户登录二维码');
     } catch (err) {
       notice.error(err, '账户码读取失败');
       setDisplayName('');
@@ -117,7 +118,7 @@ export function LoginView() {
 
   const onCompleteSignedLogin = useCallback(async (raw: string) => {
     if (!pendingQrLogin) {
-      notice.error('请先重新扫描管理员账户码');
+      notice.error('请先重新扫描人员当前绑定账户码');
       return;
     }
     setScanSubmitting(true);
@@ -132,7 +133,7 @@ export function LoginView() {
       if (completion.status === 'BINDING_REQUIRED' && completion.binding) {
         setPendingBinding(completion.binding);
         setSelectedCandidateId(completion.binding.candidates[0]?.candidateId ?? '');
-        notice.success('请选择本节点绑定机构');
+        notice.success('请选择本次任职机构和岗位');
         return;
       }
       if (completion.status === 'SUCCESS' && completion.accessToken && completion.admin) {
@@ -149,7 +150,7 @@ export function LoginView() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
       if (msg.toLowerCase().includes('admin not found')) {
-        notice.error('非管理员禁止登录本系统');
+        notice.error('没有当前有效的机构岗位任职');
       } else {
         notice.error(err, '登录签名响应处理失败');
       }
@@ -168,7 +169,7 @@ export function LoginView() {
       });
       finishLogin(result.accessToken, result.admin);
     } catch (err) {
-      notice.error(err, '绑定机构失败');
+      notice.error(err, '选择任职失败');
     } finally {
       setBindingSubmitting(false);
     }
@@ -191,7 +192,7 @@ export function LoginView() {
         if (status.status === 'PENDING') return;
         if (status.status === 'EXPIRED') {
           window.clearInterval(timer);
-          notice.warning('二维码已过期，请重新扫描管理员账户码');
+          notice.warning('二维码已过期，请重新扫描人员当前绑定账户码');
           setPendingQrLogin(null);
           setDisplayName('');
           return;
@@ -204,7 +205,7 @@ export function LoginView() {
         if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 429) {
           window.clearInterval(timer);
           setPendingQrLogin(null);
-          notice.error(error, '登录状态查询失败，请重新扫描管理员账户码');
+          notice.error(error, '登录状态查询失败，请重新扫描人员当前绑定账户码');
         }
         // 网络暂时失败或限流时沿用轮询；参数及鉴权拒绝不能无限重试。
       } finally {
@@ -257,7 +258,7 @@ export function LoginView() {
           level={4}
           style={{ color: '#fff', margin: 0, fontWeight: 600, letterSpacing: 1 }}
         >
-          管理员扫码登录
+          人员扫码登录
         </Typography.Title>
         <Typography.Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
           用公民钱包出示账户详情的账户码，再由同一钱包签名登录
@@ -273,25 +274,25 @@ export function LoginView() {
           qrHint={
             pendingQrLogin
               ? `${displayName} · 有效期至 ${new Date(pendingQrLogin.expiresAt * 1000).toLocaleTimeString()}`
-              : '扫描管理员账户码后生成，仅该账户可以签名'
+              : '扫描人员当前绑定账户码后生成，仅该账户可以签名'
           }
-          scannerTitle={pendingQrLogin ? '签名响应' : '管理员账户码'}
+          scannerTitle={pendingQrLogin ? '签名响应' : '人员当前绑定账户码'}
           scannerHint={
             pendingQrLogin
               ? '扫描公民钱包生成的签名响应二维码'
-              : '扫描管理员账户二维码，通过链上数据反查管理员状态后生成登录挑战码。'
+              : '扫描当前绑定账户码，核对链上人员身份和有效岗位后生成登录挑战码。'
           }
           primaryActionText={pendingQrLogin ? '重新扫描账户码' : undefined}
           primaryActionLoading={challengeLoading}
           onPrimaryAction={resetIdentityScan}
-          scannerButtonText={pendingQrLogin ? '扫描签名响应' : '扫描管理员账户码'}
+          scannerButtonText={pendingQrLogin ? '扫描签名响应' : '扫描人员当前绑定账户码'}
           scannerDisabled={challengeLoading || scanSubmitting}
           scannerLoading={challengeLoading || scanSubmitting}
           onDetected={pendingQrLogin ? onCompleteSignedLogin : onScanIdentity}
           onScannerError={(msg) => notice.error(msg)}
         />
         <Modal
-          title="绑定本节点机构"
+          title="选择本次机构和岗位"
           open={!!pendingBinding}
           onCancel={() => !bindingSubmitting && setPendingBinding(null)}
           footer={[
@@ -305,7 +306,7 @@ export function LoginView() {
               disabled={!selectedCandidateId}
               onClick={onConfirmBinding}
             >
-              确认绑定
+              确认选择
             </Button>,
           ]}
         >
@@ -323,7 +324,7 @@ export function LoginView() {
                 return (
                   <Radio key={candidate.candidateId} value={candidate.candidateId}>
                     <div>
-                      <Typography.Text strong>{title}</Typography.Text>
+                      <Typography.Text strong>{title} · {candidate.roleName}</Typography.Text>
                       <br />
                       <Typography.Text type="secondary">
                         {candidate.institutionCode}

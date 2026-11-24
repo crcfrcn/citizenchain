@@ -2,10 +2,17 @@
 
 #![cfg(feature = "runtime-benchmarks")]
 
+/// 清理基准只需有界且互异的票据键，无须配置身份。
+fn cleanup_cid(index: u32) -> engingcore::types::CidNumber {
+    let mut bytes = sp_runtime::sp_std::vec![b'C'; 32];
+    bytes[..4].copy_from_slice(&index.to_le_bytes());
+    bytes.try_into().expect("清理基准 CID 键长度")
+}
+
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 use sp_runtime::traits::SaturatedConversion;
-use engingcore::{CitizenIdentityReader, InternalAdminProvider};
+use engingcore::{CitizenIdentityReader, InternalVoteProvider};
 
 use crate::{
     pallet::{
@@ -77,7 +84,7 @@ mod benchmarks {
         let proposal_id = insert_proposal::<T>(engingcore::STAGE_LEG_REPRESENTATIVE);
         let body = national_legislature(1);
         let voter: T::AccountId = account("representative", 0, 0);
-        <T as engingcore::Config>::InternalAdminProvider::benchmark_seed_institution_voter(
+        <T as engingcore::Config>::InternalVoteProvider::benchmark_seed_institution_voter(
             body.as_slice(),
             &voter,
         );
@@ -91,7 +98,7 @@ mod benchmarks {
         engingcore::Pallet::<T>::snapshot_role_voters(
             proposal_id,
             engingcore::AuthorizationSubject::Institution(role_subject.clone()),
-            sp_runtime::sp_std::vec![voter.clone()],
+            sp_runtime::sp_std::vec![T::CitizenIdentityReader::person_cid(&voter).expect("基准选民身份").into_inner()],
         )
         .expect("representative role snapshot should be created");
         RepresentativeMetas::<T>::insert(
@@ -121,7 +128,7 @@ mod benchmarks {
                 0,
                 engingcore::InstitutionVoteTicket {
                     role_subject,
-                    voter_account_id: voter,
+                    person_cid: T::CitizenIdentityReader::person_cid(&voter).expect("基准选民身份"),
                 }
             )
         ));
@@ -216,12 +223,14 @@ mod benchmarks {
             },
         );
         let who: T::AccountId = account("override-signer", 0, 0);
+        T::CitizenIdentityReader::benchmark_seed_identity(&who, &engingcore::PopulationScope::Country);
+        let person_cid = T::CitizenIdentityReader::person_cid(&who).expect("基准签署人");
 
         #[block]
         {
             let mut signs = LegOverrideSigns::<T>::get(proposal_id);
             signs
-                .try_push((who, true))
+                .try_push((person_cid, true))
                 .expect("first override signature fits");
             LegOverrideSigns::<T>::insert(proposal_id, signs);
         }
@@ -233,12 +242,14 @@ mod benchmarks {
     fn guard_vote() {
         let proposal_id = insert_proposal::<T>(engingcore::STAGE_LEG_CONSTITUTION_GUARD);
         let who: T::AccountId = account("constitution-guard", 0, 0);
+        T::CitizenIdentityReader::benchmark_seed_identity(&who, &engingcore::PopulationScope::Country);
+        let person_cid = T::CitizenIdentityReader::person_cid(&who).expect("基准签署人");
 
         #[block]
         {
             let mut signs = LegGuardSigns::<T>::get(proposal_id);
             signs
-                .try_push((who, true))
+                .try_push((person_cid, true))
                 .expect("first guard signature fits");
             LegGuardSigns::<T>::insert(proposal_id, signs);
         }
@@ -256,7 +267,7 @@ mod benchmarks {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
-                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+                person_cid: cleanup_cid(i),
             };
             crate::RepresentativeVotesByTicket::<T>::insert(0u128, (0u32, _ticket), true);
         }
@@ -282,7 +293,7 @@ mod benchmarks {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
-                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+                person_cid: cleanup_cid(i),
             };
             crate::LegReferendumVotesByCid::<T>::insert(
                 0u128,
@@ -319,11 +330,11 @@ mod benchmarks {
             );
         }
         crate::LegReferendumTally::<T>::insert(0u128, engingcore::VoteCountU64 { yes: 1, no: 0 });
-        crate::LegOverrideSigns::<T>::insert(0u128,frame_support::BoundedVec::<(T::AccountId,bool),frame_support::traits::ConstU32<3>>::default());
+        crate::LegOverrideSigns::<T>::insert(0u128,frame_support::BoundedVec::<(engingcore::types::CidNumber,bool),frame_support::traits::ConstU32<3>>::default());
         crate::LegGuardSigns::<T>::insert(
             0u128,
             frame_support::BoundedVec::<
-                (T::AccountId, bool),
+                (engingcore::types::CidNumber, bool),
                 frame_support::traits::ConstU32<{ crate::CONSTITUTION_GUARD_MEMBERS }>,
             >::default(),
         );

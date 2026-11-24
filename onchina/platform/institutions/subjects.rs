@@ -427,7 +427,7 @@ pub(crate) async fn update_institution(
         family_name: legal_rep.family_name,
         given_name: legal_rep.given_name,
         cid_number: legal_rep.cid_number,
-        account_id: representative_account,
+        account_id: Some(representative_account),
     });
     existing.photo_path = Some(legal_rep.photo_path);
     existing.photo_name = Some(legal_rep.photo_name);
@@ -688,8 +688,7 @@ pub(crate) async fn get_institution(
             return api_error(StatusCode::BAD_GATEWAY, 5002, "chain unreachable");
         }
     };
-    let (creator_family_name, creator_given_name, creator_institution_code) =
-        resolve_created_by(&state, inst.creator_account_id.as_deref().unwrap_or(""));
+    let (creator_family_name, creator_given_name, creator_institution_code) = (None, None, None);
     Json(ApiResponse {
         code: 0,
         message: "ok".to_string(),
@@ -755,8 +754,7 @@ pub async fn get_federal_registry(
             return api_error(StatusCode::BAD_GATEWAY, 5002, "chain unreachable");
         }
     };
-    let (creator_family_name, creator_given_name, creator_institution_code) =
-        resolve_created_by(&state, inst.creator_account_id.as_deref().unwrap_or(""));
+    let (creator_family_name, creator_given_name, creator_institution_code) = (None, None, None);
     Json(ApiResponse {
         code: 0,
         message: "ok".to_string(),
@@ -772,8 +770,6 @@ pub async fn get_federal_registry(
 }
 
 use crate::authentication::login::AdminAuthContext;
-use crate::authentication::repo;
-use crate::crypto::pubkey::normalize_account_id;
 use crate::institutions::{Institution, ServiceError};
 
 pub(crate) fn service_error_to_response(e: ServiceError) -> axum::response::Response {
@@ -811,27 +807,4 @@ pub fn ensure_institution_visible_to_admin(
         ));
     }
     Ok(())
-}
-
-pub(crate) fn resolve_created_by(
-    state: &AppState,
-    creator_account_id: &str,
-) -> (Option<String>, Option<String>, Option<String>) {
-    let Some(norm) = normalize_account_id(creator_account_id) else {
-        return (None, None, None);
-    };
-    let result = state.db.with_client(move |conn| {
-        let Some(admin) = repo::get_admin_by_account_id_conn(conn, norm.as_str())? else {
-            return Ok((None, None, None));
-        };
-        let institution_code = admin.institution_code.clone();
-        let family_name = admin.family_name.trim().to_string();
-        let given_name = admin.given_name.trim().to_string();
-        Ok((
-            (!family_name.is_empty()).then_some(family_name),
-            (!given_name.is_empty()).then_some(given_name),
-            Some(institution_code),
-        ))
-    });
-    result.unwrap_or((None, None, None))
 }

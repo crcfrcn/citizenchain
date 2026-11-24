@@ -4,11 +4,11 @@
 use crate::pow_const;
 
 // 机构基础数量。
-pub const NRC_ADMIN_COUNT: u32 = 19; // 国家储委会管理员数量
-pub const PRC_ADMIN_COUNT: u32 = 9; // 单个省储委会管理员数量
-pub const PRB_ADMIN_COUNT: u32 = 9; // 单个省储行管理员数量
-pub const FRG_PROVINCE_GROUP_ADMIN_COUNT: u32 = 5; // 单个联邦注册局省行政区组管理员数量
-pub const NJD_ADMIN_COUNT: u32 = 15; // 国家司法院创世公职人员数量
+pub const NRC_COMMITTEE_SEATS: u32 = 19; // 国家储委会委员岗位席位数
+pub const PRC_COMMITTEE_SEATS: u32 = 9; // 单个省储委会委员岗位席位数
+pub const PRB_DIRECTOR_SEATS: u32 = 9; // 单个省储行董事岗位席位数
+pub const FRG_COMMISSIONER_SEATS: u32 = 5; // 联邦注册局每个省专员岗位席位数
+pub const NJD_JUDICIAL_SEATS: u32 = 15; // 国家司法院四类司法固定岗位席位合计
 pub const PRC_COUNT: u32 = (crate::cid::china::china_cb::CHINA_CB.len() - 1) as u32; // 初始省储委会数量（总储会-国家储委会）
 pub const PRB_COUNT: u32 = crate::cid::china::china_ch::CHINA_CH.len() as u32; // 初始省储行数量（来自省储行数组）
 

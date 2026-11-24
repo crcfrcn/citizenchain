@@ -42,18 +42,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "adminbase"
-version = "1.0.0"
-dependencies = [
- "frame-support",
- "parity-scale-codec",
- "primitives",
- "scale-info",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
 name = "aead"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4989,7 +4977,6 @@ dependencies = [
 name = "entitybase"
 version = "1.0.0"
 dependencies = [
- "adminbase",
  "frame-support",
  "parity-scale-codec",
  "primitives",
@@ -6283,15 +6270,15 @@ dependencies = [
 name = "genesis"
 version = "1.0.0"
 dependencies = [
- "adminbase",
+ "engingcore",
+ "entitybase",
  "frame-support",
  "frame-system",
  "parity-scale-codec",
  "primitives",
- "privateadmin",
  "privateentity",
- "publicadmin",
  "publicentity",
+ "sc-chain-spec",
  "scale-info",
  "serde_json",
  "sp-consensus-grandpa",
@@ -9617,7 +9604,6 @@ checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
 name = "multisig"
 version = "1.0.0"
 dependencies = [
- "adminbase",
  "engingcore",
  "entitybase",
  "frame-benchmarking",
@@ -9627,12 +9613,9 @@ dependencies = [
  "onchain",
  "pallet-balances",
  "parity-scale-codec",
- "personaladmin",
- "personalentity",
+ "personal",
  "primitives",
- "privateadmin",
  "privateentity",
- "publicadmin",
  "publicentity",
  "scale-info",
  "sp-core",
@@ -10045,7 +10028,6 @@ dependencies = [
 name = "nodeguard"
 version = "1.0.0"
 dependencies = [
- "adminbase",
  "async-trait",
  "blockchain-harness",
  "chain-signing",
@@ -10072,7 +10054,6 @@ dependencies = [
  "pallet-timestamp",
  "parity-scale-codec",
  "primitives",
- "publicadmin",
  "publicentity",
  "runtime",
  "sc-block-builder",
@@ -10104,7 +10085,6 @@ dependencies = [
 name = "nodeinstitution"
 version = "1.0.0"
 dependencies = [
- "adminbase",
  "engingcore",
  "entitybase",
  "frame-support",
@@ -10893,7 +10873,6 @@ dependencies = [
 name = "onchina"
 version = "1.0.0"
 dependencies = [
- "adminbase",
  "async-trait",
  "axum",
  "axum-server",
@@ -13652,29 +13631,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
-name = "personaladmin"
+name = "personal"
 version = "1.0.0"
 dependencies = [
- "adminbase",
- "engingcore",
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "internalvote",
- "pallet-balances",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
-name = "personalentity"
-version = "1.0.0"
-dependencies = [
- "adminbase",
  "engingcore",
  "frame-benchmarking",
  "frame-support",
@@ -13683,9 +13642,9 @@ dependencies = [
  "onchain",
  "pallet-balances",
  "parity-scale-codec",
- "personaladmin",
  "primitives",
  "scale-info",
+ "sp-api",
  "sp-core",
  "sp-io",
  "sp-runtime",
@@ -14978,28 +14937,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "privateadmin"
-version = "1.0.0"
-dependencies = [
- "adminbase",
- "engingcore",
- "entitybase",
- "frame-support",
- "frame-system",
- "internalvote",
- "parity-scale-codec",
- "primitives",
- "scale-info",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
 name = "privateentity"
 version = "1.0.0"
 dependencies = [
- "adminbase",
  "engingcore",
  "entitybase",
  "frame-benchmarking",
@@ -15010,7 +14950,6 @@ dependencies = [
  "pallet-balances",
  "parity-scale-codec",
  "primitives",
- "privateadmin",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -15295,28 +15234,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "publicadmin"
-version = "1.0.0"
-dependencies = [
- "adminbase",
- "engingcore",
- "entitybase",
- "frame-support",
- "frame-system",
- "internalvote",
- "parity-scale-codec",
- "primitives",
- "scale-info",
- "sp-io",
- "sp-runtime",
- "sp-std",
-]
-
-[[package]]
 name = "publicentity"
 version = "1.0.0"
 dependencies = [
- "adminbase",
  "engingcore",
  "entitybase",
  "frame-benchmarking",
@@ -15327,8 +15247,6 @@ dependencies = [
  "pallet-balances",
  "parity-scale-codec",
  "primitives",
- "privateadmin",
- "publicadmin",
  "scale-info",
  "sp-core",
  "sp-io",
@@ -16354,7 +16272,6 @@ name = "runtime"
 version = "1.0.0"
 dependencies = [
  "address",
- "adminbase",
  "citizenissue",
  "destroy",
  "difficulty",
@@ -16394,13 +16311,10 @@ dependencies = [
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
  "parity-scale-codec",
- "personaladmin",
- "personalentity",
+ "personal",
  "prbbankissue",
  "primitives",
- "privateadmin",
  "privateentity",
- "publicadmin",
  "publicentity",
  "resolutionissue",
  "scale-info",

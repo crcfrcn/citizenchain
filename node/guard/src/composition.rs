@@ -1,10 +1,8 @@
-//! 核对受保护机构管理员、岗位、任职及法定成员结构。
+//! 核对受保护机构实体、岗位容量和人员CID任职结构。
 
-use adminbase::Admin;
-use adminbase::InstitutionAdmins;
 use codec::Decode;
 use codec::Encode;
-use entitybase::InstitutionAdminAssignment;
+use entitybase::InstitutionAssignment;
 use entitybase::InstitutionAssignmentStatus;
 use entitybase::InstitutionRole;
 use entitybase::InstitutionRoleStatus;
@@ -17,11 +15,11 @@ const INTERNAL_VOTE_PALLET: &[u8] = b"InternalVote";
 
 const VOTING_ENGINE_PALLET: &[u8] = b"VotingEngine";
 
-type DecodedAdminAccount = InstitutionAdmins<Vec<Admin<[u8; 32]>>>;
+type DecodedInstitution = entitybase::InstitutionInfo<u32, Vec<u8>, Vec<u8>>;
 
 type DecodedRole = InstitutionRole<Vec<u8>, Vec<u8>, Vec<u8>>;
 
-type DecodedAssignment = InstitutionAdminAssignment<Vec<u8>, [u8; 32], Vec<u8>, Vec<u8>>;
+type DecodedAssignment = InstitutionAssignment<Vec<u8>, Vec<u8>, Vec<u8>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum CompositionState {
@@ -32,12 +30,13 @@ pub(crate) enum CompositionState {
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum GuardError {
     PartialUnconstitutedState([u8; 4]),
-    AdminAccountDecodeFailed([u8; 4]),
-    AdminIdentityChanged([u8; 4]),
-    InvalidAdminPersonName([u8; 4]),
+    InstitutionDecodeFailed([u8; 4]),
+    InstitutionIdentityChanged([u8; 4]),
+    PersonCidInvalid([u8; 4]),
     MemberRoleDecodeFailed([u8; 4]),
     MemberRoleChanged([u8; 4]),
     AssignmentsDecodeFailed([u8; 4]),
+    PermissionsChanged([u8; 4]),
     MemberCountOutOfRange {
         code: [u8; 4],
         min: u32,
@@ -46,7 +45,6 @@ pub(crate) enum GuardError {
     },
     AssignmentChanged([u8; 4]),
     DuplicateMember([u8; 4]),
-    AdminMemberSetMismatch([u8; 4]),
     ConstitutedBodyRemoved([u8; 4]),
     ThresholdKeyMalformed,
     ProposalKeyMalformed,
@@ -90,111 +88,98 @@ fn composition_state<F>(
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
-    let [admin_key, role_key, assignments_key] =
-        crate::guard::national_body_composition::storage_key::composition_keys(spec);
-    let raw = [read(&admin_key), read(&role_key), read(&assignments_key)];
-    if raw.iter().all(Option::is_none) {
-        return Ok(crate::guard::national_body_composition::CompositionState::Unconstituted);
+    let [institution_key, role_key, assignments_key, permission_key] =
+        storage_key::composition_keys(spec);
+    let institution = read(&institution_key);
+    let role = read(&role_key);
+    let rows = read(&assignments_key);
+    let permissions = read(&permission_key);
+    if institution.is_none() && role.is_none() && rows.is_none() && permissions.is_none() {
+        return Ok(CompositionState::Unconstituted);
     }
-    if raw.iter().any(Option::is_none) {
-        return Err(
-            crate::guard::national_body_composition::GuardError::PartialUnconstitutedState(
-                spec.institution.code,
-            ),
-        );
-    }
-
-    let account: DecodedAdminAccount = decode_exact(raw[0].as_deref().unwrap_or_default())
-        .map_err(|_| {
-            crate::guard::national_body_composition::GuardError::AdminAccountDecodeFailed(
-                spec.institution.code,
-            )
-        })?;
-    if account.institution_code != spec.institution.code {
-        return Err(
-            crate::guard::national_body_composition::GuardError::AdminIdentityChanged(
-                spec.institution.code,
-            ),
-        );
-    }
-    if account.admins.iter().any(|admin| {
-        admin.family_name.is_empty()
-            || admin.given_name.is_empty()
-            || core::str::from_utf8(admin.family_name.as_slice()).is_err()
-            || core::str::from_utf8(admin.given_name.as_slice()).is_err()
-    }) {
-        return Err(
-            crate::guard::national_body_composition::GuardError::InvalidAdminPersonName(
-                spec.institution.code,
-            ),
-        );
-    }
-
-    let role: DecodedRole = decode_exact(raw[1].as_deref().unwrap_or_default()).map_err(|_| {
-        crate::guard::national_body_composition::GuardError::MemberRoleDecodeFailed(
+    let Some(institution) = institution else {
+        return Err(GuardError::PartialUnconstitutedState(spec.institution.code));
+    };
+    let institution: DecodedInstitution = decode_exact(&institution)
+        .map_err(|_| GuardError::InstitutionDecodeFailed(spec.institution.code))?;
+    if institution.institution_code != spec.institution.code {
+        return Err(GuardError::InstitutionIdentityChanged(
             spec.institution.code,
-        )
-    })?;
+        ));
+    }
+    // 创世先登记机构与法代岗位；成员岗位尚未建立时仍是合法的未组成状态。
+    // 任职或权限已经存在却没有对应岗位，仍按孤立数据拒绝。
+    if role.is_none() && rows.is_none() && permissions.is_none() {
+        return Ok(CompositionState::Unconstituted);
+    }
+    let Some(role) = role else {
+        return Err(GuardError::PartialUnconstitutedState(spec.institution.code));
+    };
+    let role: DecodedRole = decode_exact(&role)
+        .map_err(|_| GuardError::MemberRoleDecodeFailed(spec.institution.code))?;
     if role.cid_number != spec.institution.cid_number.as_bytes()
         || role.role_code != spec.role_code
         || role.role_name != spec.role_name
         || role.role_status != InstitutionRoleStatus::Active
+        || role.seats != spec.max_members
     {
-        return Err(
-            crate::guard::national_body_composition::GuardError::MemberRoleChanged(
-                spec.institution.code,
-            ),
-        );
+        return Err(GuardError::MemberRoleChanged(spec.institution.code));
     }
-
-    let assignments: Vec<DecodedAssignment> = decode_exact(raw[2].as_deref().unwrap_or_default())
-        .map_err(|_| {
-        crate::guard::national_body_composition::GuardError::AssignmentsDecodeFailed(
-            spec.institution.code,
-        )
-    })?;
+    let permissions: Vec<entitybase::RoleBusinessPermission<Vec<u8>, Vec<u8>, Vec<u8>>> =
+        permissions
+            .map(|raw| decode_exact(&raw))
+            .transpose()
+            .map_err(|_| GuardError::PermissionsChanged(spec.institution.code))?
+            .unwrap_or_default();
+    let mut permission_keys = BTreeSet::new();
+    if permissions.iter().any(|p| {
+        p.role_subject.cid_number != role.cid_number
+            || p.role_subject.role_code != role.role_code
+            || !permission_keys.insert(p.encode())
+    }) {
+        return Err(GuardError::PermissionsChanged(spec.institution.code));
+    }
+    // 各业务的具体发起和表决权限仍由所属Runtime入口按同一RoleSubject裁决。
+    // ValueQuery的缺失任职键就是空任职；机构资料和规则岗位必须真实存在。
+    let assignments: Vec<DecodedAssignment> = rows
+        .map(|raw| decode_exact(&raw))
+        .transpose()
+        .map_err(|_| GuardError::AssignmentsDecodeFailed(spec.institution.code))?
+        .unwrap_or_default();
+    if assignments.is_empty() {
+        return Ok(CompositionState::Unconstituted);
+    }
     let found = assignments.len() as u32;
     if found < spec.min_members || found > spec.max_members {
-        return Err(
-            crate::guard::national_body_composition::GuardError::MemberCountOutOfRange {
-                code: spec.institution.code,
-                min: spec.min_members,
-                max: spec.max_members,
-                found,
-            },
-        );
+        return Err(GuardError::MemberCountOutOfRange {
+            code: spec.institution.code,
+            min: spec.min_members,
+            max: spec.max_members,
+            found,
+        });
     }
     let mut members = BTreeSet::new();
-    for assignment in assignments {
-        if assignment.cid_number != spec.institution.cid_number.as_bytes()
-            || assignment.role_code != spec.role_code
-            || assignment.assignment_status != InstitutionAssignmentStatus::Active
+    for a in assignments {
+        if a.cid_number != spec.institution.cid_number.as_bytes()
+            || a.role_code != spec.role_code
+            || a.assignment_status != InstitutionAssignmentStatus::Active
+            || (if role.term_required {
+                a.term_start == 0 || a.term_end < a.term_start
+            } else {
+                a.term_start != 0 || a.term_end != 0
+            })
         {
-            return Err(
-                crate::guard::national_body_composition::GuardError::AssignmentChanged(
-                    spec.institution.code,
-                ),
-            );
+            return Err(GuardError::AssignmentChanged(spec.institution.code));
         }
-        if !members.insert(assignment.account_id) {
-            return Err(
-                crate::guard::national_body_composition::GuardError::DuplicateMember(
-                    spec.institution.code,
-                ),
-            );
+        if !std::str::from_utf8(&a.person_cid).is_ok_and(|s| s.trim() == s)
+            || !primitives::cid::number::parse_cid_number_parts_bytes(&a.person_cid)
+                .is_ok_and(|p| p.institution == *b"CTZN")
+        {
+            return Err(GuardError::PersonCidInvalid(spec.institution.code));
         }
-    }
-    let admins = account
-        .admins
-        .into_iter()
-        .map(|admin| admin.account_id)
-        .collect::<BTreeSet<_>>();
-    if admins.len() != members.len() || admins != members {
-        return Err(
-            crate::guard::national_body_composition::GuardError::AdminMemberSetMismatch(
-                spec.institution.code,
-            ),
-        );
+        if !members.insert(a.person_cid) {
+            return Err(GuardError::DuplicateMember(spec.institution.code));
+        }
     }
     Ok(crate::guard::national_body_composition::CompositionState::Constituted)
 }
@@ -366,8 +351,8 @@ pub mod storage_key {
         map_proposal(INTERNAL_VOTE_PALLET, b"InternalThresholdSnapshot", id)
     }
 
-    pub fn account_id(cid: &[u8]) -> Vec<u8> {
-        nodedesktop::storage::blake2_map(b"PublicAdmins", b"AdminAccounts", &cid.to_vec().encode())
+    pub fn institution(cid: &[u8]) -> Vec<u8> {
+        nodedesktop::storage::blake2_map(b"PublicEntity", b"Institutions", &cid.to_vec().encode())
     }
     pub fn institution_role(cid: &[u8], role: &[u8]) -> Vec<u8> {
         role_key(b"InstitutionRoles", cid, role)
@@ -376,7 +361,7 @@ pub mod storage_key {
         role_key(b"InstitutionRoleAssignments", cid, role)
     }
     fn role_key(table: &[u8], cid: &[u8], role: &[u8]) -> Vec<u8> {
-        let mut key = nodedesktop::storage::prefix(b"PublicManage", table);
+        let mut key = nodedesktop::storage::prefix(b"PublicEntity", table);
         for value in [cid, role] {
             key.extend(nodedesktop::storage::blake2_128_concat(
                 &value.to_vec().encode(),
@@ -385,10 +370,10 @@ pub mod storage_key {
         key
     }
 
-    pub fn composition_keys(spec: &MemberCompositionSpec) -> [Vec<u8>; 3] {
+    pub fn composition_keys(spec: &MemberCompositionSpec) -> [Vec<u8>; 4] {
         let institution = spec.institution;
         [
-            crate::guard::national_body_composition::storage_key::account_id(
+            crate::guard::national_body_composition::storage_key::institution(
                 institution.cid_number.as_bytes(),
             ),
             crate::guard::national_body_composition::storage_key::institution_role(
@@ -396,6 +381,11 @@ pub mod storage_key {
                 spec.role_code,
             ),
             crate::guard::national_body_composition::storage_key::institution_role_assignments(
+                institution.cid_number.as_bytes(),
+                spec.role_code,
+            ),
+            role_key(
+                b"InstitutionRolePermissions",
                 institution.cid_number.as_bytes(),
                 spec.role_code,
             ),

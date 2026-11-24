@@ -7,8 +7,9 @@
 //! System + VotingEngine + InternalVote(供 engingcore 必填 finalizer)+ LegislationVote。
 //! engingcore::Config 通过 TrackHandlers 注册 LegislationVote，
 //! LegislationVoteResultCallback 装 `()`(本 sub-pallet 单测只验投票机制,不验业务写法律)。
-//! TestInternalAdminProvider 定义两院议员名册;公投公民资格从测试用 CitizenIdentityReader 返回。
+//! TestInternalVoteProvider 定义两院议员名册;公投公民资格从测试用 CitizenIdentityReader 返回。
 
+use codec::{Decode, Encode};
 use frame_support::{
     derive_impl,
     traits::{ConstU32, ConstU64, Hooks},
@@ -154,10 +155,29 @@ pub fn guard_body() -> crate::types::RepresentativeBody {
 }
 
 pub struct TestCitizenIdentityReader;
-pub struct TestInternalAdminProvider;
+pub struct TestInternalVoteProvider;
 pub struct TestInstitutionRoleProvider;
 
 impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+    fn person_cid(who: &AccountId32) -> Option<engingcore::CidNumber> {
+        let cid = match sp_io::storage::get(&(b"fixture-wallet-person", who).encode()) {
+            Some(value) => engingcore::CidNumber::decode(&mut &value[..]).ok()?,
+            None => who.encode().try_into().ok()?,
+        };
+        (Self::person_account(&cid).as_ref() == Some(who)).then_some(cid)
+    }
+
+    fn person_account(cid: &engingcore::CidNumber) -> Option<AccountId32> {
+        if let Some(value) = sp_io::storage::get(&(b"fixture-person-wallet", cid).encode()) {
+            return AccountId32::decode(&mut &value[..]).ok();
+        }
+        let bytes: [u8; 32] = cid.as_slice().try_into().ok()?;
+        let wallet = AccountId32::new(bytes);
+        sp_io::storage::get(&(b"fixture-wallet-person", &wallet).encode())
+            .is_none()
+            .then_some(wallet)
+    }
+
     fn voting_subject(
         who: &AccountId32,
         _scope: &engingcore::PopulationScope,
@@ -205,59 +225,8 @@ fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<Account
     }
 }
 
-impl TestInternalAdminProvider {
-    fn institution_admins(
-        institution_code: primitives::cid::code::InstitutionCode,
-        cid_number: &[u8],
-    ) -> Option<sp_runtime::sp_std::vec::Vec<AccountId32>> {
-        let cid_text = core::str::from_utf8(cid_number).ok()?;
-        if institution_code_from_cid_number(cid_text) != Some(institution_code) {
-            return None;
-        }
-        if cid_number == actor_cid_number().as_slice() {
-            Some((1u8..=10).map(member).collect())
-        } else if cid_number == house2_cid().as_slice() {
-            Some((11u8..=20).map(member).collect())
-        } else if cid_number == house3_cid().as_slice() {
-            Some((1u8..=10).map(member).collect())
-        } else {
-            None
-        }
-    }
-}
-
-/// 代表机构管理员与发起机构权限全部按 CID 路由，不再用机构账户充当主体。
-impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
-    fn institution_wallet_snapshot(
-        _cid: &[u8],
-        references: &[AccountId32],
-    ) -> Option<Vec<(AccountId32, u64)>> {
-        Some(
-            references
-                .iter()
-                .map(|reference| {
-                    let key = codec::Encode::encode(&(b"fixture-current-wallet", _cid, reference));
-                    sp_io::storage::get(&key)
-                        .map(|raw| {
-                            <(AccountId32, u64) as codec::Decode>::decode(&mut &raw[..])
-                                .expect("explicit fixture wallet")
-                        })
-                        .unwrap_or_else(|| (reference.clone(), 0))
-                })
-                .collect(),
-        )
-    }
-
-    fn is_institution_admin(
-        institution_code: primitives::cid::code::InstitutionCode,
-        cid_number: &[u8],
-        who: &AccountId32,
-    ) -> bool {
-        Self::institution_admins(institution_code, cid_number)
-            .map(|list| list.iter().any(|admin| admin == who))
-            .unwrap_or(false)
-    }
-
+/// 按机构 CID 查询测试法定代表人。
+impl engingcore::InternalVoteProvider<AccountId32> for TestInternalVoteProvider {
     /// 法定代表人:众议长=house1[member 1] / 参议长=house2[member 11] / 院长=leg_rep / 行政首长=exec_rep。
     fn legal_representative(cid_number: &[u8]) -> Option<AccountId32> {
         if cid_number == house1_cid().as_slice() {
@@ -274,10 +243,6 @@ impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvide
             None
         }
     }
-    /// 护宪大法官默认 7 人 = 账户 [101..=107](测试注入;生产按 NJD admins 的 admin_role 过滤)。
-    fn constitution_guard_members() -> sp_runtime::sp_std::vec::Vec<AccountId32> {
-        GUARD_MEMBER_IDS.with(|ids| ids.borrow().iter().copied().map(member).collect())
-    }
 }
 
 impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
@@ -287,7 +252,13 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRolePro
             && (1u8..=10).map(member).any(|account| &account == who)
     }
 
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
+    fn active_persons_for_role(cid: &[u8], role: &[u8]) -> Vec<Vec<u8>> {
+        Self::fixture_wallets_for_role(cid, role).iter().map(codec::Encode::encode).collect()
+    }
+
+}
+impl TestInstitutionRoleProvider {
+    fn fixture_wallets_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
         if role_code == REPRESENTATIVE_ROLE {
             if cid_number == house1_cid().as_slice() || cid_number == house3_cid().as_slice() {
                 return (1u8..=10).map(member).collect();
@@ -317,6 +288,7 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRolePro
     }
 }
 
+
 pub struct TestTimeProvider;
 impl frame_support::traits::UnixTime for TestTimeProvider {
     fn now() -> core::time::Duration {
@@ -324,7 +296,7 @@ impl frame_support::traits::UnixTime for TestTimeProvider {
     }
 }
 
-/// 测试业务回调:模拟业务壳认领立法提案并返回 Executed(真实 runtime 接 LegislationYuan)。
+/// 测试业务回调:模拟业务壳认领立法提案并返回 Executed(真实 runtime 接 Legislation)。
 pub struct TestLegislationCallback;
 impl engingcore::LegislationVoteResultCallback for TestLegislationCallback {
     fn on_legislation_vote_finalized(
@@ -362,8 +334,8 @@ impl engingcore::Config for Test {
     type CitizenIdentityReader = TestCitizenIdentityReader;
     type JointVoteResultCallback = ();
     type InternalVoteResultCallback = ();
-    type InternalAdminProvider = TestInternalAdminProvider;
-    type MaxAdminsPerInstitution = ConstU32<64>;
+    type InternalVoteProvider = TestInternalVoteProvider;
+    type MaxSnapshotVoters = ConstU32<64>;
     type TimeProvider = TestTimeProvider;
     type WeightInfo = ();
     type TrackHandlers = (InternalVote, (LegislationVote, ()));
@@ -594,10 +566,10 @@ pub fn cast(who: AccountId32, pid: u128, approve: bool) -> sp_runtime::DispatchR
 pub fn representative_ticket(
     cid_number: engingcore::types::CidNumber,
     who: AccountId32,
-) -> engingcore::InstitutionVoteTicket<AccountId32> {
+) -> engingcore::InstitutionVoteTicket {
     engingcore::InstitutionVoteTicket {
         role_subject: role_subject(cid_number, REPRESENTATIVE_ROLE),
-        voter_account_id: who,
+        person_cid: codec::Encode::encode(&who).try_into().unwrap(),
     }
 }
 
@@ -667,10 +639,12 @@ pub fn run_to_expiry(pid: u128) {
 
 mod cases;
 
-/// 仅测试的当前机构凭据事实；不改岗位人员，不触碰个人身份。
-fn set_fixture_wallet(cid: &[u8], reference: &AccountId32, wallet: AccountId32, revision: u64) {
-    sp_io::storage::set(
-        &codec::Encode::encode(&(b"fixture-current-wallet", cid, reference)),
-        &codec::Encode::encode(&(wallet, revision)),
-    );
+/// 在夹具中替换人员 CID 的双向绑定，岗位继续保存同一人员 CID。
+fn rebind_fixture_person(reference: &AccountId32, wallet: &AccountId32) {
+    use engingcore::CitizenIdentityReader;
+
+    let person_cid = TestCitizenIdentityReader::person_cid(reference).unwrap();
+    sp_io::storage::clear(&(b"fixture-wallet-person", reference).encode());
+    sp_io::storage::set(&(b"fixture-wallet-person", wallet).encode(), &person_cid.encode());
+    sp_io::storage::set(&(b"fixture-person-wallet", &person_cid).encode(), &wallet.encode());
 }

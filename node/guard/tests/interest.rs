@@ -53,7 +53,7 @@ fn raw_keys_match_runtime_contract() {
         expected
     );
 
-    let mut audit = twox_128(b"ProvincialBankInterest").to_vec();
+    let mut audit = twox_128(b"PrbBankIssue").to_vec();
     audit.extend_from_slice(&twox_128(b"LastProvincialBankInterestAudit"));
     assert_eq!(
         crate::guard::provincialbank_interest::storage_key::last_interest_audit(),

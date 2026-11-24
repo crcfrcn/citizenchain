@@ -113,7 +113,7 @@ pub mod pallet {
     use entitybase::ProtectedSourceChecker;
     use frame_support::traits::ExistenceRequirement;
     use primitives::institution_asset::{InstitutionAsset, InstitutionAssetAction};
-    use engingcore::InternalAdminProvider;
+    use engingcore::InternalVoteProvider;
     use engingcore::InternalVoteEngine;
 
     #[pallet::config]
@@ -148,8 +148,8 @@ pub mod pallet {
             BalanceOf<Self>,
         >;
 
-        /// 个人多签账户状态与管理员配置查询,由 personalentity 聚合 personaladmin 提供。
-        type PersonalQuery: personalentity::traits::PersonalMultisigQuery<Self::AccountId>;
+        /// 个人多签账户状态与管理员配置查询,由 personal 直接提供。
+        type PersonalQuery: personal::traits::PersonalMultisigQuery<Self::AccountId>;
 
         /// 注册机构账户状态与管理员配置查询,由 runtime 聚合 public/private 生命周期模块提供。
         type InstitutionQuery: entitybase::InstitutionMultisigQuery<Self::AccountId>;
@@ -327,7 +327,7 @@ pub mod pallet {
             if actor_cid_number.is_none() {
                 ensure!(proposer_role_code.is_none(), Error::<T>::UnauthorizedAdmin);
                 ensure!(
-                    <T as engingcore::Config>::InternalAdminProvider::is_personal_admin(
+                    <T as engingcore::Config>::InternalVoteProvider::is_personal_admin(
                         funding_account_id.clone(),
                         &who,
                     ),
@@ -635,7 +635,7 @@ pub mod pallet {
             funding_account_id: &T::AccountId,
         ) -> Result<(InstitutionCode, Vec<Vec<u8>>), Error<T>> {
             use entitybase::InstitutionMultisigQuery;
-            use personalentity::traits::PersonalMultisigQuery;
+            use personal::traits::PersonalMultisigQuery;
 
             let Some(cid_number) = actor_cid_number else {
                 ensure!(

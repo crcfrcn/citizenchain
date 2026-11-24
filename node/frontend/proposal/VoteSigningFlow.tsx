@@ -6,19 +6,19 @@ import { proposalApi } from './api';
 import { accountIdToSs58 } from "../client/ss58";
 import { sanitizeError } from "../client/tauri";
 import { CitizenSignaturePanel } from "../desktop/signing";
-import type { AdminSignerMatch } from "../institution/council";
+import type { RoleSigner } from "../institution/council";
 import type { VoteSignRequestResult } from "../client/signing";
 
 // 投票签名流程：选钱包 → 显示 QR → 摄像头扫描响应 → 提交。
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 type PendingFrozenVote = { binding: FrozenVoteBinding; request: VoteSignRequestResult; response: string; approve: boolean; txHash?: string | null };
-const pendingKey = (binding: FrozenVoteBinding) => 'proposal-vote:' + JSON.stringify([binding.genesisHash, binding.proposalId, binding.cidNumber, binding.roleCode, binding.accountId, binding.walletRevision]);
+const pendingKey = (binding: FrozenVoteBinding) => 'proposal-vote:' + JSON.stringify([binding.genesisHash, binding.proposalId, binding.cidNumber, binding.roleCode, binding.personCid]);
 export function readPendingFrozenVote(binding: FrozenVoteBinding): PendingFrozenVote | null {
   const raw = window.localStorage.getItem(pendingKey(binding));
   if (!raw) return null;
   const value = JSON.parse(raw) as PendingFrozenVote;
-  if (!value.binding || pendingKey(value.binding) !== pendingKey(binding) || typeof value.response !== 'string' ||
+  if (!value.binding?.personCid || !/^[1-9][0-9]*$/.test(value.binding.bindingRevision) || 'walletRevision' in value.binding || pendingKey(value.binding) !== pendingKey(binding) || typeof value.response !== 'string' ||
       typeof value.approve !== 'boolean' || !value.request?.requestId) throw new Error('原签名记录损坏，请保留记录核查');
   return value;
 }
@@ -26,19 +26,19 @@ export function clearPendingFrozenVote(binding: FrozenVoteBinding) { window.loca
 function savePending(value: PendingFrozenVote) { window.localStorage.setItem(pendingKey(value.binding), JSON.stringify(value)); }
 
 type Props = {
-  proposalId: string; proposalKind: number; adminSigners: AdminSignerMatch[]; cidNumber?: string;
+  proposalId: string; proposalKind: number; roleSigners: RoleSigner[]; cidNumber?: string;
   frozenTicket?: FrozenVoteBinding;
   onClose: () => void;
   onSuccess: (txHash: string | null, accountId: string, voterRoleCode: string | null, observed?: boolean) => void;
 };
 type FlowStep = 'select' | 'qr' | 'submit' | 'done' | 'error';
 
-export function VoteSigningFlow({ proposalId, proposalKind, adminSigners, cidNumber, frozenTicket, onClose, onSuccess }: Props) {
+export function VoteSigningFlow({ proposalId, proposalKind, roleSigners, cidNumber, frozenTicket, onClose, onSuccess }: Props) {
   const [step, setStep] = useState<FlowStep>('select');
-  const [selectedSigner, setSelectedSigner] = useState<AdminSignerMatch | null>(adminSigners.length === 1 ? adminSigners[0] : null);
+  const [selectedSigner, setSelectedSigner] = useState<RoleSigner | null>(roleSigners.length === 1 ? roleSigners[0] : null);
   const [approve, setApprove] = useState<boolean | null>(null);
   const [selectedRoleCode, setSelectedRoleCode] = useState(frozenTicket?.roleCode ??
-    (adminSigners.length === 1 && adminSigners[0].roleAssignments?.length === 1 ? adminSigners[0].roleAssignments[0].roleCode : ''));
+    (roleSigners.length===1?roleSigners[0].roleCode:''));
   const [signRequest, setSignRequest] = useState<VoteSignRequestResult | null>(null);
   const [requestJson, setRequestJson] = useState('');
   const [countdown, setCountdown] = useState(90);
@@ -50,14 +50,14 @@ export function VoteSigningFlow({ proposalId, proposalKind, adminSigners, cidNum
   const active = useRef(false);
   const [recordError, setRecordError] = useState(false);
   const epoch = useRef(0);
-  const context = JSON.stringify([proposalId, proposalKind, cidNumber, frozenTicket, adminSigners]);
+  const context = JSON.stringify([proposalId, proposalKind, cidNumber, frozenTicket, roleSigners]);
   const liveContext = useRef(context); liveContext.current = context;
   useEffect(() => {
     active.current = true; setRecordError(false);
     ++epoch.current; busy.current = false;
     setStep('select'); setSignRequest(null); setError(null); setPending(null);
-    setSelectedSigner(adminSigners.length === 1 ? adminSigners[0] : null);
-    setSelectedRoleCode(frozenTicket?.roleCode ?? (adminSigners[0]?.roleAssignments?.length === 1 ? adminSigners[0].roleAssignments[0].roleCode : ''));
+    setSelectedSigner(roleSigners.length === 1 ? roleSigners[0] : null);
+    setSelectedRoleCode(frozenTicket?.roleCode ?? (roleSigners.length===1?roleSigners[0].roleCode:''));
     setApprove(null);
     try {
       const saved = frozenTicket ? readPendingFrozenVote(frozenTicket) : null;
@@ -128,19 +128,19 @@ export function VoteSigningFlow({ proposalId, proposalKind, adminSigners, cidNum
 
         {step === 'select' && (
           <div className="vote-signing-body">
-            {frozenTicket && <p>原钱包：{accountIdToSs58(frozenTicket.accountId)} / 原岗位：{frozenTicket.roleCode} / 冻结版本：{frozenTicket.walletRevision}。须使用此钱包签名。</p>}
-            {adminSigners.length > 1 && !frozenTicket && (
+            {frozenTicket && <p>本次签名钱包：{accountIdToSs58(frozenTicket.accountId)} / 原岗位：{frozenTicket.roleCode} / 当前绑定版本：{frozenTicket.bindingRevision}。须使用此钱包签名。</p>}
+            {roleSigners.length > 1 && !frozenTicket && (
               <div className="vote-signing-field">
-                <label>选择管理员账户</label>
-                <select value={selectedSigner?.accountId || ''} onChange={(e) => {
-                  const signer = adminSigners.find((item) => item.accountId === e.target.value) || null;
+                <label>选择人员岗位</label>
+                <select value={selectedSigner?selectedSigner.personCid+':'+selectedSigner.roleCode:''} onChange={(e) => {
+                  const signer = roleSigners.find((item) => item.personCid+':'+item.roleCode === e.target.value) || null;
                   setSelectedSigner(signer);
-                  setSelectedRoleCode(signer?.roleAssignments?.length === 1 ? signer.roleAssignments[0].roleCode : '');
+                  setSelectedRoleCode(signer?.roleCode??'');
                 }}>
                   <option value="">请选择…</option>
-                  {adminSigners.map((signer) => (
-                    <option key={signer.accountId} value={signer.accountId}>
-                      {signer.accountLabel || accountIdToSs58(signer.accountId)}
+                  {roleSigners.map((signer) => (
+                    <option key={signer.personCid+':'+signer.roleCode} value={signer.personCid+':'+signer.roleCode}>
+                      {signer.roleName || accountIdToSs58(signer.accountId)}
                     </option>
                   ))}
                 </select>
@@ -151,7 +151,7 @@ export function VoteSigningFlow({ proposalId, proposalKind, adminSigners, cidNum
                 <label>使用岗位</label>
                 <select value={selectedRoleCode} onChange={(e) => setSelectedRoleCode(e.target.value)}>
                   <option value="">请选择…</option>
-                  {(selectedSigner.roleAssignments ?? []).map((assignment) => (
+                  {[selectedSigner].map((assignment) => (
                     <option key={assignment.roleCode} value={assignment.roleCode}>
                       {assignment.roleName || assignment.roleCode}（{assignment.roleCode}）
                     </option>

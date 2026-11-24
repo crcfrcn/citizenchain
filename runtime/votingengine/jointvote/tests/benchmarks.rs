@@ -2,7 +2,13 @@
 
 #![cfg(feature = "runtime-benchmarks")]
 
-use codec::Decode;
+/// 清理基准只需有界且互异的票据键，无须配置身份。
+fn cleanup_cid(index: u32) -> engingcore::types::CidNumber {
+    let mut bytes = sp_runtime::sp_std::vec![b'C'; 32];
+    bytes[..4].copy_from_slice(&index.to_le_bytes());
+    bytes.try_into().expect("清理基准 CID 键长度")
+}
+
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 use sp_runtime::traits::SaturatedConversion;
@@ -13,9 +19,7 @@ use crate::pallet::{
 };
 use crate::Call;
 
-fn decode<T: frame_system::Config>(raw: &[u8; 32]) -> T::AccountId {
-    T::AccountId::decode(&mut &raw[..]).expect("fixed governance account decodes")
-}
+
 
 fn setup_proposal<T: Config>(
     stage: u8,
@@ -53,7 +57,7 @@ mod benchmarks {
     use super::*;
 
     #[benchmark]
-    fn cast_admin() {
+    fn cast_role_vote() {
         let (proposal_id, _) = setup_proposal::<T>(engingcore::STAGE_JOINT);
         let entry = &primitives::cid::china::china_cb::CHINA_CB[0];
         let actor_cid_number: engingcore::CidNumber = entry
@@ -62,7 +66,7 @@ mod benchmarks {
             .to_vec()
             .try_into()
             .expect("NRC CID fits runtime bound");
-        let voter = decode::<T>(&entry.admins[0]);
+        let voter: T::AccountId = frame_benchmarking::account(entry.cid_number, 0, 0);
         let voter_role_code: engingcore::RoleCode =
             primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                 .to_vec()
@@ -74,7 +78,11 @@ mod benchmarks {
                 cid_number: actor_cid_number.clone(),
                 role_code: voter_role_code.clone(),
             }),
-            entry.admins.iter().map(decode::<T>).collect(),
+            (0..primitives::count_const::NRC_COMMITTEE_SEATS).map(|index| {
+                let voter: T::AccountId = frame_benchmarking::account(entry.cid_number, index, 0);
+                T::CitizenIdentityReader::benchmark_seed_identity(&voter, &engingcore::PopulationScope::Country);
+                T::CitizenIdentityReader::person_cid(&voter).expect("基准选民身份").into_inner()
+            }).collect(),
         )
         .expect("NRC role snapshot");
         let threshold =
@@ -188,7 +196,7 @@ mod benchmarks {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
-                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+                person_cid: cleanup_cid(i),
             };
             crate::JointVotesByTicket::<T>::insert(0u128, _ticket, true);
         }
@@ -214,7 +222,7 @@ mod benchmarks {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
-                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+                person_cid: cleanup_cid(i),
             };
             crate::JointVotesByInstitution::<T>::insert(0u128, cid, true);
         }
@@ -240,7 +248,7 @@ mod benchmarks {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
-                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+                person_cid: cleanup_cid(i),
             };
             crate::JointInstitutionTallies::<T>::insert(
                 0u128,
@@ -270,7 +278,7 @@ mod benchmarks {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
-                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+                person_cid: cleanup_cid(i),
             };
             crate::ReferendumVotesByCid::<T>::insert(
                 0u128,

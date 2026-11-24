@@ -1851,7 +1851,7 @@ pub mod pallet {
 }
 
 /// 立法投票终态回调接入:投票引擎在立法提案达终态时按 kind 广播到此,
-/// 由本业务壳认领并写入法律(runtime 装配 `engingcore::Config::LegislationVoteResultCallback = LegislationYuan`)。
+/// 由本业务壳认领并写入法律(runtime 装配 `engingcore::Config::LegislationVoteResultCallback = Legislation`)。
 impl<T: pallet::Config> engingcore::LegislationVoteResultCallback for pallet::Pallet<T> {
     fn execution_weight() -> frame_support::weights::Weight {
         use crate::weights::WeightInfo;

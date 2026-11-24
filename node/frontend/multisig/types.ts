@@ -1,6 +1,6 @@
 // 导出多签提案使用的统一签名准备和提交类型。
 
-export type { AdminSignerMatch } from '../institution/council';
+export type { RoleSigner } from '../institution/council';
 
 export type VoteSignRequestResult = {
   requestJson: string;

@@ -56,13 +56,10 @@ mod runtime {
     pub type InternalVote = internalvote;
 
     #[runtime::pallet_index(4)]
-    pub type MultisigTransfer = super;
+    pub type Multisig = super;
 
     #[runtime::pallet_index(7)]
-    pub type PersonalManage = personalentity;
-
-    #[runtime::pallet_index(8)]
-    pub type PersonalAdmins = personaladmin;
+    pub type Personal = personal;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -106,6 +103,15 @@ impl entitybase::ReservedAccountGuard<AccountId32> for TestReservedAccountChecke
 
 pub struct TestCitizenIdentityReader;
 impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+    fn person_cid(who: &AccountId32) -> Option<engingcore::CidNumber> {
+        codec::Encode::encode(who).try_into().ok()
+    }
+
+    fn person_account(cid: &engingcore::CidNumber) -> Option<AccountId32> {
+        let bytes: [u8; 32] = cid.as_slice().try_into().ok()?;
+        Some(AccountId32::new(bytes))
+    }
+
     fn voting_subject(
         who: &AccountId32,
         _scope: &engingcore::PopulationScope,
@@ -131,30 +137,11 @@ fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<Account
     }
 }
 
-pub struct TestInternalAdminProvider;
-impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
-    fn institution_wallet_snapshot(
-        _cid: &[u8],
-        references: &[AccountId32],
-    ) -> Option<Vec<(AccountId32, u64)>> {
-        Some(
-            references
-                .iter()
-                .cloned()
-                .map(|wallet| (wallet, 0))
-                .collect(),
-        )
-    }
+pub struct TestInternalVoteProvider;
+impl engingcore::InternalVoteProvider<AccountId32> for TestInternalVoteProvider {
 
-    fn is_institution_admin(
-        institution_code: InstitutionCode,
-        cid_number: &[u8],
-        who: &AccountId32,
-    ) -> bool {
-        get_institution_admins(institution_code, cid_number)
-            .map(|admins| admins.iter().any(|admin| admin == who))
-            .unwrap_or(false)
-    }
+
+
 
     fn institution_threshold(institution_code: InstitutionCode, cid_number: &[u8]) -> Option<u32> {
         primitives::cid::code::fixed_governance_pass_threshold(&institution_code).or_else(|| {
@@ -168,7 +155,7 @@ impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvide
     }
 
     fn is_personal_admin(personal_account_id: AccountId32, who: &AccountId32) -> bool {
-        <personaladmin::Pallet<Test> as adminbase::AdminAccountQuery<AccountId32>>::is_active_account_admin(
+        personal::Pallet::<Test>::is_active_account_admin(
             PMUL,
             personal_account_id,
             who,
@@ -176,7 +163,7 @@ impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvide
     }
 
     fn get_personal_admins(personal_account_id: AccountId32) -> Option<Vec<AccountId32>> {
-        <personaladmin::Pallet<Test> as adminbase::AdminAccountQuery<AccountId32>>::active_account_admins(
+        personal::Pallet::<Test>::active_account_admins(
             PMUL,
             personal_account_id,
         )
@@ -210,7 +197,7 @@ fn propose_transfer(
             .try_into()
             .expect("test role fits")
     });
-    MultisigTransfer::propose_transfer(
+    Multisig::propose_transfer(
         origin,
         actor_cid_number,
         proposer_role_code,
@@ -223,10 +210,16 @@ fn propose_transfer(
 
 impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
-        Self::active_accounts_for_role(cid_number, role_code).contains(who)
+        Self::fixture_wallets_for_role(cid_number, role_code).contains(who)
     }
 
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
+    fn active_persons_for_role(cid: &[u8], role: &[u8]) -> Vec<Vec<u8>> {
+        Self::fixture_wallets_for_role(cid, role).iter().map(codec::Encode::encode).collect()
+    }
+
+}
+impl TestInstitutionRoleProvider {
+    fn fixture_wallets_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
         let Some(code) = core::str::from_utf8(cid_number)
             .ok()
             .and_then(engingcore::types::institution_code_from_cid_number)
@@ -239,6 +232,7 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRolePro
         get_institution_admins(code, cid_number).unwrap_or_default()
     }
 }
+
 
 impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestInstitutionRoleProvider {
     fn role_has_permission(
@@ -386,19 +380,7 @@ impl entitybase::InstitutionMultisigQuery<AccountId32> for TestInstitutionQuery 
         INSTITUTION_ACCOUNTS.with(|accounts| accounts.borrow().get(addr).map(|(_, code)| *code))
     }
 
-    fn lookup_admin_config(
-        addr: &AccountId32,
-    ) -> Option<primitives::multisig::MultisigConfigSnapshot<AccountId32>> {
-        let (cid_number, code) =
-            INSTITUTION_ACCOUNTS.with(|accounts| accounts.borrow().get(addr).cloned())?;
-        let admins = get_institution_admins(code, &cid_number)?;
-        let admins_len = u32::try_from(admins.len()).ok()?;
-        Some(primitives::multisig::MultisigConfigSnapshot {
-            admins,
-            admins_len,
-            threshold: admins_len,
-        })
-    }
+
 
     fn account_exists(addr: &AccountId32) -> bool {
         INSTITUTION_ACCOUNTS.with(|accounts| accounts.borrow().contains_key(addr))
@@ -471,9 +453,9 @@ impl engingcore::Config for Test {
     type JointVoteResultCallback = ();
     // 挂上本模块 Executor,3 组业务提案通过后自动走 callback 执行。
     type InternalVoteResultCallback = crate::InternalVoteExecutor<Test>;
-    type InternalAdminProvider = TestInternalAdminProvider;
+    type InternalVoteProvider = TestInternalVoteProvider;
     // 与真实 runtime 一致(1989)。联邦注册局创世内置 215 管理员,mock 上限须覆盖。
-    type MaxAdminsPerInstitution = ConstU32<1989>;
+    type MaxSnapshotVoters = ConstU32<1989>;
     type MaxProposalDataLen = ConstU32<1024>;
     type MaxProposalObjectLen = ConstU32<{ 10 * 1024 }>;
     type MaxModuleTagLen = ConstU32<32>;
@@ -495,7 +477,7 @@ impl internalvote::Config for Test {
     type WeightInfo = ();
 }
 
-impl personalentity::pallet::Config for Test {
+impl personal::pallet::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     type InternalVoteEngine = internalvote::Pallet<Test>;
@@ -503,19 +485,10 @@ impl personalentity::pallet::Config for Test {
     type ReservedAccountChecker = TestReservedAccountChecker;
     type ProtectedSourceChecker = TestProtectedSourceChecker;
     type InstitutionAsset = TestInstitutionAsset;
-    type PersonalAdminLifecycle = personaladmin::Pallet<Test>;
-    type PersonalAdminQuery = personaladmin::Pallet<Test>;
     type OnchainFeeCharger = TestOnchainFeeCharger;
     type MaxAccountNameLength = ConstU32<128>;
     type MaxPersonalAccountAdmins = ConstU32<64>;
     type MinCreateAmount = ConstU128<111>;
-    type WeightInfo = ();
-}
-
-impl personaladmin::pallet::Config for Test {
-    type RuntimeEvent = RuntimeEvent;
-    type InternalVoteEngine = internalvote::Pallet<Test>;
-    type MaxPersonalAccountAdmins = ConstU32<64>;
     type WeightInfo = ();
 }
 
@@ -528,10 +501,9 @@ impl pallet::Config for Test {
     type ProtectedSourceChecker = TestProtectedSourceChecker;
     type MaxRemarkLen = ConstU32<256>;
     type OnchainFeeCharger = TestOnchainFeeCharger;
-    // 测试 mock 把个人多签生命周期灌进 personalentity，
-    // 个人多签管理员灌进 personaladmin，动态阈值灌进 internalvote。
+    // 测试 mock 把个人生命周期和成员集合灌进 personal，动态阈值灌进 internalvote。
     // InstitutionQuery 使用 CID 唯一主键的测试聚合查询。
-    type PersonalQuery = personalentity::Pallet<Test>;
+    type PersonalQuery = personal::Pallet<Test>;
     type InstitutionQuery = TestInstitutionQuery;
     type WeightInfo = ();
 }
@@ -940,7 +912,7 @@ fn new_test_ext() -> sp_io::TestExternalities {
         );
         insert_active_fixed_institution_account(FRG, &frg, frg_node().cid_number.as_bytes());
         insert_active_fixed_institution_account(NJD, &njd, njd_node().cid_number.as_bytes());
-        // 个人多签管理员由 personaladmin 提供；机构管理员统一按 CID 注入。
+        // 个人多签管理员由 personal 提供；机构管理员统一按 CID 注入。
         let _ = dq;
     });
     ext

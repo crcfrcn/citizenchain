@@ -194,7 +194,7 @@ impl<T: Config> Pallet<T> {
                         ))
                     }
                 };
-                let voters = T::InstitutionRoleProvider::active_accounts_for_role(
+                let voters = T::InstitutionRoleProvider::active_persons_for_role(
                     role_subject.cid_number.as_slice(),
                     role_subject.role_code.as_slice(),
                 );
@@ -234,7 +234,7 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// 联合投票:管理员按机构投票。机构内达阈值后写入 `JointVotesByInstitution`,
+    /// 按机构岗位计票。机构内达到阈值后写入 `JointVotesByInstitution`，
     /// 全部机构票权累加判断是否全票通过(105 票)或推进至联合公投阶段。
     pub fn do_joint_vote(
         who: T::AccountId,
@@ -273,11 +273,11 @@ impl<T: Config> Pallet<T> {
             engingcore::Error::<T>::NoPermission
         );
         // 按该提案冻结的实际钱包去重，版本取自同一不可变快照，不能继承或重置旧票。
-        let voter_account_id = <engingcore::Pallet<T>>::resolve_snapshot_voter(proposal_id, &subject, &who)
+        let person_cid = <engingcore::Pallet<T>>::resolve_snapshot_voter(proposal_id, &subject, &who)
                 .ok_or(engingcore::Error::<T>::NoPermission)?;
         let ticket = InstitutionVoteTicket {
             role_subject,
-            voter_account_id,
+            person_cid,
         };
         ensure!(
             !JointVotesByTicket::<T>::contains_key(proposal_id, &ticket),

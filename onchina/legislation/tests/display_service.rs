@@ -3,19 +3,14 @@
 use super::*;
 use crate::chain_read_proposal::VoteTally;
 
-fn profile(hex_digit: &str, _name: &str) -> InstitutionAssignmentView {
-    InstitutionAssignmentView {
-        account_id: format!("0x{}", hex_digit.repeat(64)),
-        family_name: "管理".to_string(),
-        given_name: "员".to_string(),
-        role_code: "MEMBER".to_string(),
-        role_name: "委员".to_string(),
-        term_required: false,
-        term_start: 0,
-        term_end: 0,
-        assignment_source: 0,
-        assignment_source_label: "创世".to_string(),
-        assignment_source_ref: String::new(),
+fn profile(seed: &str, name: &str) -> FrozenSeat {
+    FrozenSeat {
+        body_index: 0,
+        person_cid: onchina::testing::person_for("CTZN", seed),
+        account_id: Some(format!("0x{}", seed.repeat(64))),
+        role_code: "MEMBER".into(),
+        role_name: "委员".into(),
+        name: name.into(),
     }
 }
 
@@ -43,7 +38,7 @@ fn ballot_key(digit: &str, role: &str) -> BallotKey {
         body_index: 0,
         institution_cid_number: "institution-a".into(),
         role_code: role.into(),
-        account_id: format!("0x{}", digit.repeat(64)),
+        person_cid: onchina::testing::person_for("CTZN", digit),
     }
 }
 #[test]
@@ -115,4 +110,17 @@ fn empty_roster_yields_no_seats() {
     assert!(view.seats.is_empty());
     assert_eq!(view.approved_count, 0);
     assert_eq!(view.pending_count, 0);
+}
+
+#[test]
+fn current_wallet_changes_or_unbinding_do_not_change_frozen_vote_identity() {
+    let mut seat = profile("a", "甲");
+    let ballots = HashMap::from([(ballot_key("a", "MEMBER"), true)]);
+    let original =
+        build_active_proposal_view(sample_state(), "institution-a", &[seat.clone()], &ballots);
+    seat.account_id = None;
+    let unbound = build_active_proposal_view(sample_state(), "institution-a", &[seat], &ballots);
+    assert_eq!(original.seats[0].ticket_id, unbound.seats[0].ticket_id);
+    assert_eq!(unbound.seats[0].vote, Some(true));
+    assert!(unbound.seats[0].account_id.is_none());
 }

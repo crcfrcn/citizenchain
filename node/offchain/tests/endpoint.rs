@@ -28,7 +28,7 @@ fn over_long_cid_rejected() {
 #[test]
 fn clearing_bank_nodes_key_starts_with_pallet_prefix() {
     let key = clearing_bank_nodes_key("AH001-SCB0V-123456789-2026").unwrap();
-    let pallet_hex = hex::encode(sp_crypto_hashing::twox_128(b"OffchainTransaction"));
+    let pallet_hex = hex::encode(sp_crypto_hashing::twox_128(b"Offchain"));
     let storage_hex = hex::encode(sp_crypto_hashing::twox_128(b"ClearingBankNodes"));
     let prefix = format!("0x{pallet_hex}{storage_hex}");
     assert!(key.starts_with(&prefix), "实际 key:{key}");

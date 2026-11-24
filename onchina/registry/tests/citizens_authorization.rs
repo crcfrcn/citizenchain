@@ -48,7 +48,7 @@ fn each_operation_uses_its_own_business_permission() {
         ),
         (
             CitizenOperation::RebindWallet,
-            business_action::ACTION_ADMIN_REBIND_CID_ACCOUNT_ID,
+            business_action::ACTION_REGISTRAR_REBIND_CID,
         ),
         (
             CitizenOperation::RevokeIdentity,

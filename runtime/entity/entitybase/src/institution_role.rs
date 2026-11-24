@@ -70,8 +70,7 @@ fn dynamic_role_code_from_hash(hash: &[u8]) -> Vec<u8> {
 
 /// 机构岗位授权主体。
 ///
-/// 授权必须同时包含机构 CID 与机构内岗位码；裸管理员账户、裸 CID 或裸岗位码都不能
-/// 代替本类型。
+/// 授权主体由机构 CID 和机构内唯一的岗位码组成。
 #[derive(
     Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
 )]
@@ -162,7 +161,7 @@ pub enum InstitutionRoleStatus {
     Inactive,
 }
 
-/// 管理员任职来源。
+/// 机构岗位任职来源。
 #[derive(
     Encode,
     Decode,
@@ -190,7 +189,7 @@ pub enum InstitutionAssignmentSource {
     InstitutionGovernance,
 }
 
-/// 管理员任职当前状态。
+/// 机构岗位任职当前状态。
 #[derive(
     Encode,
     Decode,
@@ -225,17 +224,19 @@ pub struct InstitutionRole<CidNumber, RoleCode, RoleName> {
     pub term_required: bool,
     /// 岗位当前状态。
     pub role_status: InstitutionRoleStatus,
+    /// 岗位席位容量。任职人数由岗位任职记录决定。
+    pub seats: u32,
 }
 
-/// 管理员在某机构岗位上的任职事实。
+/// 人员在某机构岗位上的任职事实，当前签名钱包由 identity 查询。
 #[derive(
     Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq,
 )]
-pub struct InstitutionAdminAssignment<CidNumber, AccountId, RoleCode, SourceRef> {
+pub struct InstitutionAssignment<CidNumber, RoleCode, SourceRef> {
     /// 任职机构 CID。
     pub cid_number: CidNumber,
-    /// 管理员唯一账户。
-    pub account_id: AccountId,
+    /// 任职人员的完整 CID。
+    pub person_cid: CidNumber,
     /// 所任岗位稳定代码。
     pub role_code: RoleCode,
     /// 任期开始日（自纪元起的天数）；无任期岗位固定为 0。
@@ -254,13 +255,13 @@ pub struct InstitutionAdminAssignment<CidNumber, AccountId, RoleCode, SourceRef>
 ///
 /// 业务模块必须按“机构 CID + 稳定岗位代码 + 有效任职”鉴权，不能比较岗位名称。
 pub trait InstitutionRoleQuery<AccountId> {
-    /// 管理员是否在指定机构的指定岗位上有效任职。
+    /// 当前签名钱包绑定的人员是否在指定岗位有效任职。
     fn is_active_assignment(cid_number: &[u8], admin: &AccountId, role_code: &[u8]) -> bool;
 
-    /// 读取指定机构、指定岗位的全部有效管理员账户。
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId>;
+    /// 读取指定岗位的全部有效任职人员 CID，供建案冻结。
+    fn active_persons_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<Vec<u8>>;
 
-    /// 读取某管理员在指定机构的全部有效岗位代码。
+    /// 读取当前签名钱包绑定的人员在指定机构的有效岗位代码。
     fn active_role_codes(cid_number: &[u8], admin: &AccountId) -> Vec<Vec<u8>>;
 }
 
@@ -295,7 +296,7 @@ pub trait InstitutionRoleAuthorizationQuery<AccountId> {
         operation: RolePermissionOperation,
     ) -> bool;
 
-    /// 账户是否同时满足 admins、有效任职、CID 顶层能力和岗位权限。
+    /// 当前签名钱包绑定的人员是否拥有有效任职及指定业务权限。
     fn is_authorized(
         admin: &AccountId,
         role_subject: &RoleSubject<Vec<u8>, Vec<u8>>,
@@ -346,7 +347,7 @@ impl<AccountId> InstitutionRoleQuery<AccountId> for () {
         false
     }
 
-    fn active_accounts_for_role(_cid_number: &[u8], _role_code: &[u8]) -> Vec<AccountId> {
+    fn active_persons_for_role(_cid_number: &[u8], _role_code: &[u8]) -> Vec<Vec<u8>> {
         Vec::new()
     }
 

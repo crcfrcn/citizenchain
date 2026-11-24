@@ -47,7 +47,7 @@ mod runtime {
     pub type InternalVote = internalvote;
 
     #[runtime::pallet_index(3)]
-    pub type GrandpaKeyChange = super;
+    pub type GrandpaKey = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -76,6 +76,15 @@ impl pallet_grandpa::Config for Test {
 
 pub struct TestCitizenIdentityReader;
 impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+    fn person_cid(who: &AccountId32) -> Option<engingcore::CidNumber> {
+        codec::Encode::encode(who).try_into().ok()
+    }
+
+    fn person_account(cid: &engingcore::CidNumber) -> Option<AccountId32> {
+        let bytes: [u8; 32] = cid.as_slice().try_into().ok()?;
+        Some(AccountId32::new(bytes))
+    }
+
     fn voting_subject(
         _who: &AccountId32,
         _scope: &engingcore::PopulationScope,
@@ -91,9 +100,9 @@ impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReade
     }
 }
 
-pub struct TestInternalAdminProvider;
+pub struct TestInternalVoteProvider;
 
-impl TestInternalAdminProvider {
+impl TestInternalVoteProvider {
     fn institution_admins(
         institution_code: InstitutionCode,
         cid_number: &[u8],
@@ -103,46 +112,17 @@ impl TestInternalAdminProvider {
                 .iter()
                 .find(|node| node.cid_number.as_bytes() == cid_number)
                 .map(|node| {
-                    node.admins
-                        .iter()
-                        .map(|raw| AccountId32::new(*raw))
-                        .collect()
+                    seat_wallets(node.cid_number)
                 }),
             _ => None,
         }
     }
 }
 
-impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
-    fn institution_wallet_snapshot(
-        _cid: &[u8],
-        references: &[AccountId32],
-    ) -> Option<Vec<(AccountId32, u64)>> {
-        Some(
-            references
-                .iter()
-                .cloned()
-                .map(|wallet| (wallet, 0))
-                .collect(),
-        )
-    }
+impl engingcore::InternalVoteProvider<AccountId32> for TestInternalVoteProvider {
 
-    fn is_institution_admin(
-        institution_code: InstitutionCode,
-        cid_number: &[u8],
-        who: &AccountId32,
-    ) -> bool {
-        let mut who_raw = [0u8; 32];
-        who_raw.copy_from_slice(who.as_ref());
-        match institution_code {
-            NRC | PRC => CHINA_CB
-                .iter()
-                .find(|node| node.cid_number.as_bytes() == cid_number)
-                .map(|node| node.admins.contains(&who_raw))
-                .unwrap_or(false),
-            _ => false,
-        }
-    }
+
+
 
     fn institution_threshold(institution_code: InstitutionCode, cid_number: &[u8]) -> Option<u32> {
         Self::institution_admins(institution_code, cid_number)?;
@@ -161,10 +141,16 @@ fn committee_role() -> engingcore::types::RoleCode {
 
 impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
     fn is_active_assignment(cid_number: &[u8], who: &AccountId32, role_code: &[u8]) -> bool {
-        Self::active_accounts_for_role(cid_number, role_code).contains(who)
+        Self::fixture_wallets_for_role(cid_number, role_code).contains(who)
     }
 
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
+    fn active_persons_for_role(cid: &[u8], role: &[u8]) -> Vec<Vec<u8>> {
+        Self::fixture_wallets_for_role(cid, role).iter().map(codec::Encode::encode).collect()
+    }
+
+}
+impl TestInstitutionRoleProvider {
+    fn fixture_wallets_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
         if role_code != primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER {
             return Vec::new();
         }
@@ -174,9 +160,10 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRolePro
         else {
             return Vec::new();
         };
-        TestInternalAdminProvider::institution_admins(code, cid_number).unwrap_or_default()
+        TestInternalVoteProvider::institution_admins(code, cid_number).unwrap_or_default()
     }
 }
+
 
 impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestInstitutionRoleProvider {
     fn role_has_permission(
@@ -261,8 +248,8 @@ impl engingcore::Config for Test {
     type CitizenIdentityReader = TestCitizenIdentityReader;
     type JointVoteResultCallback = ();
     type InternalVoteResultCallback = crate::InternalVoteExecutor<Test>;
-    type InternalAdminProvider = TestInternalAdminProvider;
-    type MaxAdminsPerInstitution = ConstU32<32>;
+    type InternalVoteProvider = TestInternalVoteProvider;
+    type MaxSnapshotVoters = ConstU32<32>;
     type TimeProvider = TestTimeProvider;
     type WeightInfo = ();
     type TrackHandlers = (InternalVote, ());
@@ -287,6 +274,7 @@ impl Config for Test {
 fn grandpa_pair(node_index: usize) -> ed25519::Pair {
     let mut seed = [0u8; 32];
     seed[0] = (node_index + 1) as u8;
+    seed[1] = 1; // 与待轮换的合成密钥使用不同种子域。
     ed25519::Pair::from_seed(&seed)
 }
 
@@ -310,29 +298,20 @@ fn new_test_ext() -> sp_io::TestExternalities {
     }
     .assimilate_storage(&mut storage)
     .expect("grandpa genesis should assimilate");
-    GenesisConfig::<Test>::default()
-        .assimilate_storage(&mut storage)
-        .expect("grandpakey genesis should assimilate");
+    GenesisConfig::<Test> {
+        registered_keys: (0..CHINA_CB.len())
+            .map(|index| (cb_cid(index), grandpa_public_key(index)))
+            .collect(),
+        ..Default::default()
+    }.assimilate_storage(&mut storage).expect("测试公钥登记已初始化");
 
     let mut ext = sp_io::TestExternalities::new(storage);
-    ext.execute_with(|| {
-        System::set_block_number(1);
-        // 测试使用可签名的确定性 authority 私钥；创世目录只提供公开生产 key。
-        for (node_index, node) in CHINA_CB.iter().enumerate().take(3) {
-            let actor_cid_number = cb_cid(node_index);
-            GrandpaKeyOwnerByKey::<Test>::remove(node.grandpa_key);
-            CurrentGrandpaKeys::<Test>::insert(
-                actor_cid_number.clone(),
-                grandpa_public_key(node_index),
-            );
-            GrandpaKeyOwnerByKey::<Test>::insert(grandpa_public_key(node_index), actor_cid_number);
-        }
-    });
+    ext.execute_with(|| System::set_block_number(1));
     ext
 }
 
 fn cb_admin(node_index: usize, admin_index: usize) -> AccountId32 {
-    AccountId32::new(CHINA_CB[node_index].admins[admin_index])
+    seat_wallet(CHINA_CB[node_index].cid_number, admin_index)
 }
 
 fn cb_cid(node_index: usize) -> CidNumber {
@@ -385,7 +364,7 @@ fn finalize_grandpa_at(block: u64) {
     System::set_block_number(block);
     <Grandpa as Hooks<u64>>::on_finalize(block);
     System::set_block_number(block + 1);
-    <GrandpaKeyChange as Hooks<u64>>::on_initialize(block + 1);
+    <GrandpaKey as Hooks<u64>>::on_initialize(block + 1);
 }
 
 /// 获取最近一次 create_internal_proposal 分配的 proposal_id。
@@ -411,3 +390,14 @@ fn cast_vote(who: AccountId32, proposal_id: u128, approve: bool) -> DispatchResu
 }
 
 mod unit;
+
+// 合成账户由机构与席位得出，普通测试和可选的 FRAME 基准用同一输入。
+fn seat_wallet(cid: &'static str, index: usize) -> AccountId32 {
+    AccountId32::new(sp_io::hashing::blake2_256(&codec::Encode::encode(&(cid, index as u32, 0u32))))
+}
+
+fn seat_wallets(cid: &'static str) -> Vec<AccountId32> {
+    let seats = primitives::governance_skeleton::fixed_institution_by_cid(cid.as_bytes())
+        .expect("测试机构存在固定席位").expected_len;
+    (0..seats as usize).map(|index| seat_wallet(cid, index)).collect()
+}

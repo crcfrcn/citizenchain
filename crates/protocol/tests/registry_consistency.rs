@@ -186,7 +186,7 @@ fn self_rebind_has_distinct_authorization_and_chain_transaction() {
         transaction.kind,
         qr_protocol::registry::ActionKind::ChainCall
     );
-    assert_eq!(transaction.pallet.as_deref(), Some("CitizenIdentity"));
+    assert_eq!(transaction.pallet.as_deref(), Some("Identity"));
     assert_eq!(
         transaction.call.as_deref(),
         Some("self_rebind_cid_account_id")
@@ -368,9 +368,71 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "de803ac98d53f8026046262f4b4c8cf5292716066889c9b1427022fd202a4859",
-        "Dart registry 与包含机构钱包专用证明及call10的正式导出金标不一致"
+        "aa89c6d4e2baafbc3ac30f6dfb928ffa25d73368475dd0782795e82f966519db",
+        "Dart 动作登记表必须匹配岗位和人员任职调用合同"
     );
+}
+
+/// 命名同步沿用原二维码动作码、原链上调用坐标及原解码字段。
+#[test]
+fn role_and_registrar_names_preserve_action_coordinates() {
+    let entries = actions().unwrap();
+    for (code, key, label) in [
+        (3, "onchina_confirm", "链上中国操作确认"),
+        (5, "role_access", "本机岗位授权"),
+        (6, "clearing_decrypt", "清算行解密授权"),
+    ] {
+        let row = entries.iter().find(|entry| entry.action_code == code).unwrap();
+        assert_eq!(row.action_key, key);
+        assert_eq!(row.decoder, key);
+        assert_eq!(row.action_label_zh, label);
+    }
+    for (code, pallet, call) in [
+        (0x0a07, "Identity", "registrar_rebind_cid"),
+        (0x1500, "JointVote", "cast_role_vote"),
+    ] {
+        let row = entries.iter().find(|entry| entry.action_code == code).unwrap();
+        assert_eq!(row.pallet.as_deref(), Some(pallet));
+        assert_eq!(row.call.as_deref(), Some(call));
+    }
+    assert!(entries.iter().any(|entry| entry.pallet.as_deref() == Some("VotingEngine")));
+}
+
+/// GRANDPA 统一注册名后继续使用既有签名动作码和解码器。
+#[test]
+fn grandpa_key_registry_keeps_pallet_and_call_coordinates() {
+    let actions = actions().unwrap();
+    for (code, call) in [
+        (0x0f00, "propose_emergency_grandpa_key_recovery"),
+        (0x0f01, "schedule_grandpa_key_rotation"),
+    ] {
+        let actual = actions.iter().find(|row| row.action_code == code).unwrap();
+        assert_eq!(actual.pallet.as_deref(), Some("GrandpaKey"));
+        assert_eq!(actual.call.as_deref(), Some(call));
+        assert_eq!(actual.decoder, call);
+    }
+}
+
+/// 注册名变化时，现有公私权动作仍使用原 pallet 和 call 坐标。
+#[test]
+fn institution_registry_uses_entity_names_and_preserves_coordinates() {
+    let rows = actions().expect("actions.yaml 必须可解析");
+    for (pallet, index, close) in [
+        ("PublicEntity", 30u16, "propose_close_public_institution"),
+        ("PrivateEntity", 31u16, "propose_close_private_institution"),
+    ] {
+        let actual: Vec<_> = rows.iter().filter(|row| row.pallet.as_deref() == Some(pallet))
+            .map(|row| (row.action_code, row.call.as_deref().unwrap()))
+            .collect();
+        let expected = [
+            (1, close),
+            (6, "update_institution_info"),
+            (7, "add_institution_account"),
+            (8, "propose_institution_governance"),
+            (9, "register_institution_roles"),
+        ].map(|(call, name)| ((index << 8) | call, name));
+        assert_eq!(actual, expected);
+    }
 }
 
 #[test]
@@ -508,8 +570,8 @@ fn topup_is_registered_full_offchain_authorization() {
 fn unified_registration_requires_full_action_snapshot_and_explicit_threshold_review() {
     let actions = actions().expect("registry");
     for key in [
-        "register_public_institution_admins",
-        "register_private_institution_admins",
+        "register_public_institution_roles",
+        "register_private_institution_roles",
     ] {
         let action = actions
             .iter()
@@ -518,8 +580,6 @@ fn unified_registration_requires_full_action_snapshot_and_explicit_threshold_rev
         assert!(!action.hash_only_allowed);
         for required in [
             "cid_number",
-            "admins",
-            "governance_action",
             "governance_detail",
             "expected_state_hash",
             "initial_threshold",

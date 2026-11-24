@@ -23,6 +23,9 @@ pub(crate) fn frozen_ticket<'a>(
     view: &'a FrozenVoteView,
     binding: &FrozenVoteBinding,
 ) -> Result<&'a FrozenVoter, String> {
+    if view.proposal_id != binding.proposal_id {
+        return Err("原签名会话不属于当前提案".into());
+    }
     if view.genesis_hash != binding.genesis_hash {
         return Err("原签名会话不属于当前链".into());
     }
@@ -43,15 +46,23 @@ pub(crate) fn frozen_ticket<'a>(
     let voter = role
         .voters
         .iter()
-        .find(|v| v.account_id == binding.account_id)
-        .ok_or("此钱包不在原提案冻结名单，新钱包不能继承旧票")?;
-    if voter.wallet_revision.as_deref() != Some(&binding.wallet_revision) {
-        return Err("冻结钱包版本缺失或不匹配".into());
-    }
+        .find(|v| v.person_cid.as_deref() == Some(binding.person_cid.as_str()))
+        .ok_or("该人员不在原提案冻结岗位票据中")?;
     if let Some(error) = &voter.vote_error {
         return Err(error.clone());
     }
     Ok(voter)
+}
+pub(crate) fn current_binding(
+    voter: &FrozenVoter,
+    binding: &FrozenVoteBinding,
+) -> Result<(), String> {
+    if voter.account_id.as_deref() != Some(binding.account_id.as_str())
+        || voter.binding_revision.as_deref() != Some(binding.binding_revision.as_str())
+    {
+        return Err("人员当前绑定已变化，原签名不能重提".into());
+    }
+    Ok(())
 }
 pub(crate) fn ensure_open(view: &FrozenVoteView) -> Result<(), String> {
     if view.status != 0 || !matches!((view.kind, view.stage), (0, 0) | (1, 1)) {
@@ -82,23 +93,32 @@ fn prepare_binding(
         .map(str::to_string)
         .or(view.actor_cid_number.clone())
         .ok_or("原机构身份CID号缺失")?;
+    let voter = view
+        .roles
+        .iter()
+        .find(|r| r.cid_number == cid && r.role_code == role)
+        .and_then(|r| {
+            r.voters
+                .iter()
+                .find(|v| v.account_id.as_deref() == Some(wallet) && v.person_cid.is_some())
+        })
+        .ok_or("当前钱包不属于原冻结人员岗位")?;
     let binding = FrozenVoteBinding {
         genesis_hash: view.genesis_hash.clone(),
         proposal_id: pid.to_string(),
-        cid_number: cid.clone(),
+        cid_number: cid,
         role_code: role.into(),
         account_id: wallet.into(),
-        wallet_revision: view
-            .roles
-            .iter()
-            .find(|r| r.cid_number == cid && r.role_code == role)
-            .and_then(|r| r.voters.iter().find(|v| v.account_id == wallet))
-            .and_then(|v| v.wallet_revision.clone())
-            .ok_or("冻结身份或版本资料缺失")?,
+        person_cid: voter.person_cid.clone().ok_or("历史钱包快照不可发新票")?,
+        binding_revision: voter
+            .binding_revision
+            .clone()
+            .ok_or("人员当前绑定版本缺失")?,
     };
     if frozen_ticket(&view, &binding)?.vote.is_some() {
         return Err("该冻结票据已经投票".into());
     }
+    current_binding(frozen_ticket(&view, &binding)?, &binding)?;
     ensure_open(&view)?;
     Ok(binding)
 }
@@ -142,7 +162,7 @@ fn build_request(
         expires_at,
         body: SignRequestBody {
             action: chain_action_code(&call_data)?,
-            sig_alg: 1,
+            sig_alg: 0,
             signer_public_key: public_key_b64(&account)?,
             payload: payload_b64(&payload),
         },
@@ -153,7 +173,7 @@ fn build_request(
         items.retain(|_, c| c.response.is_some() || c.session.expires_at >= now);
         if items
             .values()
-            .any(|c| c.binding == binding && c.response.is_some())
+            .any(|c| c.binding.same_ticket(&binding) && c.response.is_some())
         {
             return Err("此票存在原签名会话，请先恢复，不得重复准备".into());
         }
@@ -308,16 +328,17 @@ pub(crate) fn submit_original_vote(
         if recorded != approve {
             return Err("原票据已记录另一投票选择，不能冒充本次成功".into());
         }
-        let tx = contexts()
-            .lock()
-            .map_err(|_| "投票会话异常")?
-            .remove(request_id)
-            .and_then(|v| v.tx_hash);
+        let mut items = contexts().lock().map_err(|_| "投票会话异常")?;
+        if items.get(request_id).is_some_and(|c| c.binding != binding) {
+            return Err("原会话不属于本次冻结人员票据".into());
+        }
+        let tx = items.remove(request_id).and_then(|c| c.tx_hash);
         return Ok(ProposalVoteSubmitResult {
             tx_hash: tx,
             observed: true,
         });
     }
+    current_binding(entry, &binding)?;
     ensure_open(&view)?;
     let mut context = {
         let mut items = contexts().lock().map_err(|_| "投票会话异常")?;

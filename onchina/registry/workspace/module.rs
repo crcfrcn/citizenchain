@@ -4,20 +4,14 @@ use crate::*;
 use onchina::modules::model::{ModuleBusiness, ModuleDescription, ModuleRoute};
 pub(crate) const VERSION: &str = "1.0.0";
 #[derive(Default)]
-pub(crate) struct Module {
-    federal_cache: admins::catalog::FederalAdminsCache,
-}
+pub(crate) struct Module;
 use onchina::modules::capability::{CapabilitySet, EMPTY};
-// Tier1 创世注册局(FRG):是 CREG 的省级上游,能力必须是 Tier2 业务能力的超集。
-// 链上 runtime 已限制 FRG 只能按本省省级组登记本省 CID;这里仅声明控制台可见能力。
+// 联邦注册局的可见业务能力覆盖市注册局；具体写入由岗位与目标辖区核验。
 const TIER1_REGISTRY: CapabilitySet = CapabilitySet {
     can_view_citizens: true,
     can_view_institutions: true,
     can_view_private: true,
     can_view_education: true,
-    view_federal_admins: true,
-    view_city_admins: true,
-    manage_city_admins: true,
     can_manage_institutions: true,
     can_register_institutions: true,
     can_business_write: true,
@@ -27,14 +21,12 @@ const TIER1_REGISTRY: CapabilitySet = CapabilitySet {
 };
 
 // Tier2 下级注册局(CREG):录入公民/私权/教育/公权机构 + 看本市市注册局;
-// 同时只读本省联邦注册局管理员列表,不得发起联邦注册局管理员操作。
+// 机构浏览和具体业务写入分别按后端辖区与岗位授权核验。
 const SUBORDINATE_REGISTRY: CapabilitySet = CapabilitySet {
     can_view_citizens: true,
     can_view_institutions: true,
     can_view_private: true,
     can_view_education: true,
-    view_federal_admins: true,
-    view_city_admins: true,
     can_manage_institutions: true,
     can_register_institutions: true,
     can_business_write: true,
@@ -69,13 +61,11 @@ fn purposes() -> Vec<String> {
         citizens::occupy::PURPOSE_CITIZEN_ADMIN_REBIND.into(),
         citizens::occupy::PURPOSE_CITIZEN_REVOKE.into(),
         citizens::occupy::PURPOSE_CITIZEN_IDENTITY_PUSH.into(),
-        admins::governance::PURPOSE_INSTITUTION_REGISTER_ADMINS.into(),
+        institutions::roles::PURPOSE_INSTITUTION_REGISTER_ROLES.into(),
     ]
 }
 fn actions() -> Vec<String> {
     vec![
-        "CREATE_SUBORDINATE_REGISTRY".into(),
-        "DELETE_SUBORDINATE_REGISTRY".into(),
         "INSTITUTION_CREATE".into(),
     ]
 }
@@ -87,7 +77,7 @@ impl ModuleBusiness for Module {
             "registry",
             VERSION,
             "frontend/Workspace.tsx",
-            &["RegistryWorkspace", "RegistryAdminsView"],
+            &["RegistryWorkspace", "RegistryView"],
             self.routes(),
             purposes(),
             actions(),
@@ -100,28 +90,15 @@ impl ModuleBusiness for Module {
         vec![
             modules::model::ModuleRoute::new(
                 "admin",
-                "/api/admin/city-registry-admins",
-                &["GET"],
-                get(crate::admins::city_registry_admins::list_city_registry_admins),
-            ),
-            modules::model::ModuleRoute::new(
-                "admin",
-                "/api/admin/federal-registry-admins",
-                &["GET"],
-                get(crate::admins::catalog::list_federal_registry_admins)
-                    .layer(axum::Extension(self.federal_cache.clone())),
-            ),
-            modules::model::ModuleRoute::new(
-                "admin",
                 "/api/admin/registry/drill-in-project",
                 &["POST"],
                 post(crate::projection::drill_in_project_city),
             ),
             modules::model::ModuleRoute::new(
                 "admin",
-                "/api/admin/institution/admins/register/prepare",
+                "/api/admin/institution/roles/register/prepare",
                 &["POST"],
-                post(crate::admins::governance::prepare_register_institution_admins),
+                post(crate::institutions::roles::prepare_register_institution_roles),
             ),
             modules::model::ModuleRoute::new(
                 "admin",
@@ -364,8 +341,8 @@ impl ModuleBusiness for Module {
         session: &transactions::session::ChainSignSession,
     ) -> Result<(), axum::response::Response> {
         authorization::rules::ensure_registry_admin(ctx)?;
-        if session.purpose == crate::admins::governance::PURPOSE_INSTITUTION_REGISTER_ADMINS {
-            return crate::admins::governance::recheck_registration(state, ctx, session).await;
+        if session.purpose == crate::institutions::roles::PURPOSE_INSTITUTION_REGISTER_ROLES {
+            return crate::institutions::roles::recheck_registration(state, ctx, session).await;
         }
         citizens::authorization::recheck_submit(state, ctx, session).await
     }
@@ -404,7 +381,7 @@ impl ModuleBusiness for Module {
         action: &authentication::operation_auth::AdminActionType,
         payload: &serde_json::Value,
     ) -> Result<authentication::actions::ActionPreview, String> {
-        admins::actions::preview_action_conn(conn, ctx, action, payload)
+        workspace::actions::preview_action_conn(conn, ctx, action, payload)
     }
     fn preview_admin_transaction(
         &self,
@@ -413,7 +390,7 @@ impl ModuleBusiness for Module {
         action: &authentication::operation_auth::AdminActionType,
         payload: &serde_json::Value,
     ) -> Result<authentication::actions::ActionPreview, String> {
-        admins::actions::preview_action_conn(conn, ctx, action, payload)
+        workspace::actions::preview_action_conn(conn, ctx, action, payload)
     }
     fn apply_admin_transaction(
         &self,
@@ -421,7 +398,7 @@ impl ModuleBusiness for Module {
         ctx: &authentication::login::AdminAuthContext,
         challenge: &authentication::security_model::AdminActionChallenge,
     ) -> Result<serde_json::Value, String> {
-        admins::actions::apply_action_conn(conn, ctx, challenge)
+        workspace::actions::apply_action_conn(conn, ctx, challenge)
     }
 }
 

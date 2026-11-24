@@ -62,7 +62,7 @@ fn extract_cid_number<T>(val: &Value<T>) -> Option<String> {
 
 /// 扫描一个区块的事件,收集需要投影的公民/私权机构 CID(供 indexer 增量投影)。
 ///
-/// `CitizenIdentity` 事件的 `cid_number` = 目标公民;`PrivateManage` 事件的 `cid_number` =
+/// `Identity` 事件的 `cid_number` = 目标公民;`PrivateEntity` 事件的 `cid_number` =
 /// 目标机构。返回去重后的 (公民 CID, 私权机构 CID)。作用域过滤由投影层按 residence/CID 市码判定。
 pub fn collect_entity_projection_cids(
     events: &subxt::events::Events<PolkadotConfig>,
@@ -82,8 +82,8 @@ pub fn collect_entity_projection_cids(
         let event = event_result.map_err(|e| format!("decode entity event failed: {e}"))?;
         consumed += event.bytes().len();
         let target = match event.pallet_name() {
-            "CitizenIdentity" => &mut citizen_cids,
-            "PrivateManage" => &mut institution_cids,
+            "Identity" => &mut citizen_cids,
+            "PrivateEntity" => &mut institution_cids,
             _ => continue,
         };
         let fields = event
@@ -180,13 +180,13 @@ fn match_event(
     if !matches!(
         (pallet, variant),
         ("Balances", "Transfer" | "Withdraw" | "Deposit")
-            | ("FullnodeIssuance", "FullnodeIssuanceIssued")
-            | ("ProvincialBankInterest", "ProvincialBankInterestMinted")
-            | ("ResolutionIssuance", "ResolutionIssuanceExecuted")
-            | ("CitizenIssuance", "CertificationRewardIssued")
-            | ("MultisigTransfer", "TransferExecuted")
-            | ("PersonalManage", "PersonalCreated" | "PersonalClosed")
-            | ("ResolutionDestroy", "DestroyExecuted")
+            | ("FullnodeIssue", "FullnodeIssuanceIssued")
+            | ("PrbBankIssue", "ProvincialBankInterestMinted")
+            | ("ResolutionIssue", "ResolutionIssuanceExecuted")
+            | ("CitizenIssue", "CertificationRewardIssued")
+            | ("Multisig", "TransferExecuted")
+            | ("Personal", "PersonalCreated" | "PersonalClosed")
+            | ("Destroy", "DestroyExecuted")
     ) {
         return Ok(None);
     }
@@ -244,7 +244,7 @@ fn match_event(
             }
 
             // ─── fullnodeissue (index 6) ──────────────────────────
-            ("FullnodeIssuance", "FullnodeIssuanceIssued") => {
+            ("FullnodeIssue", "FullnodeIssuanceIssued") => {
                 let wallet = fields
                     .at("reward_account_id")
                     .and_then(extract_account_id)?;
@@ -263,7 +263,7 @@ fn match_event(
             }
 
             // ─── prbbankissue (index 5) ─────────────────────
-            ("ProvincialBankInterest", "ProvincialBankInterestMinted") => {
+            ("PrbBankIssue", "ProvincialBankInterestMinted") => {
                 let account = fields.at("account_id").and_then(extract_account_id)?;
                 let amount = fields.at("amount").and_then(extract_balance)?;
                 Some(TxRecordInsert {
@@ -280,7 +280,7 @@ fn match_event(
             }
 
             // ─── resolutionissue (index 8) ──────────────────────
-            ("ResolutionIssuance", "ResolutionIssuanceExecuted") => {
+            ("ResolutionIssue", "ResolutionIssuanceExecuted") => {
                 let total = fields.at("total_amount").and_then(extract_balance)?;
                 Some(TxRecordInsert {
                     block_number,
@@ -296,7 +296,7 @@ fn match_event(
             }
 
             // ─── citizenissue (index 11) ───────────────────
-            ("CitizenIssuance", "CertificationRewardIssued") => {
+            ("CitizenIssue", "CertificationRewardIssued") => {
                 let who = fields.at("account_id").and_then(extract_account_id)?;
                 let reward = fields.at("reward").and_then(extract_balance)?;
                 Some(TxRecordInsert {
@@ -313,7 +313,7 @@ fn match_event(
             }
 
             // ─── multisig_transfer (index 19) ────────────────────────
-            ("MultisigTransfer", "TransferExecuted") => {
+            ("Multisig", "TransferExecuted") => {
                 let beneficiary = fields
                     .at("beneficiary_account_id")
                     .and_then(extract_account_id)?;
@@ -332,10 +332,10 @@ fn match_event(
                 })
             }
 
-            // ─── personalentity (index 7) ──────────────────────────
+            // ─── personal (index 7) ──────────────────────────
             // 个人多签创建/关闭按 Runtime 的真实事件名读取;
             // 机构多签的创建/关闭事件名为 InstitutionCreated/InstitutionClosed,本 indexer 不收录。
-            ("PersonalManage", "PersonalCreated") => {
+            ("Personal", "PersonalCreated") => {
                 let multisig = fields.at("account_id").and_then(extract_account_id)?;
                 let creator = fields
                     .at("creator_account_id")
@@ -354,7 +354,7 @@ fn match_event(
                     block_timestamp: block_ts,
                 })
             }
-            ("PersonalManage", "PersonalClosed") => {
+            ("Personal", "PersonalClosed") => {
                 let multisig = fields.at("account_id").and_then(extract_account_id)?;
                 let beneficiary = fields
                     .at("beneficiary_account_id")
@@ -375,7 +375,7 @@ fn match_event(
             }
 
             // ─── destroy (index 14) ───────────────────────
-            ("ResolutionDestroy", "DestroyExecuted") => {
+            ("Destroy", "DestroyExecuted") => {
                 let amount = fields.at("amount").and_then(extract_balance)?;
                 Some(TxRecordInsert {
                     block_number,

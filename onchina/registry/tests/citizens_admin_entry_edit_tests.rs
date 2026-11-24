@@ -94,8 +94,9 @@ fn concurrent_edits_lock_identity_and_stale_projection_rolls_back_all_indexes() 
         primitives::cid::number::checksum_char_m1("GZ018CREG0000000012026", false)
     );
     let ctx = onchina::authentication::login::AdminAuthContext {
-        wallet_revision: "0".into(),
-        wallet_namespace: onchina::chain_runtime::AdminPallet::PublicAdmins,
+        binding_revision: "1".into(),
+        person_cid: onchina::testing::person_cid(),
+        role_code: "REGISTRAR".into(),
         account_id: format!("0x{}", "9c".repeat(32)),
         institution_cid_number: owner.clone(),
         institution_code: "CREG".into(),

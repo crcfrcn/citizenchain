@@ -6,3 +6,6 @@ pub(crate) mod private;
 
 #[path = "registration.rs"]
 pub(crate) mod registration;
+
+#[path = "roles.rs"]
+pub(crate) mod roles;

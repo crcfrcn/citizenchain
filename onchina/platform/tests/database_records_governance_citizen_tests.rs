@@ -5,14 +5,10 @@ use super::*;
 #[test]
 fn empty_identity_is_absent_and_database_failure_is_preserved() {
     let db = Db::empty_for_route_test();
-    assert!(db
-        .find_governance_citizen_by_account_id("  ")
-        .unwrap()
-        .is_none());
+    assert!(db.find_governance_citizen_by_cid("  ").unwrap().is_none());
     assert!(db.find_governance_citizen_by_cid("\t").unwrap().is_none());
     assert_eq!(
-        db.find_governance_citizen_by_account_id("account")
-            .unwrap_err(),
+        db.find_governance_citizen_by_cid("account").unwrap_err(),
         "postgres client pool is empty"
     );
     assert_eq!(
@@ -47,7 +43,7 @@ fn governance_identity_keeps_fields_latest_order_and_missing_values() {
     assert_eq!(
         sandbox
             .db
-            .find_governance_citizen_by_account_id(&format!(" {actor} "))
+            .find_governance_citizen_by_cid(" latest ")
             .unwrap(),
         Some(expected)
     );
@@ -79,7 +75,7 @@ fn governance_identity_keeps_fields_latest_order_and_missing_values() {
         .is_none());
     assert!(sandbox
         .db
-        .find_governance_citizen_by_account_id(&format!("0x{}", "22".repeat(32)))
+        .find_governance_citizen_by_cid(&format!("0x{}", "22".repeat(32)))
         .unwrap()
         .is_none());
     // schema内临时隐藏源表，确保真实SQL失败不会伪装为未找到。
@@ -97,7 +93,7 @@ fn governance_identity_keeps_fields_latest_order_and_missing_values() {
         .contains("query governance citizen by cid failed"));
     assert!(sandbox
         .db
-        .find_governance_citizen_by_account_id(&actor)
+        .find_governance_citizen_by_cid(&actor)
         .unwrap_err()
-        .contains("query governance citizen by account failed"));
+        .contains("query governance citizen by cid failed"));
 }

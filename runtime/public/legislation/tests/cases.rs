@@ -176,7 +176,7 @@ fn constitution_law_bytes_and_scope_key_match_original_frozen_layout() {
                 .to_vec(),
             original_law
         );
-        let mut original_key = sp_io::hashing::twox_128(b"LegislationYuan").to_vec();
+        let mut original_key = sp_io::hashing::twox_128(b"Legislation").to_vec();
         original_key.extend(sp_io::hashing::twox_128(b"LawsByScope"));
         original_key.extend(sp_io::hashing::blake2_128(&[0]));
         original_key.push(0);

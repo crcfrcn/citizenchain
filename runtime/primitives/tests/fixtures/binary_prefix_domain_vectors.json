@@ -3,7 +3,7 @@
   "domain": "GMB",
   "vectors": [
     {
-      "name": "ACTIVATE_ADMIN",
+      "name": "ROLE_ACCESS",
       "op_tag": "0x18",
       "prefix_hex": "474d4218",
       "total_len": 97,
@@ -21,7 +21,7 @@
       "payload_hex": "474d42184c4e3030312d4e524330472d3934343830353136352d323032360000000000004e52430000222222222222222222222222222222222222222222222222222222222222222200f153650000000000000000000000000000000000000000"
     },
     {
-      "name": "DECRYPT",
+      "name": "CLEARING_DECRYPT",
       "op_tag": "0x19",
       "prefix_hex": "474d4219",
       "total_len": 92,

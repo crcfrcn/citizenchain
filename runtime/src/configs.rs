@@ -25,7 +25,6 @@
 
 //! 装配各pallet配置、费用路由、权限和运行时迁移。
 
-use adminbase::{AdminAccountQuery, InstitutionAdminQuery};
 use alloc::vec::Vec;
 use codec::Decode;
 use entitybase::InstitutionMultisigQuery;
@@ -38,11 +37,14 @@ use frame_support::{
     derive_impl,
     dispatch::{DispatchClass, DispatchResult},
     parameter_types,
+    storage::types::{OptionQuery, StorageMap},
     traits::{
         fungible::{Balanced, Credit},
         ConstBool, ConstU128, ConstU32, ConstU64, ConstU8, Contains, EnsureOrigin, FindAuthor,
-        OnRuntimeUpgrade, OnUnbalanced, VariantCountOf,
+        OnKilledAccount, OnRuntimeUpgrade, OnUnbalanced, StorageInstance, StoredMap,
+        VariantCountOf,
     },
+    Blake2_128Concat,
     weights::{
         constants::{RocksDbWeight, WEIGHT_REF_TIME_PER_SECOND},
         ConstantMultiplier, Weight,
@@ -61,14 +63,14 @@ use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-    AccountId, Assets, Balance, Balances, Block, BlockNumber, CitizenIssuance, ElectionVote,
-    GenesisPallet, Hash, InternalVote, JointVote, LegislationVote, LegislationYuan, Nonce,
-    PalletInfo, PrivateAdmins, PrivateManage, PublicAdmins, PublicManage, Runtime, RuntimeCall,
+    AccountId, Assets, Balance, Balances, Block, BlockNumber, CitizenIssue, ElectionVote,
+    Genesis, Hash, InternalVote, JointVote, LegislationVote, Legislation, Nonce,
+    PalletInfo, PrivateEntity, PublicEntity, Runtime, RuntimeCall,
     RuntimeEvent, RuntimeFreezeReason, RuntimeHoldReason, RuntimeOrigin, RuntimeTask, System,
     BLOCK_HASH_COUNT, EXISTENTIAL_DEPOSIT, VERSION,
 };
 #[cfg(not(feature = "runtime-benchmarks"))]
-use super::{ResolutionIssuance, RuntimeUpgrade};
+use super::{ResolutionIssue, Upgrade};
 
 const NORMAL_DISPATCH_RATIO: Perbill =
     Perbill::from_percent(primitives::core_const::NORMAL_DISPATCH_PERCENT);
@@ -100,7 +102,12 @@ parameter_types! {
 }
 
 /// 现有链上的固定委员岗位权限由 Runtime 升级补齐。
-type SingleBlockMigrations = (AddPrcFeeSweepPermissions, crate::evm_accounts::BackfillEvmAccounts,
+type SingleBlockMigrations = (
+    crate::migrations::RenamePallets,
+    crate::migrations::Institutions,
+    AddPrcFeeSweepPermissions,
+    crate::migrations::GrandpaKeys,
+    crate::migrations::EvmBackfill,
 );
 
 const PRC_FEE_SWEEP_MIGRATED: &[u8] = b":citizenchain:prc-fee-sweep-permissions:v1";
@@ -262,21 +269,21 @@ impl OnRuntimeUpgrade for AddPrcFeeSweepPermissions {
                     (b"LegislationVote", b"LegReferendumVotesByCid", 1, 0),
                     (b"LegislationVote", b"LegOverrideSigns", 1, 0),
                     (b"LegislationVote", b"LegGuardSigns", 1, 0),
-                    (b"PersonalManage", b"PendingPersonalCreate", 1, 0),
-                    (b"PersonalManage", b"PendingCloseProposal", 0, 1),
-                    (b"PublicManage", b"InstitutionPendingClose", 0, 1),
-                    (b"PublicManage", b"InstitutionPendingAdd", 0, 1),
-                    (b"PrivateManage", b"InstitutionPendingClose", 0, 1),
-                    (b"PrivateManage", b"InstitutionPendingAdd", 0, 1),
-                    (b"MultisigTransfer", b"SafetyFundProposalActions", 1, 0),
-                    (b"MultisigTransfer", b"SweepProposalActions", 1, 0),
-                    (b"ResolutionIssuance", b"Executed", 2, 0),
-                    (b"ResolutionIssuance", b"EverExecuted", 2, 0),
+                    (b"Personal", b"PendingPersonalCreate", 1, 0),
+                    (b"Personal", b"PendingCloseProposal", 0, 1),
+                    (b"PublicEntity", b"InstitutionPendingClose", 0, 1),
+                    (b"PublicEntity", b"InstitutionPendingAdd", 0, 1),
+                    (b"PrivateEntity", b"InstitutionPendingClose", 0, 1),
+                    (b"PrivateEntity", b"InstitutionPendingAdd", 0, 1),
+                    (b"Multisig", b"SafetyFundProposalActions", 1, 0),
+                    (b"Multisig", b"SweepProposalActions", 1, 0),
+                    (b"ResolutionIssue", b"Executed", 2, 0),
+                    (b"ResolutionIssue", b"EverExecuted", 2, 0),
                     (b"GrandpaKeyChange", b"ActiveEmergencyRecoveryByInstitution", 0, 1,
                         ),
                     (b"GrandpaKeyChange", b"PendingGrandpaKeyChange", 0, 8),
-                    (b"RuntimeUpgrade", b"LastRuntimeUpgradeAudit", 0, 7),
-                    (b"LegislationYuan", b"LawVersions", 0, 6),
+                    (b"Upgrade", b"LastRuntimeUpgradeAudit", 0, 7),
+                    (b"Legislation", b"LawVersions", 0, 6),
                     ];
                     for &(pallet, item, key_layout, value_layout) in layouts {
                         let prefix = frame_support::storage::storage_prefix(pallet, item);
@@ -372,6 +379,10 @@ impl OnRuntimeUpgrade for AddPrcFeeSweepPermissions {
             proposal_weight = proposal_weight.saturating_add(result.expect("提案编号原地转换必须完整成功"));
         }
 
+        // 提案转换仍在原入口执行。权限补齐等到机构键搬完才读取新的类型化存储。
+        if crate::migrations::Institutions::pending() {
+            return proposal_weight.saturating_add(db.reads(1));
+        }
         if frame_support::storage::unhashed::get::<bool>(PRC_FEE_SWEEP_MIGRATED) == Some(true) {
             return proposal_weight.saturating_add(db.reads(1));
         }
@@ -399,12 +410,17 @@ impl OnRuntimeUpgrade for AddPrcFeeSweepPermissions {
 
     #[cfg(feature = "try-runtime")]
     fn pre_upgrade() -> Result<Vec<u8>, sp_runtime::TryRuntimeError> {
-        Self::prepare()?;
+        if !crate::migrations::Institutions::legacy() {
+            Self::prepare()?;
+        }
         Ok(Vec::new())
     }
 
     #[cfg(feature = "try-runtime")]
     fn post_upgrade(_state: Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
+        if crate::migrations::Institutions::pending() {
+            return Ok(());
+        }
         let (_, pending) = Self::prepare()?;
         if !pending.is_empty() {
             return Err("PRC fee sweep migration: permissions remain missing".into());
@@ -499,10 +515,10 @@ impl Contains<RuntimeCall> for RuntimeCallFilter {
             )
             }
             // Balances 只作为底层余额账本和内部 Currency 能力保留。
-            // 外部单账户链上转账唯一入口是 OnchainTransaction::transfer_with_remark。
+            // 外部单账户链上转账唯一入口是 Onchain::transfer_with_remark。
             RuntimeCall::Balances(_) => false,
             // ADR-011 铁律:pallet_assets 内核所有原生 extrinsic 一律 reject。
-            // 业务调用必须经由 OnchainIssuance::propose_* → InternalVote/JointVote callback → 内部 root 调用。
+            // 业务调用必须经由 OnchainIssue::propose_* → InternalVote/JointVote callback → 内部 root 调用。
             // 任何外部 extrinsic 直接打到 pallet_assets 全部不入块,
             // 这是用户代币治理唯一入口铁律的链端兜底。
             RuntimeCall::Assets(_) => false,
@@ -512,8 +528,8 @@ impl Contains<RuntimeCall> for RuntimeCallFilter {
             // 全部保持整体禁用；任何单个调用均不得因 origin 或参数不同绕过本过滤器。
             // 后续启用必须另行确认完整业务规则、岗位权限和指定投票引擎，并通过
             // runtime 升级删除对应分支；不能只解除过滤就宣称业务可用。
-            RuntimeCall::OnchainIssuance(_) => false,
-            RuntimeCall::OffchainTransaction(_) => false,
+            RuntimeCall::OnchainIssue(_) => false,
+            RuntimeCall::Offchain(_) => false,
 
             // ── 放行:逐 pallet 显式列出,不设 `_` 通配分支 ──
             // 与同文件 `fee_route` 保持同一策略:新增 pallet 会触发编译期
@@ -522,11 +538,11 @@ impl Contains<RuntimeCall> for RuntimeCallFilter {
             // 系统与共识基础。
             RuntimeCall::System(_) | RuntimeCall::Timestamp(_) | RuntimeCall::Grandpa(_) => true,
             // 交易与发行。
-            RuntimeCall::OnchainTransaction(_)
-            | RuntimeCall::MultisigTransfer(_)
-            | RuntimeCall::FullnodeIssuance(_)
-            | RuntimeCall::ResolutionIssuance(_)
-            | RuntimeCall::CitizenIssuance(_) => true,
+            RuntimeCall::Onchain(_)
+            | RuntimeCall::Multisig(_)
+            | RuntimeCall::FullnodeIssue(_)
+            | RuntimeCall::ResolutionIssue(_)
+            | RuntimeCall::CitizenIssue(_) => true,
             // 投票引擎核心与四个 sub-pallet。
             RuntimeCall::VotingEngine(_)
             | RuntimeCall::InternalVote(_)
@@ -534,19 +550,18 @@ impl Contains<RuntimeCall> for RuntimeCallFilter {
             | RuntimeCall::ElectionVote(_)
             | RuntimeCall::LegislationVote(_) => true,
             // 治理与协议升级。
-            RuntimeCall::RuntimeUpgrade(_)
-            | RuntimeCall::ResolutionDestroy(_)
-            | RuntimeCall::GrandpaKeyChange(_)
-            | RuntimeCall::LegislationYuan(_) => true,
-            // 实体生命周期与管理员。
-            RuntimeCall::PublicManage(_)
-            | RuntimeCall::PrivateManage(_)
-            | RuntimeCall::PersonalManage(_)
-            | RuntimeCall::PersonalAdmins(_) => true,
+            RuntimeCall::Upgrade(_)
+            | RuntimeCall::Destroy(_)
+            | RuntimeCall::GrandpaKey(_)
+            | RuntimeCall::Legislation(_) => true,
+            // 机构实体生命周期和独立个人多签。
+            RuntimeCall::PublicEntity(_)
+            | RuntimeCall::PrivateEntity(_)
+            | RuntimeCall::Personal(_) => true,
             // 身份与业务索引。
-            RuntimeCall::CitizenIdentity(_)
-            | RuntimeCall::AddressRegistry(_)
-            | RuntimeCall::SquarePost(_) => true,
+            RuntimeCall::Identity(_)
+            | RuntimeCall::Address(_)
+            | RuntimeCall::Square(_) => true,
         }
     }
 }
@@ -582,8 +597,9 @@ impl frame_system::Config for Runtime {
     type BaseCallFilter = RuntimeCallFilter;
     // Receive aliases persist even when the System balance account is reaped.
     type OnNewAccount = crate::evm_accounts::EvmAccountMapping;
-    type OnKilledAccount = ();
-    type PostInherents = crate::evm_accounts::BackfillEvmAccounts;
+    type OnKilledAccount = SaveAccountNonce;
+    type PostInherents = crate::migrations::EvmBackfill;
+    type MultiBlockMigrator = crate::migrations::Institutions;
     type MaxConsumers = frame_support::traits::ConstU32<16>;
     type SingleBlockMigrations = SingleBlockMigrations;
 }
@@ -598,6 +614,80 @@ impl pallet_timestamp::Config for Runtime {
     type WeightInfo = pallet_timestamp::weights::SubstrateWeight<Runtime>;
 }
 
+type AccountData = pallet_balances::AccountData<Balance>;
+type ReapedNonces = StorageMap<ReapedNonceStore, Blake2_128Concat, AccountId, Nonce, OptionQuery>;
+
+struct ReapedNonceStore;
+
+impl StorageInstance for ReapedNonceStore {
+    fn pallet_prefix() -> &'static str {
+        "Runtime"
+    }
+
+    const STORAGE_PREFIX: &'static str = "ReapedNonces";
+}
+
+fn register_nonce_weight(weight: Weight) {
+    if System::block_number() != 0 {
+        System::register_extra_weight_unchecked(
+            weight.saturating_add(RocksDbWeight::get().reads(1)),
+            DispatchClass::Mandatory,
+        );
+    }
+}
+
+/// FRAME 回收记录前留下已用账户的 nonce。零余额期间只保存该序号。
+pub struct SaveAccountNonce;
+
+impl OnKilledAccount<AccountId> for SaveAccountNonce {
+    fn on_killed_account(who: &AccountId) {
+        let nonce = System::account_nonce(who);
+        let db = RocksDbWeight::get();
+        let mut weight = db.reads(1);
+        if nonce != 0 {
+            ReapedNonces::mutate(who, |stored| {
+                *stored = Some(stored.unwrap_or_default().max(nonce));
+            });
+            weight = weight.saturating_add(
+                Weight::from_parts(2_000_000, 3_593).saturating_add(db.reads_writes(1, 1)),
+            );
+        }
+        register_nonce_weight(weight);
+    }
+}
+
+/// 入金路径还原已回收账号的 nonce，随后由原 System 账户记录继续维护。
+pub struct RuntimeBalanceAccounts;
+
+impl StoredMap<AccountId, AccountData> for RuntimeBalanceAccounts {
+    fn get(who: &AccountId) -> AccountData {
+        <System as StoredMap<AccountId, AccountData>>::get(who)
+    }
+
+    fn try_mutate_exists<R, E: From<sp_runtime::DispatchError>>(
+        who: &AccountId,
+        mutate: impl FnOnce(&mut Option<AccountData>) -> Result<R, E>,
+    ) -> Result<R, E> {
+        <System as StoredMap<AccountId, AccountData>>::try_mutate_exists(who, |data| {
+            let funded = data.as_ref().is_some_and(|account| account.free != 0);
+            let result = mutate(data)?;
+            if !funded && data.as_ref().is_some_and(|account| account.free != 0) {
+                let db = RocksDbWeight::get();
+                let mut weight = Weight::from_parts(2_000_000, 3_593).saturating_add(db.reads(1));
+                // Balances 已建立正常提供者引用，System 随后只更新余额字段。
+                if let Some(nonce) = ReapedNonces::take(who) {
+                    frame_system::Account::<Runtime>::mutate(who, |account| {
+                        account.nonce = account.nonce.max(nonce);
+                    });
+                    weight = weight.saturating_add(db.reads_writes(1, 2));
+                }
+                register_nonce_weight(weight);
+            }
+            Ok(result)
+        })
+    }
+}
+
 impl pallet_balances::Config for Runtime {
     type MaxLocks = ConstU32<50>;
     type MaxReserves = ();
@@ -608,7 +698,7 @@ impl pallet_balances::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type DustRemoval = RuntimeDustHandler;
     type ExistentialDeposit = ConstU128<EXISTENTIAL_DEPOSIT>;
-    type AccountStore = System;
+    type AccountStore = RuntimeBalanceAccounts;
     type WeightInfo = pallet_balances::weights::SubstrateWeight<Runtime>;
     type FreezeIdentifier = RuntimeFreezeReason;
     type MaxFreezes = VariantCountOf<RuntimeFreezeReason>;
@@ -738,67 +828,70 @@ fn exact_institution_account_matches(cid_number: &[u8], account: &AccountId) -> 
     RuntimeInstitutionQuery::account_belongs_to(cid_number, account)
 }
 
-fn is_authorized_institution_actor(who: &AccountId, cid_number: &[u8]) -> bool {
-    let Ok(text) = core::str::from_utf8(cid_number) else {
-        return false;
-    };
-    let Some(institution_code) = primitives::cid::code::institution_code_from_cid_number(text)
-    else {
-        return false;
-    };
-    // 费用路由是调用者门：换绑管理员的机构 extrinsic 亦须放行，故用 CID 解析而非 account_id。
-    RuntimeInstitutionAdminQuery::resolve_admin_account(institution_code, cid_number, who).is_some()
-}
-
-fn institution_fee_payer(who: &AccountId, cid_number: &[u8]) -> Option<AccountId> {
-    if !is_authorized_institution_actor(who, cid_number) {
-        return None;
+/// 机构代付只依据本次调用声明的有效岗位，避免遍历机构的全部岗位任职。
+fn is_authorized_institution_actor(who: &AccountId, cid_number: &[u8], role_code: &[u8]) -> bool {
+    match institution_role_directory(cid_number) {
+        Some(true) => PublicEntity::is_active_assignment(cid_number, who, role_code),
+        Some(false) => PrivateEntity::is_active_assignment(cid_number, who, role_code),
+        None => false,
     }
-    exact_institution_fee_account(cid_number)
 }
 
-fn institution_onchain_route(
-    who: &AccountId,
-    cid_number: &[u8],
-) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
-    institution_onchain_amount_route(who, cid_number, 0)
-}
-
-fn institution_onchain_amount_route(
-    who: &AccountId,
-    cid_number: &[u8],
-    transaction_amount: Balance,
-) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
-    match institution_fee_payer(who, cid_number) {
+fn institution_charge(cid_number: &[u8]) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
+    match exact_institution_fee_account(cid_number) {
         Some(payer_account_id) => primitives::fee_policy::FeeRoute::Onchain {
-            transaction_amount,
+            transaction_amount: 0,
             payer_account_id,
         },
         None => primitives::fee_policy::FeeRoute::Reject,
     }
 }
 
+fn institution_onchain_route(
+    who: &AccountId, cid_number: &[u8], role_code: &[u8],
+) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
+    if is_authorized_institution_actor(who, cid_number, role_code) {
+        institution_charge(cid_number)
+    } else {
+        primitives::fee_policy::FeeRoute::Reject
+    }
+}
+
 fn institution_account_onchain_route(
-    who: &AccountId,
-    cid_number: &[u8],
-    institution_account_id: &AccountId,
+    who: &AccountId, cid_number: &[u8], role_code: &[u8], institution_account_id: &AccountId,
 ) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
     if !exact_institution_account_matches(cid_number, institution_account_id) {
         return primitives::fee_policy::FeeRoute::Reject;
     }
-    institution_onchain_route(who, cid_number)
+    institution_onchain_route(who, cid_number, role_code)
 }
 
 fn proposal_operation_route(
-    who: &AccountId,
-    proposal_id: u128,
+    who: &AccountId, proposal_id: u128,
 ) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
+    use primitives::fee_policy::FeeRoute;
     let Some(proposal) = engingcore::Pallet::<Runtime>::proposals(proposal_id) else {
-        return primitives::fee_policy::FeeRoute::Reject;
+        return FeeRoute::Reject;
     };
-    match proposal.actor_cid_number {
-        Some(cid_number) => institution_onchain_route(who, cid_number.as_slice()),
-        None => signer_onchain_route(who, 0),
+    let Some(cid) = proposal.actor_cid_number else {
+        return signer_onchain_route(who, 0);
+    };
+    let Some(plan) = engingcore::Pallet::<Runtime>::proposal_vote_plan(proposal_id) else {
+        return FeeRoute::Reject;
+    };
+    // 重试和取消仍由发起机构的费用账户代付，签名人须持有该机构仍有效的冻结岗位。
+    let eligible = plan.voter_subjects.into_iter().any(|subject| {
+        let entitybase::AuthorizationSubject::Institution(role) = &subject else {
+            return false;
+        };
+        role.cid_number == cid
+            && is_authorized_institution_actor(who, cid.as_slice(), role.role_code.as_slice())
+            && engingcore::Pallet::<Runtime>::is_subject_voter_in_snapshot(proposal_id, subject, who)
+    });
+    if eligible {
+        institution_charge(&cid)
+    } else {
+        FeeRoute::Reject
     }
 }
 
@@ -822,119 +915,76 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
                 Err(_) => FeeRoute::Reject,
             },
             RuntimeCall::Revive(_) => FeeRoute::Reject,
-            RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+            RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
                 amount,
                 ..
             }) => signer_onchain_route(who, *amount),
 
             // 个人多签不是机构；创建提案和管理员变更属于普通链上操作，只有 cast 才是投票。
-            RuntimeCall::PersonalManage(personalentity::pallet::Call::propose_create {
+            RuntimeCall::Personal(personal::pallet::Call::propose_create {
                 ..
             })
-            | RuntimeCall::PersonalManage(personalentity::pallet::Call::propose_close { .. })
-            | RuntimeCall::PersonalAdmins(
-                personaladmin::pallet::Call::propose_admin_set_change { .. },
+            | RuntimeCall::Personal(personal::pallet::Call::propose_close { .. })
+            | RuntimeCall::Personal(
+                personal::pallet::Call::propose_admin_set_change { .. },
             ) => signer_onchain_route(who, 0),
 
-            // 注册局机构操作：管理员只签名，交易费严格从 actor CID 的费用账户扣取。
-            RuntimeCall::PublicManage(
-                publicentity::pallet::Call::update_institution_info {
-                    actor_cid_number, ..
-                }
-                | publicentity::pallet::Call::propose_institution_governance {
-                    actor_cid_number, ..
-                }
-                | publicentity::pallet::Call::register_institution_admins {
-                    actor_cid_number, ..
-                },
-            ) => institution_onchain_route(who, actor_cid_number.as_slice()),
-            // 新增账户已改为本机构自身提案：交易费从本机构(cid_number)费用账户扣取,
-            // 与 propose_institution_governance 等机构自身发起的操作同口径。
-            RuntimeCall::PublicManage(
-                publicentity::pallet::Call::propose_add_institution_account { cid_number, .. },
-            ) => institution_onchain_route(who, cid_number.as_slice()),
-            RuntimeCall::PublicManage(
-                publicentity::pallet::Call::rotate_institution_admin_wallet { cid_number, .. },
-            ) => institution_onchain_route(who, cid_number.as_slice()),
-            RuntimeCall::PublicManage(
-                publicentity::pallet::Call::propose_close_public_institution {
-                    actor_cid_number,
-                    institution_account_id,
-                    ..
-                },
-            ) => institution_account_onchain_route(
-                who,
-                actor_cid_number.as_slice(),
-                institution_account_id,
-            ),
-            RuntimeCall::PrivateManage(
-                privateentity::pallet::Call::update_institution_info {
-                    actor_cid_number, ..
-                }
-                | privateentity::pallet::Call::propose_institution_governance {
-                    actor_cid_number,
-                    ..
-                }
-                | privateentity::pallet::Call::register_institution_admins {
-                    actor_cid_number, ..
-                },
-            ) => institution_onchain_route(who, actor_cid_number.as_slice()),
-            // 新增账户已改为本机构自身提案：交易费从本机构(cid_number)费用账户扣取,
-            // 与 propose_institution_governance 等机构自身发起的操作同口径。
-            RuntimeCall::PrivateManage(
-                privateentity::pallet::Call::propose_add_institution_account { cid_number, .. },
-            ) => institution_onchain_route(who, cid_number.as_slice()),
-            RuntimeCall::PrivateManage(
-                privateentity::pallet::Call::rotate_institution_admin_wallet { cid_number, .. },
-            ) => institution_onchain_route(who, cid_number.as_slice()),
-            RuntimeCall::PrivateManage(
-                privateentity::pallet::Call::propose_close_private_institution {
-                    actor_cid_number,
-                    institution_account_id,
-                    ..
-                },
-            ) => institution_account_onchain_route(
-                who,
-                actor_cid_number.as_slice(),
-                institution_account_id,
-            ),
+            // 注册局任职人员用现绑钱包签名，交易费由本次行权机构的费用账户支付。
+            RuntimeCall::PublicEntity(
+                publicentity::pallet::Call::update_institution_info { actor_cid_number, actor_role_code, .. }
+                | publicentity::pallet::Call::register_institution_roles { actor_cid_number, actor_role_code, .. },
+            ) | RuntimeCall::PrivateEntity(
+                privateentity::pallet::Call::update_institution_info { actor_cid_number, actor_role_code, .. }
+                | privateentity::pallet::Call::register_institution_roles { actor_cid_number, actor_role_code, .. },
+            ) => institution_onchain_route(who, actor_cid_number, actor_role_code),
+            RuntimeCall::PublicEntity(
+                publicentity::pallet::Call::propose_institution_governance { actor_cid_number, proposer_role_code, .. },
+            ) | RuntimeCall::PrivateEntity(
+                privateentity::pallet::Call::propose_institution_governance { actor_cid_number, proposer_role_code, .. },
+            ) => institution_onchain_route(who, actor_cid_number, proposer_role_code),
+            RuntimeCall::PublicEntity(
+                publicentity::pallet::Call::propose_add_institution_account { cid_number, proposer_role_code, .. },
+            ) | RuntimeCall::PrivateEntity(
+                privateentity::pallet::Call::propose_add_institution_account { cid_number, proposer_role_code, .. },
+            ) => institution_onchain_route(who, cid_number, proposer_role_code),
+            RuntimeCall::PublicEntity(
+                publicentity::pallet::Call::propose_close_public_institution { actor_cid_number, institution_account_id, proposer_role_code, .. },
+            ) | RuntimeCall::PrivateEntity(
+                privateentity::pallet::Call::propose_close_private_institution { actor_cid_number, institution_account_id, proposer_role_code, .. },
+            ) => institution_account_onchain_route(who, actor_cid_number, proposer_role_code, institution_account_id),
 
-            RuntimeCall::AddressRegistry(
+            RuntimeCall::Address(
                 address::pallet::Call::set_catalog_version {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | address::pallet::Call::set_address_name {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | address::pallet::Call::remove_address_name {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | address::pallet::Call::set_address {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | address::pallet::Call::remove_address {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 },
-            ) => institution_onchain_route(who, actor_cid_number.as_slice()),
+            ) => institution_onchain_route(who, actor_cid_number.as_slice(), actor_role_code.as_slice()),
 
             // 框架固有、共识公益和 Root/内部维护调用免费。
             RuntimeCall::System(_)
             | RuntimeCall::Timestamp(_)
-            | RuntimeCall::CitizenIssuance(_)
+            | RuntimeCall::CitizenIssue(_)
             | RuntimeCall::Grandpa(_) => FeeRoute::Free,
-            RuntimeCall::ResolutionIssuance(resolutionissue::pallet::Call::propose_issuance {
-                actor_cid_number,
+            RuntimeCall::ResolutionIssue(resolutionissue::pallet::Call::propose_issuance {
+                actor_cid_number, proposer_role_code,
                 ..
-            }) => institution_onchain_route(who, actor_cid_number.as_slice()),
-            RuntimeCall::ResolutionDestroy(destroy::pallet::Call::propose_destroy {
-                actor_cid_number,
+            }) => institution_onchain_route(who, actor_cid_number.as_slice(), proposer_role_code.as_slice()),
+            RuntimeCall::Destroy(destroy::pallet::Call::propose_destroy {
+                actor_cid_number, proposer_role_code,
                 institution_account_id,
                 ..
-            }) => institution_account_onchain_route(
-                who,
-                actor_cid_number.as_slice(),
-                institution_account_id,
-            ),
+            }) => institution_account_onchain_route(who, actor_cid_number.as_slice(), proposer_role_code.as_slice(), institution_account_id),
 
             RuntimeCall::VotingEngine(engingcore::pallet::Call::finalize_proposal { .. }) => {
                 FeeRoute::Free
@@ -944,126 +994,121 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
                 | engingcore::pallet::Call::cancel_passed_proposal { proposal_id, .. },
             ) => proposal_operation_route(who, *proposal_id),
 
-            RuntimeCall::CitizenIdentity(
+            RuntimeCall::Identity(
                 identity::pallet::Call::self_occupy_cid { .. }
                 | identity::pallet::Call::self_rebind_cid_account_id { .. },
             ) => signer_onchain_route(who, 0),
 
-            RuntimeCall::CitizenIdentity(
+            RuntimeCall::Identity(
                 identity::pallet::Call::register_voting_identity {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | identity::pallet::Call::upgrade_to_candidate_identity {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | identity::pallet::Call::update_voting_identity {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | identity::pallet::Call::update_candidate_identity {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | identity::pallet::Call::revoke_identity {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | identity::pallet::Call::occupy_cid {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
-                | identity::pallet::Call::admin_rebind_cid_account_id {
-                    actor_cid_number, ..
+                | identity::pallet::Call::registrar_rebind_cid {
+                    actor_cid_number, actor_role_code, ..
                 }
                 | identity::pallet::Call::revoke_cid {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 },
-            ) => institution_onchain_route(who, actor_cid_number.as_slice()),
+            ) => institution_onchain_route(who, actor_cid_number.as_slice(), actor_role_code.as_slice()),
 
             // 广场内容域：只有发帖、订阅、取消、换档和创作者档位管理属于签名动作；
             // 到期续费由 runtime 内部时间戳调度执行，不进入外部 call 路由。
-            RuntimeCall::SquarePost(
+            RuntimeCall::Square(
                 square::pallet::Call::publish_post { .. }
                 | square::pallet::Call::subscribe { .. }
                 | square::pallet::Call::cancel { .. }
                 | square::pallet::Call::set_creator_plans { .. }
                 | square::pallet::Call::change_subscription_plan { .. },
             )
-            | RuntimeCall::FullnodeIssuance(
+            | RuntimeCall::FullnodeIssue(
                 fullnodeissue::pallet::Call::bind_reward_account { .. }
                 | fullnodeissue::pallet::Call::rebind_reward_account { .. },
             ) => signer_onchain_route(who, 0),
-            RuntimeCall::SquarePost(square::pallet::Call::propose_set_platform_price {
-                actor_cid_number,
+            RuntimeCall::Square(square::pallet::Call::propose_set_platform_price {
+                actor_cid_number, proposer_role_code,
                 ..
-            }) => institution_onchain_route(who, actor_cid_number.as_slice()),
+            }) => institution_onchain_route(who, actor_cid_number.as_slice(), proposer_role_code.as_slice()),
 
-            RuntimeCall::RuntimeUpgrade(
+            RuntimeCall::Upgrade(
                 upgrade::pallet::Call::propose_runtime_upgrade {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | upgrade::pallet::Call::developer_direct_upgrade {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 },
-            ) => institution_onchain_route(who, actor_cid_number.as_slice()),
-            RuntimeCall::GrandpaKeyChange(
+            ) => institution_onchain_route(who, actor_cid_number.as_slice(), actor_role_code.as_slice()),
+            RuntimeCall::GrandpaKey(
                 grandpakey::pallet::Call::propose_emergency_grandpa_key_recovery {
-                    actor_cid_number,
+                    actor_cid_number, actor_role_code,
                     ..
                 }
                 | grandpakey::pallet::Call::schedule_grandpa_key_rotation {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 },
-            ) => institution_onchain_route(who, actor_cid_number.as_slice()),
-            RuntimeCall::LegislationYuan(
+            ) => institution_onchain_route(who, actor_cid_number.as_slice(), actor_role_code.as_slice()),
+            RuntimeCall::Legislation(
                 legislation::pallet::Call::propose_enact_law {
-                    actor_cid_number, ..
+                    actor_cid_number, proposer_role_code, ..
                 }
                 | legislation::pallet::Call::propose_amend_law {
-                    actor_cid_number, ..
+                    actor_cid_number, proposer_role_code, ..
                 }
                 | legislation::pallet::Call::propose_repeal_law {
-                    actor_cid_number, ..
+                    actor_cid_number, proposer_role_code, ..
                 },
-            ) => institution_onchain_route(who, actor_cid_number.as_slice()),
+            ) => institution_onchain_route(who, actor_cid_number.as_slice(), proposer_role_code.as_slice()),
 
-            RuntimeCall::MultisigTransfer(multisig::pallet::Call::propose_transfer {
-                actor_cid_number,
+            RuntimeCall::Multisig(multisig::pallet::Call::propose_transfer {
+                actor_cid_number, proposer_role_code,
                 funding_account_id,
                 ..
             }) => match actor_cid_number {
-                Some(cid_number) => institution_account_onchain_route(
-                    who,
-                    cid_number.as_slice(),
-                    funding_account_id,
-                ),
+                Some(cid_number) => match proposer_role_code.as_ref() {
+                    Some(role) => institution_account_onchain_route(who, cid_number, role, funding_account_id),
+                    None => FeeRoute::Reject,
+                },
                 None => signer_onchain_route(who, 0),
             },
-            RuntimeCall::MultisigTransfer(
+            RuntimeCall::Multisig(
                 multisig::pallet::Call::propose_safety_fund_transfer {
-                    actor_cid_number,
+                    actor_cid_number, proposer_role_code,
                     institution_account_id,
                     ..
                 }
                 | multisig::pallet::Call::propose_sweep_to_main {
-                    actor_cid_number,
+                    actor_cid_number, proposer_role_code,
                     institution_account_id,
                     ..
                 },
-            ) => institution_account_onchain_route(
-                who,
-                actor_cid_number.as_slice(),
-                institution_account_id,
-            ),
+            ) => institution_account_onchain_route(who, actor_cid_number.as_slice(), proposer_role_code.as_slice(), institution_account_id),
 
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::bind_clearing_bank {
+            RuntimeCall::Offchain(offchain::pallet::Call::bind_clearing_bank {
                 ..
             })
-            | RuntimeCall::OffchainTransaction(offchain::pallet::Call::switch_bank { .. }) => {
+            | RuntimeCall::Offchain(offchain::pallet::Call::switch_bank { .. }) => {
                 signer_onchain_route(who, 0)
             }
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::deposit { amount })
-            | RuntimeCall::OffchainTransaction(offchain::pallet::Call::withdraw { amount }) => {
+            RuntimeCall::Offchain(offchain::pallet::Call::deposit { amount })
+            | RuntimeCall::Offchain(offchain::pallet::Call::withdraw { amount }) => {
                 signer_onchain_route(who, *amount)
             }
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::submit_offchain_batch {
-                actor_cid_number,
+            RuntimeCall::Offchain(offchain::pallet::Call::submit_offchain_batch {
+                actor_cid_number, actor_role_code,
                 institution_account_id,
                 batch,
                 ..
@@ -1076,7 +1121,7 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
                 }
                 // 链下费用由各 item 的付款公民承担；这里仍须验证提交机构管理员，
                 // 并保证作为手续费收款方的机构费用账户唯一且正反索引一致。
-                if !is_authorized_institution_actor(who, actor_cid_number.as_slice())
+                if !is_authorized_institution_actor(who, actor_cid_number, actor_role_code)
                     || exact_institution_fee_account(actor_cid_number.as_slice()).is_none()
                 {
                     return FeeRoute::Reject;
@@ -1089,33 +1134,29 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
                     payer_account_id: primitives::fee_policy::OffchainFeePayer::BatchItemPayers,
                 }
             }
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::propose_l2_fee_rate {
-                actor_cid_number,
+            RuntimeCall::Offchain(offchain::pallet::Call::propose_l2_fee_rate {
+                actor_cid_number, actor_role_code,
                 institution_account_id,
                 ..
-            }) => institution_account_onchain_route(
-                who,
-                actor_cid_number.as_slice(),
-                institution_account_id,
-            ),
-            RuntimeCall::OffchainTransaction(
+            }) => institution_account_onchain_route(who, actor_cid_number.as_slice(), actor_role_code.as_slice(), institution_account_id),
+            RuntimeCall::Offchain(
                 offchain::pallet::Call::register_clearing_bank {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | offchain::pallet::Call::update_clearing_bank_endpoint {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 }
                 | offchain::pallet::Call::unregister_clearing_bank {
-                    actor_cid_number, ..
+                    actor_cid_number, actor_role_code, ..
                 },
-            ) => institution_onchain_route(who, actor_cid_number.as_slice()),
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::set_max_l2_fee_rate {
+            ) => institution_onchain_route(who, actor_cid_number.as_slice(), actor_role_code.as_slice()),
+            RuntimeCall::Offchain(offchain::pallet::Call::set_max_l2_fee_rate {
                 ..
             }) => FeeRoute::Free,
 
             // 只有实际投票/表决动作支付固定 1 元，并且始终由投票签名者本人支付。
             RuntimeCall::InternalVote(internalvote::pallet::Call::cast { .. })
-            | RuntimeCall::JointVote(jointvote::pallet::Call::cast_admin { .. })
+            | RuntimeCall::JointVote(jointvote::pallet::Call::cast_role_vote { .. })
             | RuntimeCall::JointVote(jointvote::pallet::Call::cast_referendum { .. })
             | RuntimeCall::LegislationVote(
                 legislationvote::pallet::Call::cast_representative_vote { .. }
@@ -1131,32 +1172,31 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
             // onchainissue 当前 10 个公开 call 都是明确的业务占位，授权后直接
             // `Ok(())`，尚未创建投票或执行资产逻辑。未实装前统一拒绝，禁止形成
             // “扣了机构操作费但没有业务结果”的假交易。
-            RuntimeCall::OnchainIssuance(_) => FeeRoute::Reject,
+            RuntimeCall::OnchainIssue(_) => FeeRoute::Reject,
 
             // FRAME call enum 为元数据稳定性生成 `__Ignore` 隐藏分支；每个业务 pallet
             // 仅把未显式列出的内部 call 归为 Reject。外层 RuntimeCall 不设通配分支，
             // 因此新增 pallet 仍会触发编译期 non-exhaustive 错误。
-            RuntimeCall::OnchainTransaction(_)
-            | RuntimeCall::FullnodeIssuance(_)
-            | RuntimeCall::ResolutionIssuance(_)
+            RuntimeCall::Onchain(_)
+            | RuntimeCall::FullnodeIssue(_)
+            | RuntimeCall::ResolutionIssue(_)
             | RuntimeCall::VotingEngine(_)
             | RuntimeCall::InternalVote(_)
             | RuntimeCall::JointVote(_)
             | RuntimeCall::ElectionVote(_)
-            | RuntimeCall::CitizenIdentity(_)
-            | RuntimeCall::RuntimeUpgrade(_)
-            | RuntimeCall::ResolutionDestroy(_)
-            | RuntimeCall::GrandpaKeyChange(_)
-            | RuntimeCall::PersonalManage(_)
-            | RuntimeCall::PersonalAdmins(_)
-            | RuntimeCall::MultisigTransfer(_)
-            | RuntimeCall::OffchainTransaction(_)
-            | RuntimeCall::LegislationYuan(_)
+            | RuntimeCall::Identity(_)
+            | RuntimeCall::Upgrade(_)
+            | RuntimeCall::Destroy(_)
+            | RuntimeCall::GrandpaKey(_)
+            | RuntimeCall::Personal(_)
+            | RuntimeCall::Multisig(_)
+            | RuntimeCall::Offchain(_)
+            | RuntimeCall::Legislation(_)
             | RuntimeCall::LegislationVote(_)
-            | RuntimeCall::PublicManage(_)
-            | RuntimeCall::PrivateManage(_)
-            | RuntimeCall::AddressRegistry(_)
-            | RuntimeCall::SquarePost(_) => FeeRoute::Reject,
+            | RuntimeCall::PublicEntity(_)
+            | RuntimeCall::PrivateEntity(_)
+            | RuntimeCall::Address(_)
+            | RuntimeCall::Square(_) => FeeRoute::Reject,
 
             // 两个内核 pallet 的外部入口被 BaseCallFilter 禁用；显式 Reject，不伪装成免费。
             RuntimeCall::Assets(_) | RuntimeCall::Balances(_) => FeeRoute::Reject,
@@ -1439,7 +1479,7 @@ impl entitybase::RegistryAuthority<AccountId> for RuntimeRegistryAuthority {
         ) {
             return false;
         }
-        primitives::institution_constraints::registry_wallet_role_in_scope(
+        primitives::institution_constraints::registry_role_in_scope(
             actor_cid_number,
             actor_role_code,
             target_cid_number,
@@ -1660,7 +1700,7 @@ impl identity::BenchmarkHelper<AccountId, identity::pallet::SignatureOf<Runtime>
 }
 
 // 机构自定义账户关闭由签名账户提交明确 CID 与岗位码；业务 pallet 通过统一岗位授权
-// 查询同时校验管理员名册、有效任职和 BusinessActionId，不保留独立审批凭证。
+// 查询校验人员的有效任职及岗位的具体业务权限。
 
 /// 完整 CID 的顶层业务能力策略：固定机构、注册局与立法业务各走共享目录，
 /// 其它普通机构仍只开放自身治理和账户生命周期；顶层允许不授予岗位权限。
@@ -1729,30 +1769,12 @@ impl entitybase::InstitutionCapabilityPolicy for RuntimeInstitutionCapabilityPol
     }
 }
 
-pub struct RuntimeInstitutionWalletVerifier;
-impl adminbase::InstitutionWalletSignatureVerifier<AccountId> for RuntimeInstitutionWalletVerifier {
-    fn verify(account: &AccountId, payload: &[u8], proof: &[u8]) -> bool {
-        let message = primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET, payload,
-        );
-        let Ok((public, signature)) = mldsa::signature_parts(proof) else { return false; };
-        if let Some(public) = public {
-            let Ok(public) = mldsa::PublicKey::decode(&mut &public[..]) else { return false; };
-            let Ok(signature) = mldsa::Signature::decode(&mut &signature[..]) else { return false; };
-            let raw: [u8; 32] = *account.as_ref();
-            mldsa::verify_account_signature(&raw, &public, &message, &signature)
-        } else { mldsa::verify_account::<Runtime>(account, &message, signature) }
-    }
-}
-
 impl publicentity::Config for Runtime {
-    type WalletSignatureVerifier = RuntimeInstitutionWalletVerifier;
     type RuntimeEvent = RuntimeEvent;
     type OnAccountRegistered = crate::evm_accounts::EvmAccountMapping;
     type Currency = Balances;
     type InternalVoteEngine = InternalVote;
-    type AdminLifecycle = PublicAdmins;
-    type SiblingInstitutionQuery = PrivateManage;
-    type InstitutionAdminQuery = RuntimeInstitutionAdminQuery;
+    type SiblingInstitutionQuery = PrivateEntity;
     type InstitutionCapabilityPolicy = RuntimeInstitutionCapabilityPolicy;
     type AccountValidator = RuntimeAccountValidator;
     type ReservedAccountChecker = RuntimeReservedAccountGuard;
@@ -1762,7 +1784,7 @@ impl publicentity::Config for Runtime {
     type OnchainFeeCharger =
         onchain::OnchainExecutionFeeCharger<Runtime, Balances, OnchainExecutionFeeDistributor>;
     type RegistryAuthority = RuntimeRegistryAuthority;
-    type MaxAdmins = MaxAdminsPerInstitution;
+    type MaxRoleEntries = MaxSnapshotVoters;
     type MaxCidNumberLength = ConstU32<{ primitives::core_const::CID_NUMBER_MAX_BYTES }>;
     type MaxAccountNameLength = ConstU32<128>;
     type MaxInstitutionAccounts = ConstU32<16>;
@@ -1770,14 +1792,11 @@ impl publicentity::Config for Runtime {
 }
 
 impl privateentity::Config for Runtime {
-    type WalletSignatureVerifier = RuntimeInstitutionWalletVerifier;
     type RuntimeEvent = RuntimeEvent;
     type OnAccountRegistered = crate::evm_accounts::EvmAccountMapping;
     type Currency = Balances;
     type InternalVoteEngine = InternalVote;
-    type AdminLifecycle = PrivateAdmins;
-    type SiblingInstitutionQuery = PublicManage;
-    type InstitutionAdminQuery = RuntimeInstitutionAdminQuery;
+    type SiblingInstitutionQuery = PublicEntity;
     type InstitutionCapabilityPolicy = RuntimeInstitutionCapabilityPolicy;
     type AccountValidator = RuntimeAccountValidator;
     type ReservedAccountChecker = RuntimeReservedAccountGuard;
@@ -1787,15 +1806,15 @@ impl privateentity::Config for Runtime {
     type OnchainFeeCharger =
         onchain::OnchainExecutionFeeCharger<Runtime, Balances, OnchainExecutionFeeDistributor>;
     type RegistryAuthority = RuntimeRegistryAuthority;
-    type ChainPhase = GenesisPallet;
-    type MaxAdmins = MaxAdminsPerInstitution;
+    type ChainPhase = Genesis;
+    type MaxRoleEntries = MaxSnapshotVoters;
     type MaxCidNumberLength = ConstU32<{ primitives::core_const::CID_NUMBER_MAX_BYTES }>;
     type MaxAccountNameLength = ConstU32<128>;
     type MaxInstitutionAccounts = ConstU32<16>;
     type WeightInfo = privateentity::weights::SubstrateWeight<Runtime>;
 }
 
-impl personalentity::Config for Runtime {
+impl personal::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
     type InternalVoteEngine = InternalVote;
@@ -1803,21 +1822,12 @@ impl personalentity::Config for Runtime {
     type ReservedAccountChecker = RuntimeReservedAccountGuard;
     type ProtectedSourceChecker = RuntimeProtectedSourceChecker;
     type InstitutionAsset = RuntimeInstitutionAsset;
-    type PersonalAdminLifecycle = personaladmin::Pallet<Runtime>;
-    type PersonalAdminQuery = personaladmin::Pallet<Runtime>;
     type OnchainFeeCharger =
         onchain::OnchainExecutionFeeCharger<Runtime, Balances, OnchainExecutionFeeDistributor>;
     type MaxAccountNameLength = ConstU32<128>;
     type MaxPersonalAccountAdmins = MaxPersonalAccountAdmins;
     type MinCreateAmount = ConstU128<111>;
     type WeightInfo = crate::evm_accounts::EvmPersonalWeight;
-}
-
-impl personaladmin::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type InternalVoteEngine = InternalVote;
-    type MaxPersonalAccountAdmins = MaxPersonalAccountAdmins;
-    type WeightInfo = personaladmin::weights::SubstrateWeight<Runtime>;
 }
 
 pub struct RuntimeCitizenIdentityAuthority;
@@ -1960,7 +1970,7 @@ impl identity::CitizenIdentityAuthority<AccountId, identity::pallet::SignatureOf
         )
     }
 
-    fn verify_admin_rebind_signature(
+    fn verify_registrar_rebind_signature(
         account_id: &AccountId,
         payload: &[u8],
         signature: &identity::pallet::SignatureOf<Runtime>,
@@ -1969,7 +1979,7 @@ impl identity::CitizenIdentityAuthority<AccountId, identity::pallet::SignatureOf
             account_id,
             payload,
             signature,
-            primitives::sign::OP_SIGN_CID_ADMIN_REBIND,
+            primitives::sign::OP_SIGN_CID_REGISTRAR_REBIND,
         )
     }
 
@@ -1986,9 +1996,8 @@ impl identity::CitizenIdentityAuthority<AccountId, identity::pallet::SignatureOf
         let province = primitives::cid::code::PROVINCE_CODE_INFOS
             .first()?
             .province_code;
-        let registrar =
-            AccountId::new(*primitives::cid::china::china_zf::FEDERAL_REGISTRY_ADMINS.first()?);
         let institution = primitives::governance_skeleton::federal_registry_institution();
+        let registrar = frame_benchmarking::account(institution.cid_number, 0, 0);
         Some((
             registrar,
             institution.cid_number.as_bytes().to_vec().try_into().ok()?,
@@ -2013,37 +2022,13 @@ impl identity::Config for Runtime {
     type CitizenIdentityAuthority = RuntimeCitizenIdentityAuthority;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = RuntimeCitizenIdentityBenchmarkHelper;
-    type OnVotingIdentityRegistered = CitizenIssuance;
+    type OnVotingIdentityRegistered = CitizenIssue;
     type TimeProvider = crate::Timestamp;
     type MaxPopulationDaysPerBlock = ConstU32<366>;
     type MaxPopulationTransitionsPerBlock = ConstU32<2_048>;
     type MaxPopulationMaintenanceWeightPerBlock =
         identity::PopulationMaintenanceWeightFraction<Runtime, 8>;
     type WeightInfo = identity::weights::SubstrateWeight<Runtime>;
-}
-
-/// 公权管理员公民 CID 与账户绑定校验器。
-///
-/// `identity` 同时维护 CID→账户与账户→CID 两条索引；这里只接受两条索引
-/// 完全一致的正常绑定，不在管理员模块复制或修正公民身份数据。
-pub struct RuntimePublicAdminCitizenIdentityBinding;
-
-impl adminbase::CitizenIdentityBindingQuery<AccountId>
-    for RuntimePublicAdminCitizenIdentityBinding
-{
-    fn matches_citizen_account(cid_number: &[u8], account: &AccountId) -> bool {
-        let Ok(cid): Result<identity::CidNumberBound, _> = cid_number.to_vec().try_into() else {
-            return false;
-        };
-        identity::Pallet::<Runtime>::citizen_subject(account)
-            .is_some_and(|subject| subject.cid_number == cid)
-    }
-    fn current_account(cid_number: &[u8]) -> Option<AccountId> {
-        let cid: identity::CidNumberBound = cid_number.to_vec().try_into().ok()?;
-        let account = identity::AccountIdByCid::<Runtime>::get(&cid)?;
-        Self::matches_citizen_account(cid_number, &account).then_some(account)
-    }
-
 }
 
 pub struct RuntimeSquarePostCitizenIdentity;
@@ -2093,7 +2078,7 @@ impl square::SquarePostCitizenIdentityProvider<AccountId> for RuntimeSquarePostC
 
 impl square::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
-    type CitizenIdentity = RuntimeSquarePostCitizenIdentity;
+    type Identity = RuntimeSquarePostCitizenIdentity;
     type Currency = Balances;
     type TimeProvider = crate::Timestamp;
     type InstitutionAccountQuery = RuntimeInstitutionQuery;
@@ -2124,26 +2109,13 @@ parameter_types! {
     pub const RuntimeUpgradeMaxCodeSize: u32 = 5 * 1024 * 1024;
     /// 管理员治理：单个注册机构账户管理员上限。
     ///
-    /// 物理 BoundedVec 上限必须覆盖机构账户 1989 人场景；个人账户
-    /// 另由 MaxPersonalAccountAdmins 限制为 64。
-    pub const MaxAdminsPerInstitution: u32 = 1989;
+    /// 机构岗位快照覆盖1989人场景，不约束个人成员或个人冻结快照。
+    pub const MaxSnapshotVoters: u32 = 1989;
     /// 管理员治理：单个个人账户管理员上限。
-    pub const MaxPersonalAccountAdmins: u32 = 64;
+    pub const MaxPersonalAccountAdmins: u32 = primitives::multisig::MAX_PERSONAL_ADMINS;
     /// GRANDPA authority set 变更生效延迟（单位：区块）。
     /// 取非 0，给运维注入新 gran 私钥预留窗口，避免立即切换导致短时失票。
     pub const GrandpaAuthoritySetChangeDelay: u32 = 30;
-}
-
-impl publicadmin::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type MaxAdminsPerInstitution = MaxAdminsPerInstitution;
-    type CitizenIdentityBinding = RuntimePublicAdminCitizenIdentityBinding;
-    type ChainPhase = GenesisPallet;
-}
-
-impl privateadmin::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type MaxAdminsPerInstitution = MaxAdminsPerInstitution;
 }
 
 impl destroy::Config for Runtime {
@@ -2233,9 +2205,9 @@ impl multisig::Config for Runtime {
     type MaxRemarkLen = ConstU32<256>;
     type OnchainFeeCharger =
         onchain::OnchainExecutionFeeCharger<Runtime, Balances, OnchainExecutionFeeDistributor>;
-    // 多签 admin 配置查询拆给个人生命周期 pallet 与 runtime 机构聚合查询。
+    // 多签配置查询使用个人完整模块与runtime机构聚合查询。
     // 转账治理时 multisig-transfer 通过 union 调用,先问个人侧、再问机构侧。
-    type PersonalQuery = personalentity::Pallet<Runtime>;
+    type PersonalQuery = personal::Pallet<Runtime>;
     type InstitutionQuery = RuntimeInstitutionQuery;
     type WeightInfo = RuntimeMultisigWeights;
 }
@@ -2283,18 +2255,6 @@ impl entitybase::InstitutionMultisigQuery<AccountId> for RuntimeInstitutionQuery
         }
     }
 
-    fn lookup_admin_config(
-        addr: &AccountId,
-    ) -> Option<primitives::multisig::MultisigConfigSnapshot<AccountId>> {
-        match (
-            publicentity::Pallet::<Runtime>::lookup_admin_config(addr),
-            privateentity::Pallet::<Runtime>::lookup_admin_config(addr),
-        ) {
-            (Some(config), None) | (None, Some(config)) => Some(config),
-            _ => None,
-        }
-    }
-
     fn account_exists(addr: &AccountId) -> bool {
         publicentity::Pallet::<Runtime>::account_exists(addr)
             ^ privateentity::Pallet::<Runtime>::account_exists(addr)
@@ -2317,351 +2277,42 @@ impl entitybase::InstitutionCidQuery<engingcore::types::CidNumber> for RuntimeIn
 /// `electionvote` 不使用本适配器，选举结果必须先回到创建提案的具体选举业务模块复核。
 pub struct RuntimeInstitutionGovernanceResultHandler;
 
-impl entitybase::InstitutionGovernanceResultHandler<AccountId>
+impl entitybase::InstitutionGovernanceResultHandler
     for RuntimeInstitutionGovernanceResultHandler
 {
     fn apply_institution_governance_result(
-        result: entitybase::InstitutionGovernanceResult<AccountId>,
+        result: entitybase::InstitutionGovernanceResult,
     ) -> DispatchResult {
-        if adminbase::is_public_admin_code(&result.institution_code) {
-            return publicentity::Pallet::<Runtime>::apply_institution_governance_result(result);
+        match institution_role_directory(&result.cid_number) {
+            Some(true) => publicentity::Pallet::<Runtime>::apply_institution_governance_result(result),
+            Some(false) => privateentity::Pallet::<Runtime>::apply_institution_governance_result(result),
+            None => Err(sp_runtime::DispatchError::Other("UnsupportedInstitutionGovernanceResultCode")),
         }
-        if adminbase::is_private_admin_code(&result.institution_code) {
-            return privateentity::Pallet::<Runtime>::apply_institution_governance_result(result);
-        }
-        Err(sp_runtime::DispatchError::Other(
-            "UnsupportedInstitutionGovernanceResultCode",
-        ))
     }
 }
 
-/// 机构管理员唯一查询路由：CID 是 key，公权/私权只决定落在哪个 storage pallet。
-pub struct RuntimeInstitutionAdminQuery;
-
-impl adminbase::InstitutionAdminQuery<AccountId> for RuntimeInstitutionAdminQuery {
-    fn institution_admins_exist(
-        institution_code: primitives::cid::code::InstitutionCode,
-        cid_number: &[u8],
-    ) -> bool {
-        Self::institution_admins(institution_code, cid_number).is_some()
-    }
-
-    fn is_institution_admin(
-        institution_code: primitives::cid::code::InstitutionCode,
-        cid_number: &[u8],
-        who: &AccountId,
-    ) -> bool {
-        if adminbase::is_public_admin_code(&institution_code) {
-            return <publicadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                AccountId,
-            >>::is_institution_admin(institution_code, cid_number, who);
-        }
-        if adminbase::is_private_admin_code(&institution_code) {
-            return <privateadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                AccountId,
-            >>::is_institution_admin(institution_code, cid_number, who);
-        }
-        if adminbase::is_unincorporated_admin_code(&institution_code) {
-            return <publicadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                AccountId,
-            >>::is_institution_admin(institution_code, cid_number, who)
-                || <privateadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                    AccountId,
-                >>::is_institution_admin(institution_code, cid_number, who);
-        }
-        false
-    }
-
-    fn institution_admins(
-        institution_code: primitives::cid::code::InstitutionCode,
-        cid_number: &[u8],
-    ) -> Option<Vec<AccountId>> {
-        if adminbase::is_public_admin_code(&institution_code) {
-            return <publicadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                AccountId,
-            >>::institution_admins(institution_code, cid_number);
-        }
-        if adminbase::is_private_admin_code(&institution_code) {
-            return <privateadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                AccountId,
-            >>::institution_admins(institution_code, cid_number);
-        }
-        if adminbase::is_unincorporated_admin_code(&institution_code) {
-            return <publicadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                AccountId,
-            >>::institution_admins(institution_code, cid_number)
-            .or_else(|| {
-                <privateadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                    AccountId,
-                >>::institution_admins(institution_code, cid_number)
-            });
-        }
-        None
-    }
-
-    fn institution_admins_len(
-        institution_code: primitives::cid::code::InstitutionCode,
-        cid_number: &[u8],
-    ) -> Option<u32> {
-        Self::institution_admins(institution_code, cid_number).map(|admins| admins.len() as u32)
-    }
-
-    fn resolve_admin_account(
-        institution_code: primitives::cid::code::InstitutionCode,
-        cid_number: &[u8],
-        caller: &AccountId,
-    ) -> Option<AccountId> {
-        if adminbase::is_public_admin_code(&institution_code) {
-            return <publicadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                AccountId,
-            >>::resolve_admin_account(institution_code, cid_number, caller);
-        }
-        if adminbase::is_private_admin_code(&institution_code) {
-            return <privateadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                AccountId,
-            >>::resolve_admin_account(institution_code, cid_number, caller);
-        }
-        if adminbase::is_unincorporated_admin_code(&institution_code) {
-            return <publicadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                AccountId,
-            >>::resolve_admin_account(institution_code, cid_number, caller)
-            .or_else(|| {
-                <privateadmin::Pallet<Runtime> as adminbase::InstitutionAdminQuery<
-                    AccountId,
-                >>::resolve_admin_account(institution_code, cid_number, caller)
-            });
-        }
-        None
-    }
-    fn resolve_role_authorization(
-        code: primitives::cid::code::InstitutionCode,
-        cid: &[u8],
-        caller: &AccountId,
-    ) -> Option<AccountId> {
-        if adminbase::is_public_admin_code(&code) {
-            return <PublicAdmins as adminbase::InstitutionAdminQuery<AccountId>>::resolve_role_authorization(code,cid,caller);
-        }
-        if adminbase::is_private_admin_code(&code) {
-            return <PrivateAdmins as adminbase::InstitutionAdminQuery<AccountId>>::resolve_role_authorization(code,cid,caller);
-        }
-        if adminbase::is_unincorporated_admin_code(&code) {
-            return <PublicAdmins as adminbase::InstitutionAdminQuery<AccountId>>::resolve_role_authorization(code,cid,caller).or_else(|| <PrivateAdmins as adminbase::InstitutionAdminQuery<AccountId>>::resolve_role_authorization(code,cid,caller));
-        }
-        None
-    }
-    fn has_role_authorization(
-        code: primitives::cid::code::InstitutionCode,
-        cid: &[u8],
-        reference: &AccountId,
-    ) -> bool {
-        if adminbase::is_public_admin_code(&code) {
-            return <PublicAdmins as adminbase::InstitutionAdminQuery<AccountId>>::has_role_authorization(code,cid,reference);
-        }
-        if adminbase::is_private_admin_code(&code) {
-            return <PrivateAdmins as adminbase::InstitutionAdminQuery<AccountId>>::has_role_authorization(code,cid,reference);
-        }
-        if adminbase::is_unincorporated_admin_code(&code) {
-            return <PublicAdmins as adminbase::InstitutionAdminQuery<AccountId>>::has_role_authorization(code,cid,reference) || <PrivateAdmins as adminbase::InstitutionAdminQuery<AccountId>>::has_role_authorization(code,cid,reference);
-        }
-        false
-    }
-}
-
-pub struct RuntimeAdminAccountQuery;
-
-impl AdminAccountQuery<AccountId> for RuntimeAdminAccountQuery {
-    fn active_admin_account_exists(
-        institution_code: primitives::cid::code::InstitutionCode,
-        personal_account_id: AccountId,
-    ) -> bool {
-        if adminbase::is_personal_admin_code(&institution_code) {
-            return personaladmin::Pallet::<Runtime>::active_admin_account_exists(
-                institution_code,
-                personal_account_id,
-            );
-        }
-        false
-    }
-
-    fn is_active_account_admin(
-        institution_code: primitives::cid::code::InstitutionCode,
-        personal_account_id: AccountId,
-        who: &AccountId,
-    ) -> bool {
-        if adminbase::is_personal_admin_code(&institution_code) {
-            return personaladmin::Pallet::<Runtime>::is_active_account_admin(
-                institution_code,
-                personal_account_id,
-                who,
-            );
-        }
-        false
-    }
-
-    fn active_account_admins(
-        institution_code: primitives::cid::code::InstitutionCode,
-        personal_account_id: AccountId,
-    ) -> Option<Vec<AccountId>> {
-        if adminbase::is_personal_admin_code(&institution_code) {
-            return personaladmin::Pallet::<Runtime>::active_account_admins(
-                institution_code,
-                personal_account_id,
-            );
-        }
-        None
-    }
-
-    fn active_account_admin_records(
-        institution_code: primitives::cid::code::InstitutionCode,
-        personal_account_id: AccountId,
-    ) -> Option<Vec<adminbase::Admin<AccountId>>> {
-        if adminbase::is_personal_admin_code(&institution_code) {
-            return personaladmin::Pallet::<Runtime>::active_account_admin_records(
-                institution_code,
-                personal_account_id,
-            );
-        }
-        None
-    }
-
-    fn active_account_admins_len(
-        institution_code: primitives::cid::code::InstitutionCode,
-        personal_account_id: AccountId,
-    ) -> Option<u32> {
-        if adminbase::is_personal_admin_code(&institution_code) {
-            return personaladmin::Pallet::<Runtime>::active_account_admins_len(
-                institution_code,
-                personal_account_id,
-            );
-        }
-        None
-    }
-
-    fn pending_account_exists_for_snapshot(
-        institution_code: primitives::cid::code::InstitutionCode,
-        personal_account_id: AccountId,
-    ) -> bool {
-        Self::pending_account_admins_len_for_snapshot(institution_code, personal_account_id)
-            .is_some()
-    }
-
-    fn is_pending_account_admin_for_snapshot(
-        institution_code: primitives::cid::code::InstitutionCode,
-        personal_account_id: AccountId,
-        who: &AccountId,
-    ) -> bool {
-        if adminbase::is_personal_admin_code(&institution_code) {
-            return personaladmin::Pallet::<Runtime>::is_pending_account_admin_for_snapshot(
-                institution_code,
-                personal_account_id,
-                who,
-            );
-        }
-        false
-    }
-
-    fn pending_account_admins_for_snapshot(
-        institution_code: primitives::cid::code::InstitutionCode,
-        personal_account_id: AccountId,
-    ) -> Option<Vec<AccountId>> {
-        if adminbase::is_personal_admin_code(&institution_code) {
-            return personaladmin::Pallet::<Runtime>::pending_account_admins_for_snapshot(
-                institution_code,
-                personal_account_id,
-            );
-        }
-        None
-    }
-
-    fn pending_account_admin_records_for_snapshot(
-        institution_code: primitives::cid::code::InstitutionCode,
-        personal_account_id: AccountId,
-    ) -> Option<Vec<adminbase::Admin<AccountId>>> {
-        if adminbase::is_personal_admin_code(&institution_code) {
-            return personaladmin::Pallet::<Runtime>::pending_account_admin_records_for_snapshot(
-                institution_code,
-                personal_account_id,
-            );
-        }
-        None
-    }
-
-    fn pending_account_admins_len_for_snapshot(
-        institution_code: primitives::cid::code::InstitutionCode,
-        personal_account_id: AccountId,
-    ) -> Option<u32> {
-        if adminbase::is_personal_admin_code(&institution_code) {
-            return personaladmin::Pallet::<Runtime>::pending_account_admins_len_for_snapshot(
-                institution_code,
-                personal_account_id,
-            );
-        }
-        None
-    }
-}
-
-/// 机构法定代表人聚合查询。公开事实只从 entity 读取，不再经过 admins。
+/// 法定代表人及其当前钱包只从所属实体和 identity 查询。
 pub struct RuntimeInstitutionLegalRepresentativeQuery;
 
-impl entitybase::InstitutionLegalRepresentativeQuery<AccountId>
-    for RuntimeInstitutionLegalRepresentativeQuery
-{
-    fn legal_representative(cid_number: &[u8]) -> Option<AccountId> {
-        let institution_code = cid_institution_code(cid_number)?;
-        if adminbase::is_public_admin_code(&institution_code) {
-            return <publicentity::Pallet<Runtime> as entitybase::InstitutionLegalRepresentativeQuery<AccountId>>::legal_representative(
-                cid_number,
-            );
-        }
-        if adminbase::is_private_admin_code(&institution_code) {
-            return <privateentity::Pallet<Runtime> as entitybase::InstitutionLegalRepresentativeQuery<AccountId>>::legal_representative(
-                cid_number,
-            );
-        }
-        if adminbase::is_unincorporated_admin_code(&institution_code) {
-            return <publicentity::Pallet<Runtime> as entitybase::InstitutionLegalRepresentativeQuery<AccountId>>::legal_representative(
-                cid_number,
-            )
-            .or_else(|| {
-                <privateentity::Pallet<Runtime> as entitybase::InstitutionLegalRepresentativeQuery<AccountId>>::legal_representative(
-                    cid_number,
-                )
-            });
-        }
-        None
+impl entitybase::InstitutionLegalRepresentativeQuery<AccountId> for RuntimeInstitutionLegalRepresentativeQuery {
+    fn legal_representative(cid: &[u8]) -> Option<AccountId> {
+        let person_cid = Self::legal_representative_cid(cid)?.try_into().ok()?;
+        identity::Pallet::<Runtime>::person_account(&person_cid)
     }
 
-    fn legal_representative_cid(cid_number: &[u8]) -> Option<Vec<u8>> {
-        let institution_code = cid_institution_code(cid_number)?;
-        if adminbase::is_public_admin_code(&institution_code) {
-            return <publicentity::Pallet<Runtime> as entitybase::InstitutionLegalRepresentativeQuery<AccountId>>::legal_representative_cid(
-                cid_number,
-            );
+    fn legal_representative_cid(cid: &[u8]) -> Option<Vec<u8>> {
+        match institution_role_directory(cid) {
+            Some(true) => PublicEntity::legal_representative_cid(cid),
+            Some(false) => PrivateEntity::legal_representative_cid(cid),
+            None => None,
         }
-        if adminbase::is_private_admin_code(&institution_code) {
-            return <privateentity::Pallet<Runtime> as entitybase::InstitutionLegalRepresentativeQuery<AccountId>>::legal_representative_cid(
-                cid_number,
-            );
-        }
-        if adminbase::is_unincorporated_admin_code(&institution_code) {
-            return <publicentity::Pallet<Runtime> as entitybase::InstitutionLegalRepresentativeQuery<AccountId>>::legal_representative_cid(
-                cid_number,
-            )
-            .or_else(|| {
-                <privateentity::Pallet<Runtime> as entitybase::InstitutionLegalRepresentativeQuery<AccountId>>::legal_representative_cid(
-                    cid_number,
-                )
-            });
-        }
-        None
     }
 }
 
 // 链下交易清算模块配置
 /// CID 机构登记表查询实现。
 ///
-/// 委托给 runtime 的公权/私权机构生命周期聚合查询；管理员账户校验统一转给
-/// `admins` 集合查询，岗位任职事实仍只读取 entity。
+/// 由 runtime 路由到所属公私实体，并以岗位业务权限校验签名。
 pub struct MultisigCidAccountQuery;
 
 impl offchain::bank_check::CidAccountQuery<AccountId> for MultisigCidAccountQuery {
@@ -2749,93 +2400,64 @@ impl offchain::Config for Runtime {
     type WeightInfo = offchain::weights::SubstrateWeight<Runtime>;
 }
 
-pub struct EnsureNrcAdmin;
+pub struct EnsureNrcMember;
 
 #[cfg(feature = "runtime-benchmarks")]
-fn seed_benchmark_public_admin_account(
+fn seed_benchmark_identities(wallets: &[AccountId]) {
+    for who in wallets {
+        <RuntimeCitizenIdentityReader as engingcore::CitizenIdentityReader<AccountId>>::benchmark_seed_identity(who, &engingcore::PopulationScope::Country);
+    }
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+fn seed_benchmark_public_seats(
     cid_number: &'static str,
     institution_code: primitives::cid::code::InstitutionCode,
-    raw_admins: &[[u8; 32]],
 ) -> Result<AccountId, ()> {
-    use adminbase::InstitutionAdminLifecycle;
-    use square::SquarePostCitizenIdentityProvider;
-    let first = AccountId::new(*raw_admins.first().ok_or(())?);
-    let mut admins = Vec::new();
-    for raw in raw_admins {
-        let who = AccountId::new(*raw);
-        <RuntimeCitizenIdentityReader as engingcore::CitizenIdentityReader<AccountId>>::benchmark_seed_identity(&who,&engingcore::PopulationScope::Country);
-        let cid = RuntimeSquarePostCitizenIdentity::active_cid_number(&who).ok_or(())?;
-        admins.push(adminbase::Admin {
-            account_id: who,
-            cid_number: cid.try_into().map_err(|_| ())?,
-            family_name:
-                sp_runtime::sp_std::vec![b'F';adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
-                    .try_into()
-                    .unwrap(),
-            given_name:
-                sp_runtime::sp_std::vec![b'G';adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize]
-                    .try_into()
-                    .unwrap(),
-        });
+    let mut offset = 0;
+    for role in primitives::governance_skeleton::fixed_role_specs(institution_code) {
+        if role.role_code == primitives::institution_constraints::ROLE_CODE_LEGAL_REPRESENTATIVE {
+            continue;
+        }
+        let end = offset + role.seats;
+        let wallets: Vec<AccountId> = (offset..end)
+            .map(|index| frame_benchmarking::account(cid_number, index, 0))
+            .collect();
+        seed_benchmark_identities(&wallets);
+        PublicEntity::benchmark_seed_role_assignments(cid_number.as_bytes(), role.role_code, wallets)
+            .map_err(|_| ())?;
+        offset = end;
     }
-    <Runtime as publicentity::Config>::AdminLifecycle::benchmark_set_institution_admins(
-        publicentity::MODULE_TAG,
-        cid_number.as_bytes().to_vec(),
-        institution_code,
-        adminbase::AdminAccountKind::PublicInstitution,
-        admins,
-    )
-    .map_err(|_| ())?;
-    PublicManage::benchmark_fixed_roles(cid_number.as_bytes()).map_err(|_| ())?;
-    Ok(first)
+    Ok(frame_benchmarking::account(cid_number, 0, 0))
 }
 
 #[cfg(feature = "runtime-benchmarks")]
-fn seed_benchmark_joint_admins_origin() -> Result<RuntimeOrigin, ()> {
-    let nrc = primitives::cid::china::china_cb::CHINA_CB
-        .first()
-        .ok_or(())?;
-    let nrc_cid: publicentity::pallet::CidNumberOf<Runtime> = nrc
-        .cid_number
-        .as_bytes()
-        .to_vec()
-        .try_into()
+fn seed_benchmark_joint_members_origin() -> Result<RuntimeOrigin, ()> {
+    use primitives::cid::{china::{china_cb::CHINA_CB, china_ch::CHINA_CH}, code::{NRC, PRC, PRB}};
+
+    let nrc = CHINA_CB.first().ok_or(())?;
+    let cid = publicentity::CidNumberOf::<Runtime>::try_from(nrc.cid_number.as_bytes().to_vec())
         .map_err(|_| ())?;
-    if !publicentity::Institutions::<Runtime>::contains_key(&nrc_cid) {
-        // benchmark 外部状态默认不执行完整链规创世；联合提案必须使用真实创世岗位、
-        // 任职和权限目录，禁止重新伪造一套“管理员即有权”的 benchmark 数据。
+    if !publicentity::Institutions::<Runtime>::contains_key(&cid) {
         ::genesis::institution::build::<Runtime>();
     }
-    // spec-genesis 与 benchmark WASM 之间只通过 storage 交接；在岗位目录完成后按当前
-    // `admins` SCALE 类型重写管理员集合，避免宿主侧旧编码污染岗位授权读取。
-    let admin = seed_benchmark_public_admin_account(
-        nrc.cid_number,
-        primitives::cid::code::NRC,
-        nrc.admins,
-    )?;
-    for entry in primitives::cid::china::china_cb::CHINA_CB.iter().skip(1) {
-        seed_benchmark_public_admin_account(
-            entry.cid_number,
-            primitives::cid::code::PRC,
-            entry.admins,
-        )?;
+    // 各机构的合成钱包进入真实的身份和任职校验路径。
+    let proposer = seed_benchmark_public_seats(nrc.cid_number, NRC)?;
+    for entry in CHINA_CB.iter().skip(1) {
+        seed_benchmark_public_seats(entry.cid_number, PRC)?;
     }
-    for entry in primitives::cid::china::china_ch::CHINA_CH.iter() {
-        seed_benchmark_public_admin_account(
-            entry.cid_number,
-            primitives::cid::code::PRB,
-            entry.admins,
-        )?;
+    for entry in CHINA_CH {
+        seed_benchmark_public_seats(entry.cid_number, PRB)?;
     }
-    Ok(RuntimeOrigin::from(frame_system::RawOrigin::Signed(admin)))
+    Ok(RuntimeOrigin::from(frame_system::RawOrigin::Signed(proposer)))
 }
 
-impl EnsureOrigin<RuntimeOrigin> for EnsureNrcAdmin {
+impl EnsureOrigin<RuntimeOrigin> for EnsureNrcMember {
     type Success = AccountId;
 
     fn try_origin(o: RuntimeOrigin) -> Result<Self::Success, RuntimeOrigin> {
         let who = frame_system::EnsureSigned::<AccountId>::try_origin(o)?;
-        if is_nrc_admin(&who) {
+        if is_nrc_member(&who) {
             Ok(who)
         } else {
             Err(RuntimeOrigin::from(frame_system::RawOrigin::Signed(who)))
@@ -2844,19 +2466,18 @@ impl EnsureOrigin<RuntimeOrigin> for EnsureNrcAdmin {
 
     #[cfg(feature = "runtime-benchmarks")]
     fn try_successful_origin() -> Result<RuntimeOrigin, ()> {
-        seed_benchmark_joint_admins_origin()
+        seed_benchmark_joint_members_origin()
     }
 }
 
-pub(crate) fn is_nrc_admin(who: &AccountId) -> bool {
+pub(crate) fn is_nrc_member(who: &AccountId) -> bool {
     // NRC 是固定创世机构，清单缺失属于不可恢复的 runtime 配置错误。
     let nrc_cid_number = primitives::cid::china::china_cb::CHINA_CB
         .first()
         .map(|n| n.cid_number.as_bytes())
         .unwrap_or_else(|| panic!("NRC CID must exist"));
 
-    // 创世后只信任链上管理员治理模块中的统一账户表。
-    RuntimeInstitutionAdminQuery::resolve_admin_account(engingcore::types::NRC, nrc_cid_number, who).is_some()
+    PublicEntity::is_active_assignment(nrc_cid_number, who, primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER)
 }
 
 /// 联合提案发起权限：国家储委会（CHINA_CB[0]）+ 43个省储委会（CHINA_CB[1..44]）。
@@ -2871,7 +2492,7 @@ impl EnsureOrigin<RuntimeOrigin> for EnsureJointProposer {
 
     #[cfg(feature = "runtime-benchmarks")]
     fn try_successful_origin() -> Result<RuntimeOrigin, ()> {
-        seed_benchmark_joint_admins_origin()
+        seed_benchmark_joint_members_origin()
     }
 }
 
@@ -2891,11 +2512,11 @@ impl resolutionissue::Config for Runtime {
 impl upgrade::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type ProposeOrigin = EnsureJointProposer;
-    type DeveloperUpgradeOrigin = EnsureNrcAdmin;
+    type DeveloperUpgradeOrigin = EnsureNrcMember;
     type JointVoteEngine = JointVote;
     type InstitutionRoleAuthorization = publicentity::Pallet<Runtime>;
     type RuntimeCodeExecutor = RuntimeSetCodeExecutor;
-    type DeveloperUpgradeCheck = GenesisPallet;
+    type DeveloperUpgradeCheck = Genesis;
     type MaxReasonLen = RuntimeUpgradeMaxReasonLen;
     type MaxRuntimeCodeSize = RuntimeUpgradeMaxCodeSize;
     type WeightInfo = upgrade::weights::SubstrateWeight<Runtime>;
@@ -2916,13 +2537,13 @@ impl upgrade::RuntimeCodeExecutor for RuntimeSetCodeExecutor {
             if code.is_empty() || pow_params.validate().is_err() || activate_at == 0 {
                 Err(sp_runtime::DispatchError::Other("empty runtime code"))
             } else {
-                super::PowDifficulty::stage_params(pow_params, activate_at)
+                super::Difficulty::stage_params(pow_params, activate_at)
             }
         }
 
         #[cfg(not(feature = "runtime-benchmarks"))]
         {
-            super::PowDifficulty::stage_params(pow_params, activate_at)?;
+            super::Difficulty::stage_params(pow_params, activate_at)?;
             let set_code_call = frame_system::Call::<Runtime>::set_code {
                 code: code.to_vec(),
             };
@@ -2992,14 +2613,14 @@ impl engingcore::JointVoteResultCallback for RuntimeJointVoteResultCallback {
         #[cfg(not(feature = "runtime-benchmarks"))]
         {
             if resolutionissue::Pallet::<Runtime>::owns_proposal(vote_proposal_id) {
-                return <ResolutionIssuance as engingcore::JointVoteResultCallback>::on_joint_vote_finalized(
+                return <ResolutionIssue as engingcore::JointVoteResultCallback>::on_joint_vote_finalized(
                 vote_proposal_id,
                 approved,
             );
             }
 
             if upgrade::Pallet::<Runtime>::owns_proposal(vote_proposal_id) {
-                return <RuntimeUpgrade as engingcore::JointVoteResultCallback>::on_joint_vote_finalized(
+                return <Upgrade as engingcore::JointVoteResultCallback>::on_joint_vote_finalized(
                     vote_proposal_id,
                     approved,
                 );
@@ -3036,7 +2657,7 @@ impl engingcore::Config for Runtime {
     type CitizenIdentityReader = RuntimeCitizenIdentityReader;
     type JointVoteResultCallback = RuntimeJointVoteResultCallback;
     // 内部投票终态回调注册 6 个顶层槽位；公权/私权机构生命周期共用一个 tuple 槽位，
-    // 个人多签生命周期和个人多签管理员共用一个 tuple 槽位。
+    // 个人多签生命周期与成员治理由同一个personal回调处理。
     // 顺序按调用频率降序:transfer / multisig manage 类业务最频繁,
     // grandpa key 替换最稀有放最后(tuple iterate 时命中越早越省 gas)。
     // 每个 Executor 通过 MODULE_TAG 前缀 + 独立存储键互斥认领本模块提案,
@@ -3047,16 +2668,13 @@ impl engingcore::Config for Runtime {
             publicentity::InternalVoteExecutor<Runtime>,
             privateentity::InternalVoteExecutor<Runtime>,
         ),
-        (
-            personalentity::InternalVoteExecutor<Runtime>,
-            personaladmin::InternalVoteExecutor<Runtime>,
-        ),
+        personal::InternalVoteExecutor<Runtime>,
         destroy::InternalVoteExecutor<Runtime>,
         grandpakey::InternalVoteExecutor<Runtime>,
         square::InternalVoteExecutor<Runtime>,
     );
-    type InternalAdminProvider = RuntimeInternalAdminProvider;
-    type MaxAdminsPerInstitution = MaxAdminsPerInstitution;
+    type InternalVoteProvider = RuntimeInternalVoteProvider;
+    type MaxSnapshotVoters = MaxSnapshotVoters;
     type TimeProvider = pallet_timestamp::Pallet<Runtime>;
     type WeightInfo = engingcore::weights::SubstrateWeight<Runtime>;
     // 四类 timeout / cleanup / mode 终态副作用通过递归 Track tuple 派发。
@@ -3066,7 +2684,7 @@ impl engingcore::Config for Runtime {
     );
     // 立法投票(ADR-027):终态业务回调接 legislation，Track 接 legislationvote。
     // ProposalOwner 决定由法律、任免或预算业务认领；B1 先装配法律业务壳。
-    type LegislationVoteResultCallback = (LegislationYuan,);
+    type LegislationVoteResultCallback = (Legislation,);
     type ElectionVoteResultCallback = ElectionVote;
 }
 
@@ -3107,7 +2725,7 @@ frame_support::parameter_types! {
 }
 
 /// 创世机构 seeding 注入实现:runtime 侧调用 institution::build。
-/// Runtime 本就实现 publicentity/publicadmin::Config,天然满足 build 的治理 where 约束,
+/// Runtime 装配公私实体，可直接复用创世规格播种器，
 /// 因此治理耦合留在 runtime 层,不再作为 genesis pallet Config 的 supertrait。
 pub struct RuntimeGenesisSeeder;
 impl ::genesis::GenesisInstitutionSeeder for RuntimeGenesisSeeder {
@@ -3122,108 +2740,32 @@ impl ::genesis::Config for Runtime {
     type InstitutionSeeder = RuntimeGenesisSeeder;
 }
 
-pub struct RuntimeInternalAdminProvider;
+pub struct RuntimeInternalVoteProvider;
 
-impl engingcore::InternalAdminProvider<AccountId> for RuntimeInternalAdminProvider {
-    fn is_institution_admin(
-        institution_code: engingcore::types::InstitutionCode,
-        cid_number: &[u8],
-        who: &AccountId,
-    ) -> bool {
-        // 当前名册仅包含实际钱包；岗位授权引用通过独立接口读取。
-        RuntimeInstitutionAdminQuery::is_institution_admin(institution_code, cid_number, who)
-    }
-
-    fn institution_wallet_snapshot(
-        cid: &[u8],
-        references: &[AccountId],
-    ) -> Option<Vec<(AccountId, u64)>> {
-        let code = cid_institution_code(cid)?;
-        let key = adminbase::AdminCidNumber::try_from(cid.to_vec()).ok()?;
-        let public = publicadmin::AdminAccounts::<Runtime>::get(&key);
-        let private = privateadmin::AdminAccounts::<Runtime>::get(&key);
-        let (roster, is_private) = match (public, private) {
-            (Some(r), None) => (r, false),
-            (None, Some(r)) => (r, true),
-            _ => return None,
-        };
-        if roster.institution_code != code {
-            return None;
-        }
-        let mut by_reference = alloc::collections::BTreeMap::new();
-        for admin in roster.admins {
-            let (state, reference) = if is_private {
-                (
-                    privateadmin::AdminWallets::<Runtime>::get(&key, &admin.account_id)?,
-                    privateadmin::WalletRoleBindings::<Runtime>::get(&key, &admin.account_id)?,
-                )
-            } else {
-                (
-                    publicadmin::AdminWallets::<Runtime>::get(&key, &admin.account_id)?,
-                    publicadmin::WalletRoleBindings::<Runtime>::get(&key, &admin.account_id)?,
-                )
-            };
-            if state.wallet.as_ref() != Some(&admin.account_id)
-                || by_reference
-                    .insert(reference, (admin.account_id, state.revision))
-                    .is_some()
-            {
-                return None;
-            }
-        }
-        references
-            .iter()
-            .map(|r| by_reference.get(r).cloned())
-            .collect()
-    }
-
+impl engingcore::InternalVoteProvider<AccountId> for RuntimeInternalVoteProvider {
     #[cfg(feature = "runtime-benchmarks")]
-    #[allow(clippy::expect_used)]
     fn benchmark_seed_institution_voter(cid_number: &[u8], voter: &AccountId) {
-        // Benchmark 接口不返回 Result；无效机构 CID 或越界夹具必须立即停止，不能静默降级。
-        let institution_code =
-            cid_institution_code(cid_number).expect("benchmark institution CID must be valid");
-        assert!(
-            adminbase::is_public_admin_code(&institution_code),
-            "election benchmark currently seeds a public institution"
-        );
-        let cid_number: adminbase::AdminCidNumber = cid_number
-            .to_vec()
-            .try_into()
-            .expect("benchmark institution CID fits admin bounds");
-        use adminbase::InstitutionAdminLifecycle;
-        let count = primitives::institution_constraints::member_composition_by_identity(
-            institution_code,
-            cid_number.as_slice(),
-        )
-        .map(|spec| spec.max_members)
-        .or_else(|| {
-            adminbase::expected_fixed_governance_admins_len(institution_code, cid_number.as_slice())
-                .map(|n| n as u32)
-        })
-        .unwrap_or(MaxAdminsPerInstitution::get());
-        let mut admins = (0..count.saturating_sub(1))
-            .map(|i| adminbase::Admin {
-                account_id: frame_benchmarking::account::<AccountId>("benchmark-member", i, 0),
-                cid_number: Default::default(),
-                family_name: b"F".to_vec().try_into().unwrap(),
-                given_name: b"G".to_vec().try_into().unwrap(),
-            })
-            .collect::<Vec<_>>();
-        admins.push(adminbase::Admin {
-            account_id: voter.clone(),
-            cid_number: Default::default(),
-            family_name: b"F".to_vec().try_into().unwrap(),
-            given_name: b"G".to_vec().try_into().unwrap(),
-        });
-        <Runtime as publicentity::Config>::AdminLifecycle::benchmark_set_institution_admins(
-            publicentity::MODULE_TAG,
-            cid_number.to_vec(),
-            institution_code,
-            adminbase::AdminAccountKind::PublicInstitution,
-            admins,
-        )
-        .expect("基准必须满足真实机构名册约束");
+        <RuntimeCitizenIdentityReader as engingcore::CitizenIdentityReader<AccountId>>::benchmark_seed_identity(voter, &engingcore::PopulationScope::Country);
+        let cid = engingcore::CidNumber::try_from(cid_number.to_vec()).expect("基准机构 CID");
+        let info = publicentity::Institutions::<Runtime>::get(&cid).expect("基准机构必须已登记");
+        let spec = primitives::institution_constraints::member_composition_by_identity(info.institution_code, &cid);
+        if let Some(spec) = spec {
+            let mut wallets = (0..spec.max_members.saturating_sub(1))
+                .map(|i| frame_benchmarking::account::<AccountId>("role-voter", i, 0)).collect::<Vec<_>>();
+            wallets.push(voter.clone());
+            seed_benchmark_identities(&wallets);
+            PublicEntity::benchmark_seed_role(&cid, spec.role_code,
+                entitybase::business_action::ACTION_ENACT_LAW, wallets).expect("基准必须配置合法岗位任职");
+        } else {
+            let role = primitives::governance_skeleton::fixed_role_specs(info.institution_code)
+                .into_iter().find(|role| role.role_code != primitives::institution_constraints::ROLE_CODE_LEGAL_REPRESENTATIVE)
+                .expect("基准机构必须定义固定岗位");
+            let mut wallets = (0..role.seats.saturating_sub(1))
+                .map(|i| frame_benchmarking::account::<AccountId>("role-voter", i, 0)).collect::<Vec<_>>();
+            wallets.push(voter.clone());
+            seed_benchmark_identities(&wallets);
+            PublicEntity::benchmark_seed_role_assignments(&cid, role.role_code, wallets).expect("基准必须配置合法岗位任职");
+        }
     }
 
     fn institution_threshold(
@@ -3231,17 +2773,18 @@ impl engingcore::InternalAdminProvider<AccountId> for RuntimeInternalAdminProvid
         cid_number: &[u8],
     ) -> Option<u32> {
         let cid = engingcore::types::CidNumber::try_from(cid_number.to_vec()).ok()?;
-        if adminbase::is_public_admin_code(&institution_code) {
-            return publicentity::InstitutionGovernanceThresholds::<Runtime>::get(cid);
+        if cid_institution_code(&cid)? != institution_code {
+            return None;
         }
-        if adminbase::is_private_admin_code(&institution_code) {
-            return privateentity::InstitutionGovernanceThresholds::<Runtime>::get(cid);
+        match institution_role_directory(&cid) {
+            Some(true) => publicentity::InstitutionGovernanceThresholds::<Runtime>::get(cid),
+            Some(false) => privateentity::InstitutionGovernanceThresholds::<Runtime>::get(cid),
+            None => None,
         }
-        None
     }
 
     fn is_pending_personal_admin(personal_account_id: AccountId, who: &AccountId) -> bool {
-        RuntimeAdminAccountQuery::is_pending_account_admin_for_snapshot(
+        personal::Pallet::<Runtime>::is_pending_account_admin_for_snapshot(
             engingcore::types::PMUL,
             personal_account_id,
             who,
@@ -3251,14 +2794,14 @@ impl engingcore::InternalAdminProvider<AccountId> for RuntimeInternalAdminProvid
     fn get_pending_personal_admins(
         personal_account_id: AccountId,
     ) -> Option<alloc::vec::Vec<AccountId>> {
-        RuntimeAdminAccountQuery::pending_account_admins_for_snapshot(
+        personal::Pallet::<Runtime>::pending_account_admins_for_snapshot(
             engingcore::types::PMUL,
             personal_account_id,
         )
     }
 
     fn is_personal_admin(personal_account_id: AccountId, who: &AccountId) -> bool {
-        RuntimeAdminAccountQuery::is_active_account_admin(
+        personal::Pallet::<Runtime>::is_active_account_admin(
             engingcore::types::PMUL,
             personal_account_id,
             who,
@@ -3266,7 +2809,7 @@ impl engingcore::InternalAdminProvider<AccountId> for RuntimeInternalAdminProvid
     }
 
     fn get_personal_admins(personal_account_id: AccountId) -> Option<Vec<AccountId>> {
-        RuntimeAdminAccountQuery::active_account_admins(engingcore::types::PMUL, personal_account_id,
+        personal::Pallet::<Runtime>::active_account_admins(engingcore::types::PMUL, personal_account_id,
         )
     }
 
@@ -3276,14 +2819,7 @@ impl engingcore::InternalAdminProvider<AccountId> for RuntimeInternalAdminProvid
         )
     }
 
-    fn constitution_guard_members() -> Vec<AccountId> {
-        <publicentity::Pallet<Runtime> as InstitutionRoleQuery<AccountId>>::active_accounts_for_role(
-            primitives::cid::china::china_sf::CHINA_SF[0]
-                .cid_number
-                .as_bytes(),
-            primitives::governance_skeleton::ROLE_CODE_CONSTITUTION_GUARD,
-        )
-    }
+
 }
 
 /// 跨业务机构岗位授权路由；CID 必须只存在于公权或私权一个机构目录中。
@@ -3387,13 +2923,13 @@ impl engingcore::InstitutionRoleProvider<AccountId> for RuntimeInstitutionRolePr
         }
     }
 
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId> {
+    fn active_persons_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<Vec<u8>> {
         match institution_role_directory(cid_number) {
             Some(true) => {
-                publicentity::Pallet::<Runtime>::snapshot_role_references(cid_number, role_code)
+                publicentity::Pallet::<Runtime>::snapshot_role_persons(cid_number, role_code)
             }
             Some(false) => {
-                privateentity::Pallet::<Runtime>::snapshot_role_references(cid_number, role_code)
+                privateentity::Pallet::<Runtime>::snapshot_role_persons(cid_number, role_code)
             }
             None => Vec::new(),
         }
@@ -3403,6 +2939,14 @@ impl engingcore::InstitutionRoleProvider<AccountId> for RuntimeInstitutionRolePr
 pub struct RuntimeCitizenIdentityReader;
 
 impl engingcore::CitizenIdentityReader<AccountId> for RuntimeCitizenIdentityReader {
+    fn person_cid(who: &AccountId) -> Option<engingcore::types::CidNumber> {
+        identity::Pallet::<Runtime>::person_cid(who)
+    }
+
+    fn person_account(person_cid: &engingcore::types::CidNumber) -> Option<AccountId> {
+        identity::Pallet::<Runtime>::person_account(person_cid)
+    }
+
     fn citizen_subject(who: &AccountId) -> Option<identity::CitizenSubject<AccountId>> {
         <identity::Pallet<Runtime> as identity::CitizenIdentityProvider<AccountId>>::citizen_subject(
             who,
@@ -3565,15 +3109,15 @@ impl engingcore::CitizenIdentityReader<AccountId> for RuntimeCitizenIdentityRead
         }
     }
 }
-// pallet_assets 内核接入(ADR-011 第八节)+ OnchainIssuance 外壳配置
+// pallet_assets 内核接入(ADR-011 第八节)+ OnchainIssue 外壳配置
 //
 // pallet_assets 是用户代币的内核 storage / 资产记账实现,
 // **所有原生 extrinsic 在 RuntimeCallFilter 中 reject**。
-// 业务调用必须经由 OnchainIssuance::propose_* → InternalVote/JointVote callback →
+// 业务调用必须经由 OnchainIssue::propose_* → InternalVote/JointVote callback →
 // onchainissue 内部以 Root 调用 pallet_assets 的内核 API。
 //
 // pallet_assets 的 deposit 系列常量统一为 0，仅保留底层资产记账能力。
-// 当前 OnchainIssuance 对外调用仍由 RuntimeCallFilter 拒绝；后续业务实装时，
+// 当前 OnchainIssue 对外调用仍由 RuntimeCallFilter 拒绝；后续业务实装时，
 // 费用类型必须进入统一 FeeRoute，实际链上执行费必须复用统一执行收费接口，
 // 不得恢复专用创建费、押金收费或其它旁路。
 
@@ -3596,7 +3140,7 @@ impl pallet_assets::Config for Runtime {
     type Currency = Balances;
     /// 外部 extrinsic 全部被 RuntimeCallFilter reject,这里 origin 设啥不影响实际入口。
     /// CreateOrigin 接 EnsureSigned 仅为满足 trait Success=AccountId 约束;
-    /// ForceOrigin 接 EnsureRoot(Success=())。OnchainIssuance 内部经 fungibles trait
+    /// ForceOrigin 接 EnsureRoot(Success=())。OnchainIssue 内部经 fungibles trait
     /// (Create / Mutate)直接调内核 API,不走 extrinsic origin 路径。
     type CreateOrigin =
         frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
@@ -3727,7 +3271,7 @@ impl pallet_revive::Config for Runtime {
     type NativeToEthRatio = ConstU64<{ primitives::core_const::NATIVE_TO_ETH_RATIO }>;
     type StrictNativeBalance = ConstBool<true>;
     type FeeInfo = pallet_revive::evm::fees::NativeInfo<
-        crate::Address,
+        crate::TransactionAddress,
         crate::Signature,
         crate::EthExtraImpl,
         RuntimeNativeFee,
@@ -3770,7 +3314,6 @@ impl privateentity::benchmarks::BenchmarkSetup for Runtime {
 #[cfg(feature = "runtime-benchmarks")]
 impl legislation::benchmarks::BenchmarkSetup for Runtime {
     fn authority(action: u32) -> legislation::benchmarks::Authority<AccountId> {
-        use adminbase::InstitutionAdminLifecycle;
         use entitybase::InstitutionRoleAuthorizationQuery;
         System::set_block_number(1);
         super::Timestamp::set_timestamp(1800000000000);
@@ -3816,32 +3359,10 @@ impl legislation::benchmarks::BenchmarkSetup for Runtime {
                     role.as_slice(),
                 )
             })
-            .unwrap_or(MaxAdminsPerInstitution::get());
-            let admins = (0..seats)
-                .map(|i| adminbase::Admin {
-                    account_id: frame_benchmarking::account::<AccountId>(
-                        "law-member",
-                        i,
-                        index as u32,
-                    ),
-                    cid_number: Default::default(),
-                    family_name: sp_runtime::sp_std::vec![b'F';adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize].try_into().unwrap(),
-                    given_name: sp_runtime::sp_std::vec![b'G';adminbase::ADMIN_PERSON_NAME_MAX_BYTES as usize].try_into().unwrap(),
-                })
-                .collect::<Vec<_>>();
-            let accounts = admins
-                .iter()
-                .map(|a| a.account_id.clone())
-                .collect::<Vec<_>>();
-            <Runtime as publicentity::Config>::AdminLifecycle::benchmark_set_institution_admins(
-                publicentity::MODULE_TAG,
-                cid.to_vec(),
-                code,
-                adminbase::AdminAccountKind::PublicInstitution,
-                admins,
-            )
-            .unwrap();
-            PublicManage::benchmark_seed_role(
+            .unwrap_or(MaxSnapshotVoters::get());
+            let accounts = (0..seats).map(|i| frame_benchmarking::account::<AccountId>("law-member", i, index as u32)).collect::<Vec<_>>();
+            seed_benchmark_identities(&accounts);
+            PublicEntity::benchmark_seed_role(
                 cid.as_slice(),
                 role.as_slice(),
                 action,
@@ -3892,7 +3413,7 @@ impl engingcore::benchmarks::BenchmarkSetup for Runtime {
         System::set_block_number(1);
         super::Timestamp::set_timestamp(1800000000000);
         let entry = &primitives::cid::china::china_cb::CHINA_CB[0];
-        let proposer = AccountId::decode(&mut &entry.admins[0][..]).unwrap();
+        let proposer: AccountId = frame_benchmarking::account(entry.cid_number, 0, 0);
         let cid: engingcore::CidNumber = entry.cid_number.as_bytes().to_vec().try_into().unwrap();
         let role: engingcore::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
             .to_vec()
@@ -3900,11 +3421,18 @@ impl engingcore::benchmarks::BenchmarkSetup for Runtime {
             .unwrap();
         let id = engingcore::Pallet::<Runtime>::next_proposal_id();
         if cancel {
-            use adminbase::InstitutionAdminLifecycle;
-            use ed25519_dalek::{Signer, SigningKey};
+                use ed25519_dalek::{Signer, SigningKey};
             let pair = SigningKey::from_bytes(&[117u8; 32]); // 公开确定性基准输入，不用于任何真实节点。
             let new_key = pair.verifying_key().to_bytes();
-            let old_key = grandpakey::CurrentGrandpaKeys::<Runtime>::get(&cid).unwrap();
+            let old_key = SigningKey::from_bytes(&[116; 32]).verifying_key().to_bytes();
+            if let Some(old) = grandpakey::CurrentGrandpaKeys::<Runtime>::get(&cid) {
+                grandpakey::GrandpaKeyOwnerByKey::<Runtime>::remove(old);
+            }
+            grandpakey::CurrentGrandpaKeys::<Runtime>::insert(&cid, old_key);
+            grandpakey::GrandpaKeyOwnerByKey::<Runtime>::insert(old_key, &cid);
+            pallet_grandpa::Authorities::<Runtime>::put(pallet_grandpa::BoundedAuthorityList::<
+                <Runtime as pallet_grandpa::Config>::MaxAuthorities,
+            >::force_from(alloc::vec![(sp_core::ed25519::Public::from_raw(old_key).into(), 1)], None));
             let expires = 100000u32;
             let payload = grandpakey::GrandpaKeyProofPayload {
                 genesis_hash: System::block_hash(0),
@@ -3932,30 +3460,13 @@ impl engingcore::benchmarks::BenchmarkSetup for Runtime {
             )
             .unwrap();
             // 发起人退出后提案已不可执行；另一名原快照委员执行合法取消。
-            let caller = AccountId::decode(&mut &entry.admins[1][..]).unwrap();
-            let admins = entry
-                .admins
-                .iter()
-                .enumerate()
-                .map(|(index, raw)| adminbase::Admin {
-                    account_id: if index == 0 {
-                        frame_benchmarking::account("replacement", 0, 0)
-                    } else {
-                        AccountId::decode(&mut &raw[..]).unwrap()
-                    },
-                    cid_number: Default::default(),
-                    family_name: b"F".to_vec().try_into().unwrap(),
-                    given_name: b"G".to_vec().try_into().unwrap(),
-                })
-                .collect::<Vec<_>>();
-            <Runtime as publicentity::Config>::AdminLifecycle::benchmark_set_institution_admins(
-                publicentity::MODULE_TAG,
-                cid.to_vec(),
-                primitives::cid::code::NRC,
-                adminbase::AdminAccountKind::PublicInstitution,
-                admins,
-            )
-            .unwrap();
+            let caller = frame_benchmarking::account(entry.cid_number, 1, 0);
+            let accounts = (0..primitives::count_const::NRC_COMMITTEE_SEATS).map(|index| {
+                let label = if index == 0 { "replacement" } else { entry.cid_number };
+                frame_benchmarking::account(label, index, 0)
+            }).collect::<Vec<_>>();
+            seed_benchmark_identities(&accounts);
+            PublicEntity::benchmark_seed_role_assignments(&cid, primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER, accounts).unwrap();
             (id, caller)
         } else {
             let fund =

@@ -13,8 +13,7 @@ fn institution_info_field_order_matches_node_guard() {
         legal_representative: Some(LegalRepresentative {
             family_name: b"family".to_vec(),
             given_name: b"given".to_vec(),
-            cid_number: b"citizen-cid".to_vec(),
-            account_id: [9u8; 32],
+            person_cid: b"citizen-cid".to_vec(),
         }),
         institution_code: *b"NRCG",
         created_at: 7u32,
@@ -29,7 +28,6 @@ fn institution_info_field_order_matches_node_guard() {
                 b"family".to_vec(),
                 b"given".to_vec(),
                 b"citizen-cid".to_vec(),
-                [9u8; 32],
             )),
             *b"NRCG",
             7u32,

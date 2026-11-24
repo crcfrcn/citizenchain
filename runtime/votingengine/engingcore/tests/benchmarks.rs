@@ -37,7 +37,9 @@ fn setup<T: Config>(status: u8) -> (u128, T::AccountId) {
     let proposal_id = 0u128;
     let institution: T::AccountId = account("institution", 0, 0);
     let who: T::AccountId = account("admin", 0, 0);
-    let actor_cid_number: crate::types::CidNumber = b"BENCHMARK-CID"
+    let actor_cid_number: crate::types::CidNumber = primitives::cid::china::china_cb::CHINA_CB[0]
+        .cid_number
+        .as_bytes()
         .to_vec()
         .try_into()
         .expect("benchmark CID fits runtime bound");
@@ -49,7 +51,12 @@ fn setup<T: Config>(status: u8) -> (u128, T::AccountId) {
             kind: crate::PROPOSAL_KIND_INTERNAL,
             stage: crate::STAGE_INTERNAL,
             status,
-            internal_code: Some(primitives::cid::code::PMUL),
+            internal_code: Some(
+                crate::types::institution_code_from_cid_number(
+                    core::str::from_utf8(actor_cid_number.as_slice()).expect("基准机构CID文本"),
+                )
+                .expect("基准机构分类"),
+            ),
             actor_cid_number: Some(actor_cid_number.clone()),
             execution_account_id: Some(institution.clone()),
             subject_cid_numbers: Default::default(),
@@ -65,10 +72,13 @@ fn setup<T: Config>(status: u8) -> (u128, T::AccountId) {
             .expect("benchmark role fits"),
     };
     let subject = crate::types::AuthorizationSubject::Institution(role_subject.clone());
+    use crate::CitizenIdentityReader;
+    T::CitizenIdentityReader::benchmark_seed_identity(&who, &crate::PopulationScope::Country);
+    let person_cid = T::CitizenIdentityReader::person_cid(&who).expect("基准选民有人员 CID");
     crate::Pallet::<T>::snapshot_role_voters(
         proposal_id,
         subject.clone(),
-        sp_std::vec![who.clone()],
+        sp_std::vec![person_cid.into_inner()],
     )
     .expect("benchmark role snapshot");
     let owner: frame_support::BoundedVec<
@@ -276,7 +286,10 @@ mod benchmarks {
     #[benchmark]
     fn cleanup_item() {
         Pallet::<T>::benchmark_proposal(0, b"other", b"other".to_vec());
-        crate::PendingProposalCleanups::<T>::insert(0u128, crate::PendingCleanupStage::FinalCleanup);
+        crate::PendingProposalCleanups::<T>::insert(
+            0u128,
+            crate::PendingCleanupStage::FinalCleanup,
+        );
         crate::cleanup::enqueue_pending_cleanup::<T>(0).unwrap();
         let budget = frame_support::weights::Weight::MAX;
         #[block]
@@ -288,20 +301,24 @@ mod benchmarks {
     #[benchmark]
     fn cleanup_step(n: Linear<1, 256>) {
         use frame_support::traits::Get;
-        let accounts: frame_support::BoundedVec<T::AccountId, T::MaxAdminsPerInstitution> = (0
-            ..T::MaxAdminsPerInstitution::get())
-            .map(|i| account("snapshot-member", i, 0))
+        let accounts: frame_support::BoundedVec<crate::CidNumber, T::MaxSnapshotVoters> = (0
+            ..T::MaxSnapshotVoters::get())
+            .map(|i| {
+                let mut cid = sp_std::vec![b'C';32];
+                cid[..4].copy_from_slice(&i.to_le_bytes());
+                cid.try_into().unwrap()
+            })
             .collect::<sp_std::vec::Vec<_>>()
             .try_into()
             .unwrap();
         for i in 0..=n {
             let mut cid = sp_std::vec![b'C';32];
             cid[..4].copy_from_slice(&i.to_le_bytes());
-            let subject = crate::AuthorizationSubject::Institution(crate::RoleSubject {
+            let subject = crate::RoleSubject {
                 cid_number: cid.try_into().unwrap(),
                 role_code: sp_std::vec![b'R';64].try_into().unwrap(),
-            });
-            crate::VoterSnapshot::<T>::insert(0u128, subject, accounts.clone());
+            };
+            crate::RoleVoters::<T>::insert(0u128, subject, accounts.clone());
         }
         #[block]
         {
@@ -311,7 +328,7 @@ mod benchmarks {
                 n,
             );
         }
-        assert_eq!(crate::VoterSnapshot::<T>::iter_prefix(0u128).count(), 1);
+        assert_eq!(crate::RoleVoters::<T>::iter_prefix(0u128).count(), 1);
     }
     #[benchmark]
     fn cleanup_object() {

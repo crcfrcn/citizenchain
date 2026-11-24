@@ -20,13 +20,11 @@ fn transfer_amounts_fees_and_cold_call_match_runtime() {
             fee + primitives::fee_policy::FLAT_FEE
         );
         let bytes = build_transfer_with_remark_call(&destination, fen, "转账").unwrap();
-        let call = runtime::RuntimeCall::OnchainTransaction(
-            ::onchain::pallet::Call::transfer_with_remark {
-                beneficiary_account_id: destination.into(),
-                amount: fen,
-                remark: "转账".as_bytes().to_vec().try_into().unwrap(),
-            },
-        );
+        let call = runtime::RuntimeCall::Onchain(::onchain::pallet::Call::transfer_with_remark {
+            beneficiary_account_id: destination.into(),
+            amount: fen,
+            remark: "转账".as_bytes().to_vec().try_into().unwrap(),
+        });
         // 冷签二维码中的调用必须是当前 Runtime 的真实调用编码，不只比较自制字节偏移。
         assert_eq!(bytes, call.encode());
         let material = chain_signing::build_signing_material(&bytes, &[0; 32], 7, 1, 0).unwrap();

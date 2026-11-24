@@ -150,7 +150,7 @@ fn ensure_expected_reward_account_rpc_node() -> Result<(), String> {
 
 fn reward_account_storage_key(miner_account_id: &[u8; 32]) -> Vec<u8> {
     nodedesktop::storage::blake2_map(
-        b"FullnodeIssuance",
+        b"FullnodeIssue",
         b"RewardAccountIdByMiner",
         miner_account_id,
     )

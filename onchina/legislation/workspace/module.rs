@@ -14,7 +14,6 @@ fn legislation_capabilities(role: LegislationRole) -> CapabilitySet {
         LegislationRole::ProposerOnly => (true, false),
     };
     CapabilitySet {
-        view_own_admins: true,
         can_view_legislation: true,
         can_propose_legislation,
         cast_representative_vote,

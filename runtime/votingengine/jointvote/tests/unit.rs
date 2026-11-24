@@ -10,7 +10,7 @@ fn joint_proposal_binds_role_plan_and_never_writes_admin_snapshot() {
             .expect("joint proposal must bind vote plan");
         assert_eq!(plan.voter_subjects.len(), CHINA_CB.len() + CHINA_CH.len());
         assert_eq!(
-            engingcore::VoterSnapshot::<Test>::iter_prefix(proposal_id).count(),
+            engingcore::RoleVoters::<Test>::iter_prefix(proposal_id).count(),
             CHINA_CB.len() + CHINA_CH.len()
         );
         assert_eq!(
@@ -52,17 +52,17 @@ fn institution_ticket_count_preserves_same_account_id_in_multiple_roles() {
         assert_ok!(VotingEngine::snapshot_role_voters(
             proposal_id,
             role_a.clone(),
-            vec![account.clone(), second]
+            vec![codec::Encode::encode(&account), codec::Encode::encode(&second)]
         ));
         assert_ok!(VotingEngine::snapshot_role_voters(
             proposal_id,
             role_b.clone(),
-            vec![account.clone()]
+            vec![codec::Encode::encode(&account)]
         ));
         assert_ok!(VotingEngine::snapshot_role_voters(
             proposal_id,
             role_c.clone(),
-            vec![account.clone()]
+            vec![codec::Encode::encode(&account)]
         ));
 
         assert_eq!(
@@ -113,7 +113,7 @@ fn joint_referendum_fails_closed_without_population() {
 }
 
 #[test]
-fn all_105_weight_via_cast_admin_passes_and_executes() {
+fn all_105_weight_via_cast_role_vote_passes_and_executes() {
     new_test_ext().execute_with(|| {
         let proposal_id = create_joint_proposal();
         for (code, institution) in all_joint_institutions() {
@@ -138,7 +138,7 @@ fn all_105_weight_via_cast_admin_passes_and_executes() {
 }
 
 #[test]
-fn one_institution_rejection_via_cast_admin_enters_referendum() {
+fn one_institution_rejection_via_cast_role_vote_enters_referendum() {
     new_test_ext().execute_with(|| {
         let proposal_id = create_joint_proposal();
         let cid_number = CHINA_CB[1].cid_number.as_bytes().to_vec();
@@ -255,51 +255,16 @@ fn same_citizen_cid_cannot_vote_twice_after_account_id_replacement() {
 }
 
 #[test]
-fn joint_vote_keeps_original_wallet_and_does_not_inherit_current_wallet() {
+fn joint_vote_checks_person_membership_and_rejects_second_vote() {
     new_test_ext().execute_with(|| {
         let pid = create_joint_proposal();
-        let cid: engingcore::types::CidNumber = nrc_cid_number().try_into().unwrap();
-        let role: engingcore::types::RoleCode =
-            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
-                .to_vec()
-                .try_into()
-                .unwrap();
-        let subject = engingcore::AuthorizationSubject::Institution(engingcore::RoleSubject {
-            cid_number: cid.clone(),
-            role_code: role.clone(),
-        });
-        let original = engingcore::VoterSnapshot::<Test>::get(pid, &subject).unwrap();
-        let old = original[1].clone();
-        let new = AccountId32::new([211; 32]);
-        set_fixture_wallet(&cid, &old, new.clone(), 2);
-        assert_noop!(
-            JointVote::cast_admin(
-                RuntimeOrigin::signed(new),
-                pid,
-                cid.clone(),
-                role.clone(),
-                true
-            ),
-            engingcore::Error::<Test>::NoPermission
-        );
-        assert_ok!(JointVote::cast_admin(
-            RuntimeOrigin::signed(old.clone()),
-            pid,
-            cid.clone(),
-            role.clone(),
-            true
-        ));
-        assert_noop!(
-            JointVote::cast_admin(RuntimeOrigin::signed(old.clone()), pid, cid, role, false),
-            engingcore::Error::<Test>::AlreadyVoted
-        );
-        assert_eq!(
-            engingcore::VoterSnapshot::<Test>::get(pid, &subject),
-            Some(original)
-        );
-        assert_eq!(
-            VotingEngine::frozen_voter_identity(pid, &subject, &old),
-            Some((old, 0))
-        );
+        let cid: engingcore::CidNumber = nrc_cid_number().try_into().unwrap();
+        let role: engingcore::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER.to_vec().try_into().unwrap();
+        let subject = engingcore::RoleSubject { cid_number: cid.clone(), role_code: role.clone() };
+        let persons = engingcore::RoleVoters::<Test>::get(pid, &subject).unwrap();
+        let wallet = AccountId32::new(persons[1].as_slice().try_into().unwrap());
+        assert_ok!(JointVote::cast_role_vote(RuntimeOrigin::signed(wallet.clone()), pid, cid.clone(), role.clone(), true));
+        assert_noop!(JointVote::cast_role_vote(RuntimeOrigin::signed(wallet), pid, cid, role, false), engingcore::Error::<Test>::AlreadyVoted);
+        assert_eq!(engingcore::RoleVoters::<Test>::get(pid, subject), Some(persons));
     });
 }

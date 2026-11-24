@@ -141,7 +141,7 @@ pub mod pallet {
         Blake2_128Concat,
         (
             u32,
-            engingcore::types::InstitutionVoteTicket<T::AccountId>),
+            engingcore::types::InstitutionVoteTicket),
         bool,
         OptionQuery,
     >;
@@ -172,7 +172,7 @@ pub mod pallet {
         _,
         Blake2_128Concat,
         u128,
-        BoundedVec<(T::AccountId, bool), ConstU32<3>>,
+        BoundedVec<(engingcore::types::CidNumber, bool), ConstU32<3>>,
         ValueQuery,
     >;
 
@@ -183,7 +183,7 @@ pub mod pallet {
         _,
         Blake2_128Concat,
         u128,
-        BoundedVec<(T::AccountId, bool), ConstU32<CONSTITUTION_GUARD_MEMBERS>>,
+        BoundedVec<(engingcore::types::CidNumber, bool), ConstU32<CONSTITUTION_GUARD_MEMBERS>>,
         ValueQuery,
     >;
 

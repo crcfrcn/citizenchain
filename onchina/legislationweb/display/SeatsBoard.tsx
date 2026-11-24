@@ -78,7 +78,7 @@ export function SeatsBoard({ seats, approvedCount, rejectedCount, pendingCount }
               }}
             >
               <div style={{ fontSize: 22, fontWeight: 700, color: '#0f172a' }}>
-                {seat.name || '未具名'}
+                {seat.name || seat.personCid}
               </div>
               <div
                 style={{

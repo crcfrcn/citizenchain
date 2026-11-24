@@ -115,7 +115,7 @@ pub mod pallet {
     /// 字符串黑名单:`name / symbol / description` 写入前过滤。
     ///
     /// GenesisConfig 注入默认词表(法币/锚定/权威/数字货币 4 类),
-    /// 后续添词/删词走 RuntimeUpgrade 投票,不可 sudo。
+    /// 后续添词/删词走 Upgrade 投票,不可 sudo。
     #[pallet::storage]
     #[pallet::getter(fn blacklist)]
     pub type Blacklist<T: Config> = StorageValue<

@@ -4,7 +4,6 @@
     "owner": "legislation",
     "kind": "legislation",
     "flags": [
-      "canViewOwnAdmins",
       "canViewLegislation",
       "canProposeLegislation",
       "canCastRepresentativeVote"
@@ -33,11 +32,6 @@
           {
             "action": "view_legislation",
             "title": "立法与表决",
-            "enabled": true
-          },
-          {
-            "action": "view_own_admins",
-            "title": "本机构管理员",
             "enabled": true
           }
         ]
@@ -60,7 +54,6 @@
     "owner": "legislation",
     "kind": "legislation",
     "flags": [
-      "canViewOwnAdmins",
       "canViewLegislation",
       "canProposeLegislation",
       "canCastRepresentativeVote"
@@ -89,11 +82,6 @@
           {
             "action": "view_legislation",
             "title": "立法与表决",
-            "enabled": true
-          },
-          {
-            "action": "view_own_admins",
-            "title": "本机构管理员",
             "enabled": true
           }
         ]
@@ -116,7 +104,6 @@
     "owner": "legislation",
     "kind": "legislation",
     "flags": [
-      "canViewOwnAdmins",
       "canViewLegislation",
       "canProposeLegislation",
       "canCastRepresentativeVote"
@@ -145,11 +132,6 @@
           {
             "action": "view_legislation",
             "title": "立法与表决",
-            "enabled": true
-          },
-          {
-            "action": "view_own_admins",
-            "title": "本机构管理员",
             "enabled": true
           }
         ]
@@ -172,7 +154,6 @@
     "owner": "legislation",
     "kind": "legislation",
     "flags": [
-      "canViewOwnAdmins",
       "canViewLegislation",
       "canProposeLegislation",
       "canCastRepresentativeVote"
@@ -202,11 +183,6 @@
             "action": "view_legislation",
             "title": "立法与表决",
             "enabled": true
-          },
-          {
-            "action": "view_own_admins",
-            "title": "本机构管理员",
-            "enabled": true
           }
         ]
       },
@@ -228,7 +204,6 @@
     "owner": "legislation",
     "kind": "legislation",
     "flags": [
-      "canViewOwnAdmins",
       "canViewLegislation",
       "canCastRepresentativeVote"
     ],
@@ -256,11 +231,6 @@
           {
             "action": "view_legislation",
             "title": "立法与表决",
-            "enabled": true
-          },
-          {
-            "action": "view_own_admins",
-            "title": "本机构管理员",
             "enabled": true
           }
         ]
@@ -283,7 +253,6 @@
     "owner": "legislation",
     "kind": "legislation",
     "flags": [
-      "canViewOwnAdmins",
       "canViewLegislation",
       "canCastRepresentativeVote"
     ],
@@ -312,11 +281,6 @@
             "action": "view_legislation",
             "title": "立法与表决",
             "enabled": true
-          },
-          {
-            "action": "view_own_admins",
-            "title": "本机构管理员",
-            "enabled": true
           }
         ]
       },
@@ -338,7 +302,6 @@
     "owner": "legislation",
     "kind": "legislation",
     "flags": [
-      "canViewOwnAdmins",
       "canViewLegislation",
       "canProposeLegislation"
     ],
@@ -366,11 +329,6 @@
           {
             "action": "view_legislation",
             "title": "立法与表决",
-            "enabled": true
-          },
-          {
-            "action": "view_own_admins",
-            "title": "本机构管理员",
             "enabled": true
           }
         ]
@@ -393,7 +351,6 @@
     "owner": "legislation",
     "kind": "legislation",
     "flags": [
-      "canViewOwnAdmins",
       "canViewLegislation",
       "canProposeLegislation"
     ],
@@ -421,11 +378,6 @@
           {
             "action": "view_legislation",
             "title": "立法与表决",
-            "enabled": true
-          },
-          {
-            "action": "view_own_admins",
-            "title": "本机构管理员",
             "enabled": true
           }
         ]

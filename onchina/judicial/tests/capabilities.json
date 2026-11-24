@@ -3,9 +3,7 @@
     "code": "NJD",
     "owner": "judicial",
     "kind": "judicial",
-    "flags": [
-      "canViewOwnAdmins"
-    ],
+    "flags": [],
     "sections": [
       {
         "workspace_section": "operations",
@@ -14,11 +12,6 @@
           {
             "action": "sign_legislation",
             "title": "护宪终审",
-            "enabled": false
-          },
-          {
-            "action": "manage_own_admins",
-            "title": "变更本机构管理员",
             "enabled": false
           }
         ]
@@ -30,11 +23,6 @@
           {
             "action": "view_institution_profile",
             "title": "本机构信息",
-            "enabled": true
-          },
-          {
-            "action": "view_own_admins",
-            "title": "本机构管理员",
             "enabled": true
           }
         ]

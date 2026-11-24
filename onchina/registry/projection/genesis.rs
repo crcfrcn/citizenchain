@@ -152,7 +152,7 @@ fn institution_exists(db: &Db, cid_number: &str) -> Result<bool, String> {
 ///
 /// 仅当本节点作用域(其自身机构 CID 的省市)== 基金会所在省市(绥阳)时回填;联邦节点不做
 /// (它按 M3 drill-in 投影);本地已存在则跳过(幂等)。需读链(`institution_lookup` 已查
-/// PrivateManage);链不可达则返回 Err,由调用方告警跳过,不阻断启动。
+/// PrivateEntity);链不可达则返回 Err,由调用方告警跳过,不阻断启动。
 ///
 /// 返回 `true` 表示本次真正写入;`false` 表示按规则跳过。
 pub(crate) fn backfill_genesis_private_blocking(db: &Db) -> Result<bool, String> {
@@ -188,7 +188,9 @@ pub(crate) fn backfill_genesis_private_blocking(db: &Db) -> Result<bool, String>
             family_name: String::from_utf8_lossy(&lr.family_name).into_owned(),
             given_name: String::from_utf8_lossy(&lr.given_name).into_owned(),
             cid_number: String::from_utf8_lossy(&lr.cid_number).into_owned(),
-            account_id: format!("0x{}", hex::encode(lr.account_id)),
+            account_id: lr
+                .account_id
+                .map(|account| format!("0x{}", hex::encode(account))),
         });
     let now = Utc::now();
     // 私权列表 SQL 要求 private_type 非空;链上无此字段,按机构码确定性派生(基金会 SFGY → WELFARE)。

@@ -5,27 +5,26 @@ import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
 import { TransferProposalDialog, type TransferProposalStep } from "./TransferProposalDialog";
 import { multisigTransferApi as api } from "./api";
-import type { AdminSignerMatch, VoteSignRequestResult } from "./types";
+import type { RoleSigner, VoteSignRequestResult } from "./types";
 // 手续费划转提案页面：金额输入 + QR 签名流程。
 import { useState, useRef, useEffect, useCallback } from 'react';
 
 type Props = {
   actorCidNumber: string;
   institutionAccountId: string;
-  proposerRoleCode: string;
   mainAccountId: string;
   cidFullName: string;
-  adminSigners: AdminSignerMatch[];
+  roleSigners: RoleSigner[];
   onBack: () => void;
   onSuccess: () => void;
 };
 
 export function SweepProposalPage({
-  actorCidNumber, institutionAccountId, proposerRoleCode, mainAccountId, cidFullName, adminSigners, onBack, onSuccess,
+  actorCidNumber, institutionAccountId, mainAccountId, cidFullName, roleSigners, onBack, onSuccess,
 }: Props) {
   const [step, setStep] = useState<TransferProposalStep>('form');
-  const [selectedSigner, setSelectedSigner] = useState<AdminSignerMatch | null>(
-    adminSigners.length === 1 ? adminSigners[0] : null
+  const [selectedSigner, setSelectedSigner] = useState<RoleSigner | null>(
+    roleSigners.length === 1 ? roleSigners[0] : null
   );
   const [amountYuan, setAmountYuan] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
@@ -54,7 +53,7 @@ export function SweepProposalPage({
   }, [step, countdown]);
 
   const handleSubmit = async () => {
-    if (!selectedSigner) { setFormError('请选择管理员账户'); return; }
+    if (!selectedSigner) { setFormError('请选择人员岗位'); return; }
     const amount = parseFloat(amountYuan.replace(/,/g, ''));
     if (isNaN(amount) || amount <= 0) { setFormError('金额必须大于 0'); return; }
     setFormError(null);
@@ -63,7 +62,7 @@ export function SweepProposalPage({
     try {
       formValuesRef.current = { amountYuan: amount };
       const result = await api.buildProposeSweepRequest(
-        selectedSigner.accountId, actorCidNumber, proposerRoleCode, institutionAccountId, amount,
+        selectedSigner.accountId, actorCidNumber, selectedSigner.roleCode,institutionAccountId, amount,
       );
       signRequestRef.current = result;
       setRequestJson(result.requestJson);
@@ -86,7 +85,7 @@ export function SweepProposalPage({
     try {
       const result = await api.submitProposeSweep(
         req.requestId, wallet.accountId, req.expectedPayloadHash,
-        actorCidNumber, proposerRoleCode, institutionAccountId, formValuesRef.current.amountYuan,
+        actorCidNumber, wallet.roleCode,institutionAccountId, formValuesRef.current.amountYuan,
         req.signNonce, req.signBlockNumber, responseText,
       );
       setTxHash(result.txHash);
@@ -95,7 +94,7 @@ export function SweepProposalPage({
       setError(sanitizeError(e));
       setStep('error');
     }
-  }, [actorCidNumber, proposerRoleCode, institutionAccountId]);
+  }, [actorCidNumber, institutionAccountId]);
 
   return (
     <TransferProposalDialog
@@ -113,20 +112,20 @@ export function SweepProposalPage({
         <div className="create-proposal-form">
           {formError && <div className="error" role="alert">{formError}</div>}
           <div className="wallet-form-field">
-            <label htmlFor="transfer-signer">发起管理员</label>
+            <label htmlFor="transfer-signer">发起岗位人员</label>
             <select id="transfer-signer"
-              value={selectedSigner?.accountId || ''}
-              onChange={(e) => setSelectedSigner(adminSigners.find((w) => w.accountId === e.target.value) || null)}
-              disabled={adminSigners.length <= 1 || submitting}
+              value={selectedSigner?selectedSigner.personCid+':'+selectedSigner.roleCode:''}
+              onChange={(e) => setSelectedSigner(roleSigners.find((w) => w.personCid+':'+w.roleCode === e.target.value) || null)}
+              disabled={roleSigners.length <= 1 || submitting}
             >
-              {adminSigners.length === 0 && <option value="">无已激活管理员</option>}
-              {adminSigners.length === 1 ? (
-                <option value={adminSigners[0].accountId}>{accountIdToSs58(adminSigners[0].accountId)}</option>
+              {roleSigners.length === 0 && <option value="">无已授权岗位</option>}
+              {roleSigners.length === 1 ? (
+                <option value={roleSigners[0].personCid+':'+roleSigners[0].roleCode}>{roleSigners[0].roleName} · {accountIdToSs58(roleSigners[0].accountId)}</option>
               ) : (
                 <>
                   <option value="">请选择…</option>
-                  {adminSigners.map((w) => (
-                    <option key={w.accountId} value={w.accountId}>{accountIdToSs58(w.accountId)}</option>
+                  {roleSigners.map((w) => (
+                    <option key={w.personCid+':'+w.roleCode} value={w.personCid+':'+w.roleCode}>{w.roleName} · {accountIdToSs58(w.accountId)}</option>
                   ))}
                 </>
               )}

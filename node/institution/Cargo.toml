@@ -15,7 +15,6 @@ workspace = true
 
 [dependencies]
 sp-crypto-hashing = { workspace = true, default-features = true }
-adminbase = { path = "../../runtime/admins/adminbase", default-features = true }
 codec = { workspace = true, default-features = true }
 entitybase = { path = "../../runtime/entity/entitybase", default-features = true }
 hex = "=0.4.3"

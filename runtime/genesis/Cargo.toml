@@ -16,25 +16,28 @@ frame-system = { workspace = true }
 sp-io = { workspace = true }
 sp-runtime = { workspace = true }
 serde_json = { workspace = true }
+sc-chain-spec = { workspace = true, optional = true }
 sp-core = { workspace = true, features = ["serde"] }
 sp-consensus-grandpa = { workspace = true }
 sp-genesis-builder = { workspace = true }
 
 primitives = { path = "../primitives", default-features = false }
-adminbase = { path = "../admins/adminbase", default-features = false }
+entitybase = { path = "../entity/entitybase", default-features = false }
+engingcore = { path = "../votingengine/engingcore", default-features = false }
+
 publicentity = { path = "../entity/publicentity", default-features = false }
-publicadmin = { path = "../admins/publicadmin", default-features = false }
+
 privateentity = { path = "../entity/privateentity", default-features = false }
-privateadmin = { path = "../admins/privateadmin", default-features = false }
+
 
 [features]
 default = ["std"]
 runtime-benchmarks = [
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
-    "publicadmin/runtime-benchmarks",
+
     "publicentity/runtime-benchmarks",
-    "privateadmin/runtime-benchmarks",
+
     "privateentity/runtime-benchmarks",
 ]
 try-runtime = []
@@ -46,15 +49,18 @@ std = [
     "sp-io/std",
     "sp-runtime/std",
     "serde_json/std",
+    "dep:sc-chain-spec",
     "sp-core/std",
     "sp-consensus-grandpa/std",
     "sp-genesis-builder/std",
     "primitives/std",
-    "adminbase/std",
+    "entitybase/std",
+    "engingcore/std",
+
     "publicentity/std",
-    "publicadmin/std",
+
     "privateentity/std",
-    "privateadmin/std",
+
 ]
 
 [dev-dependencies]

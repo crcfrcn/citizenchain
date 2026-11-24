@@ -6,7 +6,7 @@ use super::*;
 fn joint_proposers_can_propose_runtime_upgrade() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            RuntimeUpgrade::propose_runtime_upgrade(
+            Upgrade::propose_runtime_upgrade(
                 RuntimeOrigin::signed(outsider()),
                 nrc_cid(),
                 committee_role(),
@@ -17,7 +17,7 @@ fn joint_proposers_can_propose_runtime_upgrade() {
             sp_runtime::DispatchError::BadOrigin
         );
 
-        assert_ok!(RuntimeUpgrade::propose_runtime_upgrade(
+        assert_ok!(Upgrade::propose_runtime_upgrade(
             RuntimeOrigin::signed(nrc_admin()),
             nrc_cid(),
             committee_role(),
@@ -26,7 +26,7 @@ fn joint_proposers_can_propose_runtime_upgrade() {
             difficulty::PowDifficultyParams::genesis_default()
         ));
 
-        assert_ok!(RuntimeUpgrade::propose_runtime_upgrade(
+        assert_ok!(Upgrade::propose_runtime_upgrade(
             RuntimeOrigin::signed(prc_admin()),
             prc_cid(),
             committee_role(),
@@ -71,7 +71,7 @@ fn joint_proposers_can_propose_runtime_upgrade() {
 fn administrator_without_committee_role_cannot_propose_runtime_upgrade() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            RuntimeUpgrade::propose_runtime_upgrade(
+            Upgrade::propose_runtime_upgrade(
                 RuntimeOrigin::signed(ordinary_staff_admin()),
                 nrc_cid(),
                 committee_role(),
@@ -159,7 +159,7 @@ fn approved_upgrade_atomically_stages_versioned_pow_params() {
         next.params_version += 1;
         next.adjustment_interval = 20;
         next.target_block_time_ms = 120_000;
-        assert_ok!(RuntimeUpgrade::propose_runtime_upgrade(
+        assert_ok!(Upgrade::propose_runtime_upgrade(
             RuntimeOrigin::signed(nrc_admin()),
             nrc_cid(),
             committee_role(),
@@ -276,7 +276,7 @@ fn finalize_nonexistent_proposal_fails() {
 #[test]
 fn developer_direct_upgrade_allows_nrc_admin_when_enabled() {
     new_test_ext().execute_with(|| {
-        assert_ok!(RuntimeUpgrade::developer_direct_upgrade(
+        assert_ok!(Upgrade::developer_direct_upgrade(
             RuntimeOrigin::signed(nrc_admin()),
             nrc_cid(),
             committee_role(),
@@ -293,7 +293,7 @@ fn developer_direct_upgrade_fails_when_disabled() {
     new_test_ext().execute_with(|| {
         DEV_UPGRADE_ENABLED.with(|v| *v.borrow_mut() = false);
         assert_noop!(
-            RuntimeUpgrade::developer_direct_upgrade(
+            Upgrade::developer_direct_upgrade(
                 RuntimeOrigin::signed(nrc_admin()),
                 nrc_cid(),
                 committee_role(),
@@ -309,7 +309,7 @@ fn developer_direct_upgrade_fails_when_disabled() {
 fn developer_direct_upgrade_rejects_prc_admin() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            RuntimeUpgrade::developer_direct_upgrade(
+            Upgrade::developer_direct_upgrade(
                 RuntimeOrigin::signed(prc_admin()),
                 nrc_cid(),
                 committee_role(),
@@ -325,7 +325,7 @@ fn developer_direct_upgrade_rejects_prc_admin() {
 fn developer_direct_upgrade_rejects_non_nrc_admin() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            RuntimeUpgrade::developer_direct_upgrade(
+            Upgrade::developer_direct_upgrade(
                 RuntimeOrigin::signed(outsider()),
                 nrc_cid(),
                 committee_role(),
@@ -342,7 +342,7 @@ fn developer_direct_upgrade_rejects_empty_code() {
     new_test_ext().execute_with(|| {
         let empty_code: pallet::CodeOf<Test> = vec![].try_into().expect("empty code");
         assert_noop!(
-            RuntimeUpgrade::developer_direct_upgrade(
+            Upgrade::developer_direct_upgrade(
                 RuntimeOrigin::signed(nrc_admin()),
                 nrc_cid(),
                 committee_role(),

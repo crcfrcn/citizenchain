@@ -36,9 +36,9 @@ mod runtime {
     #[runtime::pallet_index(1)]
     pub type Balances = pallet_balances;
     #[runtime::pallet_index(2)]
-    pub type CitizenIdentity = identity;
+    pub type Identity = identity;
     #[runtime::pallet_index(3)]
-    pub type CitizenIssuance = citizenissue;
+    pub type CitizenIssue = citizenissue;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -131,7 +131,7 @@ impl CitizenIdentityAuthority<u64, identity::pallet::SignatureOf<Test>>
         signature.as_slice() == b"valid"
     }
 
-    fn verify_admin_rebind_signature(
+    fn verify_registrar_rebind_signature(
         _account_id: &u64,
         _payload: &[u8],
         signature: &identity::pallet::SignatureOf<Test>,
@@ -182,7 +182,7 @@ impl identity::Config for Test {
     type CitizenIdentityAuthority = TestCitizenIdentityAuthority;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper = TestCitizenIdentityBenchmarkHelper;
-    type OnVotingIdentityRegistered = CitizenIssuance;
+    type OnVotingIdentityRegistered = CitizenIssue;
     type TimeProvider = FixedTime;
     type MaxPopulationDaysPerBlock = MaxPopulationDaysPerBlock;
     type MaxPopulationTransitionsPerBlock = MaxPopulationTransitionsPerBlock;
@@ -249,7 +249,7 @@ fn occupy_tag(tag: &str) {
     let expires_at = <FixedTime as frame_support::traits::UnixTime>::now()
         .as_secs()
         .saturating_add(300);
-    assert_ok!(CitizenIdentity::occupy_cid(
+    assert_ok!(Identity::occupy_cid(
         RuntimeOrigin::signed(100),
         registrar_cid_number(),
         registrar_role_code(),
@@ -338,7 +338,7 @@ fn register_voting_identity_triggers_reward_issuance() {
         let cid_number_bound =
             CidNumberBound::try_from(cid_number.clone()).expect("cid number should fit");
 
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -350,7 +350,7 @@ fn register_voting_identity_triggers_reward_issuance() {
 
         assert_eq!(Balances::free_balance(1), 0);
         assert_eq!(citizenissue::PendingRewardCount::<Test>::get(), 1);
-        CitizenIssuance::on_finalize(System::block_number());
+        CitizenIssue::on_finalize(System::block_number());
 
         assert_eq!(Balances::free_balance(1), CITIZEN_ISSUANCE_HIGH_REWARD);
         assert_eq!(citizenissue::RewardedCount::<Test>::get(), 1);
@@ -372,7 +372,7 @@ fn candidate_first_onchain_triggers_reward_issuance() {
             CidNumberBound::try_from(cid_number.clone()).expect("cid number should fit");
 
         // 该公民从未登记投票身份,直接以竞选身份完成首次上链(第 3 条:不强制先投票)。
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -384,7 +384,7 @@ fn candidate_first_onchain_triggers_reward_issuance() {
 
         assert_eq!(Balances::free_balance(1), 0);
         assert_eq!(citizenissue::PendingRewardCount::<Test>::get(), 1);
-        CitizenIssuance::on_finalize(System::block_number());
+        CitizenIssue::on_finalize(System::block_number());
 
         // 竞选身份首次上链与投票身份首次登记同权,发放一次性高额认证奖励。
         assert_eq!(Balances::free_balance(1), CITIZEN_ISSUANCE_HIGH_REWARD);
@@ -403,7 +403,7 @@ fn voting_first_then_candidate_upgrade_does_not_double_issue() {
         occupy_tag("0001");
 
         // 先以投票身份首次上链,领取一次性公民币。
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -412,11 +412,11 @@ fn voting_first_then_candidate_upgrade_does_not_double_issue() {
             authorization_expires_at(),
             valid_signature(),
         ));
-        CitizenIssuance::on_finalize(System::block_number());
+        CitizenIssue::on_finalize(System::block_number());
         assert_eq!(Balances::free_balance(1), CITIZEN_ISSUANCE_HIGH_REWARD);
 
         // 再升级为竞选身份:已有投票身份(old.is_some()),不再触发回调,不二次发币。
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -427,7 +427,7 @@ fn voting_first_then_candidate_upgrade_does_not_double_issue() {
             valid_signature(),
         ));
         assert_eq!(citizenissue::PendingRewardCount::<Test>::get(), 0);
-        CitizenIssuance::on_finalize(System::block_number());
+        CitizenIssue::on_finalize(System::block_number());
 
         assert_eq!(Balances::free_balance(1), CITIZEN_ISSUANCE_HIGH_REWARD);
         assert_eq!(citizenissue::RewardedCount::<Test>::get(), 1);
@@ -440,7 +440,7 @@ fn updating_existing_identity_does_not_issue_second_reward() {
         // 占号先行:身份写入前置。
         occupy_tag("0001");
 
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -449,10 +449,10 @@ fn updating_existing_identity_does_not_issue_second_reward() {
             authorization_expires_at(),
             valid_signature(),
         ));
-        CitizenIssuance::on_finalize(System::block_number());
+        CitizenIssue::on_finalize(System::block_number());
         let mut updated = payload(1, &citizen_cid_number("0001"));
         updated.passport_valid_until = 20370630;
-        assert_ok!(CitizenIdentity::update_voting_identity(
+        assert_ok!(Identity::update_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -462,7 +462,7 @@ fn updating_existing_identity_does_not_issue_second_reward() {
             authorization_expires_at(),
             valid_signature(),
         ));
-        CitizenIssuance::on_finalize(System::block_number());
+        CitizenIssue::on_finalize(System::block_number());
 
         assert_eq!(Balances::free_balance(1), CITIZEN_ISSUANCE_HIGH_REWARD);
         assert_eq!(citizenissue::RewardedCount::<Test>::get(), 1);
@@ -480,7 +480,7 @@ fn max_reward_cap_is_applied_from_identity_callback() {
 
         citizenissue::RewardedCount::<Test>::put(CITIZEN_ISSUANCE_MAX_COUNT);
 
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -490,7 +490,7 @@ fn max_reward_cap_is_applied_from_identity_callback() {
             valid_signature(),
         ));
 
-        CitizenIssuance::on_finalize(System::block_number());
+        CitizenIssue::on_finalize(System::block_number());
 
         assert_eq!(Balances::free_balance(1), 0);
         assert_eq!(

@@ -29,7 +29,7 @@ fn subscribe_charges_immediately_and_schedules_real_calendar_due_time() {
     new_test_ext().execute_with(|| {
         setup_platform();
         let before = Balances::free_balance(subscriber_account_id());
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan(),
@@ -61,7 +61,7 @@ fn runtime_renews_at_due_time_without_external_call_and_uses_latest_price() {
     new_test_ext().execute_with(|| {
         setup_platform();
         let key = (subscriber_cid_number(), IssuerKey::Platform);
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan(),
@@ -107,7 +107,7 @@ fn runtime_renews_at_due_time_without_external_call_and_uses_latest_price() {
 fn subscriber_rebind_keeps_subscription_and_renews_from_current_account() {
     new_test_ext().execute_with(|| {
         setup_platform();
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan(),
@@ -140,7 +140,7 @@ fn subscriber_rebind_keeps_subscription_and_renews_from_current_account() {
 fn renewal_without_current_identity_binding_suspends_without_charging_old_account() {
     new_test_ext().execute_with(|| {
         setup_platform();
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan(),
@@ -169,7 +169,7 @@ fn runtime_catches_up_every_due_period_after_blocks_resume() {
     new_test_ext().execute_with(|| {
         setup_platform();
         set_now(1_608_467_696_789);
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan(),
@@ -205,7 +205,7 @@ fn payment_failure_suspends_and_removes_schedule() {
                 suspend_reason: None,
             },
         );
-        SquarePost::schedule_renewal(&key, 2);
+        Square::schedule_renewal(&key, 2);
         initialize_at(2);
         // 余额不足 → 挂起（不再终止），退出续费调度，保留订阅。
         let state = Subscriptions::<Test>::get(&key).expect("state exists");
@@ -222,7 +222,7 @@ fn payment_failure_suspends_and_removes_schedule() {
 fn cancellation_preserves_paid_rights_and_revokes_future_charges() {
     new_test_ext().execute_with(|| {
         setup_platform();
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan(),
@@ -232,7 +232,7 @@ fn cancellation_preserves_paid_rights_and_revokes_future_charges() {
         let paid_until = Subscriptions::<Test>::get(&key)
             .expect("state exists")
             .paid_until;
-        assert_ok!(SquarePost::cancel(
+        assert_ok!(Square::cancel(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
         ));
@@ -252,7 +252,7 @@ fn change_plan_upgrade_charges_difference_immediately() {
         setup_platform();
         let now = 1_700_000_000_000u64;
         // 先订自由档（199_900）。
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan_for(MembershipLevel::Freedom),
@@ -262,7 +262,7 @@ fn change_plan_upgrade_charges_difference_immediately() {
         let base_end = crate::subscription::add_calendar_period(now, BillingPeriod::Monthly)
             .expect("calendar fits");
         // 立即升档到薪火（5_999_900）；刚扣款故剩余权益=全额 199_900。
-        assert_ok!(SquarePost::change_subscription_plan(
+        assert_ok!(Square::change_subscription_plan(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan(),
@@ -289,7 +289,7 @@ fn change_plan_downgrade_extends_duration() {
         setup_platform();
         let now = 1_700_000_000_000u64;
         // 先订薪火（5_999_900）。
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan(),
@@ -300,7 +300,7 @@ fn change_plan_downgrade_extends_duration() {
             .expect("calendar fits");
         let new_price = PlatformPrice::<Test>::get(MembershipLevel::Freedom).expect("price");
         // 立即降档到自由档；剩余权益=全额 5_999_900 ＞ 新价 199_900。
-        assert_ok!(SquarePost::change_subscription_plan(
+        assert_ok!(Square::change_subscription_plan(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan_for(MembershipLevel::Freedom),
@@ -327,7 +327,7 @@ fn change_plan_prorates_partial_remaining_credit() {
     new_test_ext().execute_with(|| {
         setup_platform();
         let now = 1_700_000_000_000u64;
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan_for(MembershipLevel::Freedom),
@@ -340,7 +340,7 @@ fn change_plan_prorates_partial_remaining_credit() {
         set_now(mid);
         let balance_before_change = Balances::free_balance(subscriber_account_id());
         let credit = 199_900u128 * u128::from(te - mid) / u128::from(te - now);
-        assert_ok!(SquarePost::change_subscription_plan(
+        assert_ok!(Square::change_subscription_plan(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan(),
@@ -366,7 +366,7 @@ fn creator_subscription_renews_at_price_fen_when_unchanged() {
             creator_cid_number(),
             CreatorTiers::try_from(vec![creator_tier(50)]).expect("tiers fit"),
         );
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Creator(creator_cid_number()),
             creator_plan(),
@@ -399,7 +399,7 @@ fn creator_rebind_keeps_plans_and_routes_renewal_to_current_account() {
             subscriber_cid_number(),
             IssuerKey::Creator(creator_cid_number()),
         );
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Creator(creator_cid_number()),
             creator_plan(),
@@ -427,7 +427,7 @@ fn creator_cannot_subscribe_to_same_cid_after_account_rebind() {
         setup_platform();
         bind_identity(CREATOR_CID, rebound_creator_account_id());
         assert_noop!(
-            SquarePost::subscribe(
+            Square::subscribe(
                 RuntimeOrigin::signed(rebound_creator_account_id()),
                 IssuerKey::Creator(creator_cid_number()),
                 creator_plan(),
@@ -450,7 +450,7 @@ fn creator_price_change_suspends_renewal_until_reconsent() {
             creator_cid_number(),
             CreatorTiers::try_from(vec![creator_tier(50)]).expect("tiers fit"),
         );
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Creator(creator_cid_number()),
             creator_plan(),
@@ -481,7 +481,7 @@ fn creator_price_change_suspends_renewal_until_reconsent() {
         assert_eq!(Balances::free_balance(creator_account_id()), creator_before);
         assert!(!RenewalIndex::<Test>::contains_key(&ck));
         // 订阅者按新价再签名 → 恢复 Active 并扣新价。
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Creator(creator_cid_number()),
             creator_plan(),
@@ -510,7 +510,7 @@ fn creator_price_change_reconsent_before_lapse_keeps_active_without_charge() {
             creator_cid_number(),
             CreatorTiers::try_from(vec![creator_tier(50)]).expect("tiers fit"),
         );
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Creator(creator_cid_number()),
             creator_plan(),
@@ -523,7 +523,7 @@ fn creator_price_change_reconsent_before_lapse_keeps_active_without_charge() {
             CreatorTiers::try_from(vec![creator_tier(75)]).expect("tiers fit"),
         );
         let creator_before = Balances::free_balance(creator_account_id());
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Creator(creator_cid_number()),
             creator_plan(),
@@ -555,7 +555,7 @@ fn creator_loses_membership_pauses_fans_and_resumes() {
             creator_cid_number(),
             CreatorTiers::try_from(vec![creator_tier(50)]).expect("tiers fit"),
         );
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Creator(creator_cid_number()),
             creator_plan(),
@@ -596,7 +596,7 @@ fn creator_paused_and_repriced_suspends_for_reconsent_on_return() {
             creator_cid_number(),
             CreatorTiers::try_from(vec![creator_tier(50)]).expect("tiers fit"),
         );
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Creator(creator_cid_number()),
             creator_plan(),
@@ -627,14 +627,14 @@ fn creator_paused_and_repriced_suspends_for_reconsent_on_return() {
 fn only_effective_platform_member_can_publish_creator_plans() {
     new_test_ext().execute_with(|| {
         assert_noop!(
-            SquarePost::set_creator_plans(
+            Square::set_creator_plans(
                 RuntimeOrigin::signed(creator_account_id()),
                 vec![creator_tier_input(50, "支持者")],
             ),
             Error::<Test>::CreatorNotPlatformMember
         );
         set_active_platform_member(creator_account_id());
-        assert_ok!(SquarePost::set_creator_plans(
+        assert_ok!(Square::set_creator_plans(
             RuntimeOrigin::signed(creator_account_id()),
             vec![creator_tier_input(50, "支持者")],
         ));
@@ -653,14 +653,14 @@ fn only_effective_platform_member_can_publish_creator_plans() {
 fn tier_name_is_chain_truth_and_rename_does_not_change_financial_plan() {
     new_test_ext().execute_with(|| {
         set_active_platform_member(creator_account_id());
-        assert_ok!(SquarePost::set_creator_plans(
+        assert_ok!(Square::set_creator_plans(
             RuntimeOrigin::signed(creator_account_id()),
             vec![creator_tier_input(50, "支持者")],
         ));
         let before = CreatorPlans::<Test>::get(creator_cid_number());
         let tier_id = TierId::try_from(b"supporter".to_vec()).expect("tier id fits");
 
-        assert_ok!(SquarePost::update_creator_tier_name(
+        assert_ok!(Square::update_creator_tier_name(
             RuntimeOrigin::signed(creator_account_id()),
             tier_id.clone(),
             tier_name("核心支持者"),
@@ -673,7 +673,7 @@ fn tier_name_is_chain_truth_and_rename_does_not_change_financial_plan() {
         );
         assert!(matches!(
             System::events().last().map(|record| &record.event),
-            Some(RuntimeEvent::SquarePost(
+            Some(RuntimeEvent::Square(
                 Event::CreatorTierNameUpdated { .. }
             ))
         ));
@@ -694,7 +694,7 @@ fn tier_name_rejects_invalid_utf8_whitespace_controls_and_more_than_twenty_scala
             let mut input = creator_tier_input(50, "支持者");
             input.tier_name = invalid_name;
             assert_noop!(
-                SquarePost::set_creator_plans(
+                Square::set_creator_plans(
                     RuntimeOrigin::signed(creator_account_id()),
                     vec![input],
                 ),
@@ -704,7 +704,7 @@ fn tier_name_rejects_invalid_utf8_whitespace_controls_and_more_than_twenty_scala
         let mut too_long = creator_tier_input(50, "支持者");
         too_long.tier_name = tier_name("二十一二十一二十一二十一二十一二十一二十一");
         assert_noop!(
-            SquarePost::set_creator_plans(
+            Square::set_creator_plans(
                 RuntimeOrigin::signed(creator_account_id()),
                 vec![too_long],
             ),
@@ -719,7 +719,7 @@ fn tier_name_accepts_exactly_twenty_four_byte_unicode_scalars() {
         set_active_platform_member(creator_account_id());
         let boundary = "🙂".repeat(20);
         assert_eq!(boundary.len(), 80);
-        assert_ok!(SquarePost::set_creator_plans(
+        assert_ok!(Square::set_creator_plans(
             RuntimeOrigin::signed(creator_account_id()),
             vec![creator_tier_input(50, &boundary)],
         ));
@@ -887,7 +887,7 @@ fn propose_platform_price_rejects_zero_price() {
         )
         .expect("cid fits");
         assert_noop!(
-            SquarePost::propose_set_platform_price(
+            Square::propose_set_platform_price(
                 RuntimeOrigin::signed(verified_account()),
                 cid,
                 primitives::cid::china::citizenchain::ROLE_CODE_GENESIS_PRODUCT_MANAGER
@@ -908,7 +908,7 @@ fn propose_platform_price_rejects_non_foundation_institution() {
         let cid = engingcore::types::CidNumber::try_from(b"GD001-CTZN1-000000001-2026".to_vec())
             .expect("cid fits");
         assert_noop!(
-            SquarePost::propose_set_platform_price(
+            Square::propose_set_platform_price(
                 RuntimeOrigin::signed(verified_account()),
                 cid,
                 primitives::cid::china::citizenchain::ROLE_CODE_GENESIS_PRODUCT_MANAGER
@@ -929,7 +929,7 @@ fn missing_platform_price_pauses_instead_of_terminating() {
     new_test_ext().execute_with(|| {
         setup_platform();
         let key = (subscriber_cid_number(), IssuerKey::Platform);
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Platform,
             platform_plan(),
@@ -969,7 +969,7 @@ fn plan_change_credit_uses_charge_fen() {
             creator_cid_number(),
             CreatorTiers::try_from(vec![creator_tier(50)]).expect("tiers fit"),
         );
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Creator(creator_cid_number()),
             creator_plan(),
@@ -981,7 +981,7 @@ fn plan_change_credit_uses_charge_fen() {
             creator_cid_number(),
             CreatorTiers::try_from(vec![creator_tier(100)]).expect("tiers fit"),
         );
-        assert_ok!(SquarePost::subscribe(
+        assert_ok!(Square::subscribe(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Creator(creator_cid_number()),
             creator_plan(),
@@ -994,7 +994,7 @@ fn plan_change_credit_uses_charge_fen() {
         // 立即换档：整周期刚开始，剩余信用应≈本期计价 50，而非授权价 100。
         // 目标档 100 分，补扣差额应接近 50；若误用授权价则信用 100、补扣为 0。
         let before = Balances::free_balance(subscriber_account_id());
-        assert_ok!(SquarePost::change_subscription_plan(
+        assert_ok!(Square::change_subscription_plan(
             RuntimeOrigin::signed(subscriber_account_id()),
             IssuerKey::Creator(creator_cid_number()),
             creator_plan(),

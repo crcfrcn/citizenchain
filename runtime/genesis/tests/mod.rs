@@ -26,7 +26,7 @@ mod runtime {
     pub type System = frame_system;
 
     #[runtime::pallet_index(1)]
-    pub type GenesisPallet = super;
+    pub type Genesis = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]

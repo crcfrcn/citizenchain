@@ -69,26 +69,17 @@ pub(crate) async fn admin_auth_qr_sign_request(
 pub(crate) fn create_login_request(
     db: &Db,
     account_id: String,
-    memberships: &[crate::chain_runtime::ActiveAdminMembership],
+    memberships: &[crate::chain_runtime::ActiveMembership],
     origin: String,
     domain: String,
     session_id: String,
 ) -> Response {
     if memberships.is_empty() {
-        return onchain_gate::gate_error_response(onchain_gate::GateError::NotOnchainAdmin);
+        return onchain_gate::gate_error_response(onchain_gate::GateError::NoAssignment);
     }
     let result = db.with_client(move |conn| {
         let mut tx = conn.transaction().map_err(|error| error.to_string())?;
         repo::lock_node_binding_conn(&mut tx)?;
-        if let Some(binding) = repo::get_active_node_binding_conn(&mut tx)? {
-            if !memberships
-                .iter()
-                .any(|membership| onchain_gate::binding_matches_membership(&binding, membership))
-            {
-                // 在生成UUID、二维码及写入前拒绝；未提交的事务直接回滚。
-                return Ok(None);
-            }
-        }
         // 无绑定仅供首次绑定引导；签名回扫后仍须按最新链上状态确认候选。
         let now = Utc::now();
         let expires_at = now + Duration::seconds(LOGIN_SIGN_REQUEST_TTL_SECONDS);
@@ -148,7 +139,7 @@ pub(crate) fn create_login_request(
             data,
         })
         .into_response(),
-        Ok(None) => onchain_gate::gate_error_response(onchain_gate::GateError::NotOnchainAdmin),
+        Ok(None) => onchain_gate::gate_error_response(onchain_gate::GateError::NoAssignment),
         Err(error) => api_error(
             StatusCode::INTERNAL_SERVER_ERROR,
             5001,

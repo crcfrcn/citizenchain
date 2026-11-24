@@ -57,7 +57,7 @@ pub(crate) fn institution_vote_key(
     kind: u8,
     cid: &str,
     role: &str,
-    wallet: &[u8; 32],
+    person_cid: &[u8],
 ) -> Result<String, String> {
     let role_subject = engingcore::types::RoleSubject {
         cid_number: cid
@@ -73,10 +73,10 @@ pub(crate) fn institution_vote_key(
     };
     let ticket = engingcore::types::InstitutionVoteTicket {
         role_subject,
-        voter_account_id: *wallet,
+        person_cid: person_cid.to_vec().try_into().map_err(|_| "人员CID超限")?,
     };
     let (mut key, pallet, item) = match kind {
-        0 => (vec![1], "InternalVote", "InternalVotesByTicket"),
+        0 => (vec![2], "InternalVote", "InternalVotesByTicket"),
         1 => (vec![], "JointVote", "JointVotesByTicket"),
         _ => return Err("节点机构治理投票类型不支持".into()),
     };
@@ -106,7 +106,11 @@ pub(crate) fn fetch_user_vote_status(
                 .roles
                 .iter()
                 .find(|r| r.cid_number == cid && r.role_code == role)
-                .and_then(|r| r.voters.iter().find(|v| v.account_id == wallet))
+                .and_then(|r| {
+                    r.voters
+                        .iter()
+                        .find(|v| v.account_id.as_deref() == Some(wallet.as_str()))
+                })
                 .ok_or("此钱包不在原岗位快照")?;
             if let Some(e) = &entry.vote_error {
                 return Err(e.clone());

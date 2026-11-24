@@ -16,17 +16,17 @@ export function OtherAccountsListPage({ cidNumber, otherAccounts, onBack }: Prop
   return (
     <>
       <button className="back-button" onClick={onBack}>← 返回</button>
-      <div className="admin-list-header">
+      <div className="institution-list-header">
         <h2>其他账户列表（{otherAccounts.length} 个）</h2>
-        <code className="admin-card-address"><IdentityCidText value={cidNumber} /></code>
+        <code className="institution-card-address"><IdentityCidText value={cidNumber} /></code>
       </div>
 
       {otherAccounts.length === 0 ? (
         <p className="no-data">该机构没有其他账户(仅主账户 + 费用账户)</p>
       ) : (
-        <div className="admin-grid">
+        <div className="institution-grid">
           {otherAccounts.map((acc) => (
-            <div key={acc.accountId} className="metric-card admin-card">
+            <div key={acc.accountId} className="metric-card institution-card">
               <div>
                 <strong>{acc.accountName}</strong>
                 {acc.accountKind !== 'named' && (
@@ -35,7 +35,7 @@ export function OtherAccountsListPage({ cidNumber, otherAccounts, onBack }: Prop
                   </span>
                 )}
               </div>
-              <code className="admin-card-address">{accountIdToSs58(acc.accountId)}</code>
+              <code className="institution-card-address">{accountIdToSs58(acc.accountId)}</code>
               <span className="muted">余额:{formatBalance(acc.balanceFen)}</span>
             </div>
           ))}

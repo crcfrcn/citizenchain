@@ -13,25 +13,6 @@ pub struct ChinaSf {
     pub fee_account: [u8; 32],
 }
 
-/// 国家司法院创世公职人员公钥。
-pub const NATIONAL_JUDICIAL_YUAN_ADMINS: &[[u8; 32]] = &[
-    hex!("0402a8e858a89aeee079cce4879c7c25689ef73ed5cd07e0475936152fcbb65d"),
-    hex!("ac72dfc879f62a6aa41254b201a2317de617f96ce22eb6d427b24e681ffa4f49"),
-    hex!("2e1dd2adf0b9ae10e6b3db58962f6bb02de215565662549c66031a373c040453"),
-    hex!("ce1480f6d0abd186d365858a297f0dea29e3f3214bc834dfedeac60775deb231"),
-    hex!("a01aa08cecece9c9bbaa06a58fd27d62e671513b7d2a43ddf0349d383016ee11"),
-    hex!("4cc160d799a23d60cad3d624c79edaff12112eeaca7fc241cdaad5db30c48d0c"),
-    hex!("842fb3c12634ccaf9701ba8900cd22dabfe18765e6d659f1e533261ce71dfd7e"),
-    hex!("e0d5cc0a7e30f09d083a1bacd8be121b506589ce6e953fd4695b4ddf93d5cc36"),
-    hex!("58bbbf3d2c169d4d6773e68f148bc6ab3102ded887fed7a855e0c666d1e7077f"),
-    hex!("3273e75aa4a842a0625b954cd8a600fb38890ed9d88c143ff2abd716b2377854"),
-    hex!("96ddd15d85dd85c62556c6f58d952dd14b7d8058486443e88d741d0817d39513"),
-    hex!("d40067ba016b28e5a309390ed0b083448b8779ce4288eb0c9d9577342ba2e871"),
-    hex!("5e5b1408bf863a13e2a8d5f669d13b6ac230c48d8aaaecd41c419ef2e643a749"),
-    hex!("8232a871880f3ab5153fb22274f2d5f5494b352d316578ea8c8f5da68de19915"),
-    hex!("1a2f8090999574a10af1dbe13c7cb95622dab729cc96a760d9fedf1e4a831335"),
-];
-
 pub const CHINA_SF: &[ChinaSf] = &[
     ChinaSf {
         cid_full_name: "中华民族联邦共和国司法院",

@@ -43,9 +43,9 @@ mod runtime {
     #[runtime::pallet_index(2)]
     pub type TransactionPayment = pallet_transaction_payment;
     #[runtime::pallet_index(3)]
-    pub type FullnodeIssuance = fullnodeissue;
+    pub type FullnodeIssue = fullnodeissue;
     #[runtime::pallet_index(4)]
-    pub type OnchainTransaction = crate::pallet;
+    pub type Onchain = crate::pallet;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -263,7 +263,7 @@ fn fee_share_burn_event_count(reason: pallet::BurnReason, amount: u128) -> usize
         .filter(|r| {
             matches!(
                 &r.event,
-                RuntimeEvent::OnchainTransaction(pallet::Event::FeeShareBurnt {
+                RuntimeEvent::Onchain(pallet::Event::FeeShareBurnt {
                     reason: event_reason,
                     amount: event_amount,
                 }) if *event_reason == reason && *event_amount == amount
@@ -278,7 +278,7 @@ fn fee_share_burn_event_total() -> usize {
         .filter(|r| {
             matches!(
                 &r.event,
-                RuntimeEvent::OnchainTransaction(pallet::Event::FeeShareBurnt { .. })
+                RuntimeEvent::Onchain(pallet::Event::FeeShareBurnt { .. })
             )
         })
         .count()
@@ -288,7 +288,7 @@ fn has_fee_paid_event() -> bool {
     System::events().iter().any(|r| {
         matches!(
             r.event,
-            RuntimeEvent::OnchainTransaction(pallet::Event::FeePaid { .. })
+            RuntimeEvent::Onchain(pallet::Event::FeePaid { .. })
         )
     })
 }

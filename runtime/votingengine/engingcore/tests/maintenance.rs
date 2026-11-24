@@ -88,8 +88,7 @@ fn delayed_cleanup_waits_for_retention_and_respects_zero_budget() {
             cid_number: b"fixture".to_vec().try_into().unwrap(),
             role_code: b"R".to_vec().try_into().unwrap(),
         });
-        assert_ok!(VotingEngine::snapshot_role_voters(1, subject, vec![1, 2]));
-        assert_ok!(VotingEngine::record_governance_wallet_state(1, [42; 32]));
+        assert_ok!(VotingEngine::snapshot_role_voters(1, subject, vec![vec![1], vec![2]]));
         assert_ok!(VotingEngine::register_proposal_data(
             1,
             b"owner",
@@ -117,9 +116,7 @@ fn delayed_cleanup_waits_for_retention_and_respects_zero_budget() {
         assert!(!Proposals::<Test>::contains_key(1));
         assert!(!ProposalOwner::<Test>::contains_key(1));
         assert!(!ProposalData::<Test>::contains_key(1));
-        assert!(!FrozenGovernanceWalletState::<Test>::contains_key(1));
-        assert_eq!(FrozenWalletVersions::<Test>::iter_prefix(1).count(), 0);
-        assert_eq!(VoterSnapshot::<Test>::iter_prefix(1).count(), 0);
+        assert_eq!(RoleVoters::<Test>::iter_prefix(1).count(), 0);
     });
 }
 
@@ -244,43 +241,39 @@ fn pending_expiry_rotates_past_future_deadlines() {
 }
 
 #[test]
-fn frozen_wallet_versions_cleanup_is_budgeted_bounded_and_keeps_old_cursor_codec() {
-    use codec::Encode;
-    assert_eq!(PendingCleanupStage::FinalCleanup.encode(), vec![5]);
-    assert_eq!(PendingCleanupStage::FrozenWalletVersions.encode(), vec![6]);
-    let mut externalities = ext();
-    externalities.execute_with(|| {
-        seed(71, 10);
-        for n in 0..4 {
-            let subject =
-                crate::types::AuthorizationSubject::Institution(crate::types::RoleSubject {
-                    cid_number: b"fixture-cid".to_vec().try_into().unwrap(),
-                    role_code: vec![n].try_into().unwrap(),
-                });
-            assert_ok!(VotingEngine::snapshot_role_voters(71, subject, vec![1, 2]));
-        }
-        PendingProposalCleanups::<Test>::insert(71, PendingCleanupStage::FrozenWalletVersions);
-        assert_ok!(cleanup::enqueue_pending_cleanup::<Test>(71));
+fn current_wallet_resolves_frozen_person_after_rebind() {
+    ext().execute_with(|| {
+        let subject = crate::AuthorizationSubject::Institution(crate::RoleSubject {
+            cid_number: b"fixture-cid".to_vec().try_into().unwrap(),
+            role_code: b"fixture-role".to_vec().try_into().unwrap(),
+        });
+        assert_ok!(VotingEngine::snapshot_role_voters(71, subject.clone(), vec![vec![1], vec![2]]));
+        let ticket = VotingEngine::resolve_snapshot_voter(71, &subject, &1).unwrap();
+        FIRST_PERSON_WALLET.with(|wallet| wallet.set(3));
+        assert!(VotingEngine::resolve_snapshot_voter(71, &subject, &1).is_none());
+        assert_eq!(VotingEngine::resolve_snapshot_voter(71, &subject, &3), Some(ticket));
     });
-    externalities.commit_all().unwrap();
-    externalities.execute_with(|| {
-        let before = FrozenWalletVersions::<Test>::iter_prefix(71).count();
-        let budget = <() as crate::weights::WeightInfo>::cleanup_base()
-            .saturating_add(<() as crate::weights::WeightInfo>::cleanup_item())
-            .saturating_add(VotingEngine::cleanup_bound(
-                Some(PendingCleanupStage::FrozenWalletVersions),
-                1,
-                0,
-            ));
-        assert!(VotingEngine::process_pending_cleanup_steps(budget).all_lte(budget));
-        assert_eq!(
-            FrozenWalletVersions::<Test>::iter_prefix(71).count(),
-            before - 1
-        );
-        assert_eq!(
-            VoterSnapshot::<Test>::iter_prefix(71).count(),
-            4,
-            "版本元数据清理不能重写原名单"
-        );
+}
+
+#[test]
+fn historical_wallet_snapshot_cleanup_keeps_new_role_snapshot() {
+    use codec::Encode;
+    use frame_support::StorageHasher;
+    assert_eq!(PendingCleanupStage::FinalCleanup.encode(), vec![5]);
+    assert_eq!(PendingCleanupStage::HistoricalVoterSnapshots.encode(), vec![6]);
+    ext().execute_with(|| {
+        let role_subject = crate::RoleSubject {
+            cid_number: b"fixture-cid".to_vec().try_into().unwrap(),
+            role_code: b"fixture-role".to_vec().try_into().unwrap(),
+        };
+        let subject = crate::AuthorizationSubject::Institution(role_subject.clone());
+        assert_ok!(VotingEngine::snapshot_role_voters(71, subject, vec![vec![1]]));
+        let mut legacy_key = frame_support::storage::storage_prefix(b"VotingEngine", b"VoterSnapshot").to_vec();
+        legacy_key.extend_from_slice(&frame_support::Blake2_128Concat::hash(&71u128.encode()));
+        legacy_key.push(1);
+        sp_io::storage::set(&legacy_key, b"historical-snapshot");
+        VotingEngine::process_pending_cleanup_step(71, PendingCleanupStage::HistoricalVoterSnapshots, 1);
+        assert!(sp_io::storage::get(&legacy_key).is_none());
+        assert!(RoleVoters::<Test>::contains_key(71, role_subject));
     });
 }

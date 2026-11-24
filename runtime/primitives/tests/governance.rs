@@ -34,10 +34,10 @@ mod governance_skeleton {
         assert_eq!(accounts.len(), list.len(), "保护清单主账户不得重复");
 
         let nrc = list.iter().find(|f| f.code == NRC).expect("NRC 必须在册");
-        assert_eq!(nrc.expected_len, NRC_ADMIN_COUNT);
+        assert_eq!(nrc.expected_len, NRC_COMMITTEE_SEATS);
 
         let njd = list.iter().find(|f| f.code == NJD).expect("NJD 必须在册");
-        assert_eq!(njd.expected_len, NJD_ADMIN_COUNT);
+        assert_eq!(njd.expected_len, NJD_JUDICIAL_SEATS);
         let court = fixed_role_specs(NJD)
             .into_iter()
             .find(|role| role.role_code == ROLE_CODE_CONSTITUTION_GUARD)
@@ -47,17 +47,17 @@ mod governance_skeleton {
 
         assert!(list
             .iter()
-            .any(|f| f.code == PRC && f.expected_len == PRC_ADMIN_COUNT));
+            .any(|f| f.code == PRC && f.expected_len == PRC_COMMITTEE_SEATS));
         assert!(list
             .iter()
-            .any(|f| f.code == PRB && f.expected_len == PRB_ADMIN_COUNT));
+            .any(|f| f.code == PRB && f.expected_len == PRB_DIRECTOR_SEATS));
         let frg = list
             .iter()
             .find(|f| f.code == FRG)
             .expect("FRG 必须作为受保护创世机构在册");
         assert_eq!(
             frg.expected_len,
-            PROVINCE_CODE_INFOS.len() as u32 * FRG_PROVINCE_GROUP_ADMIN_COUNT
+            PROVINCE_CODE_INFOS.len() as u32 * FRG_COMMISSIONER_SEATS
         );
     }
 
@@ -76,22 +76,33 @@ mod governance_skeleton {
 
     #[test]
     fn legal_representative_has_one_role_and_zero_or_one_assignment() {
-        let institution = fixed_institutions()[0];
+        for institution in fixed_institutions() {
+            assert_eq!(
+                fixed_role_assignment_bounds_by_identity(
+                    institution.code,
+                    institution.cid_number.as_bytes(),
+                    ROLE_CODE_LEGAL_REPRESENTATIVE,
+                ),
+                Some((0, 1)),
+                "{} 的法定代表人岗位只允许空缺或一人任职",
+                institution.cid_number
+            );
+        }
+    }
+
+    #[test]
+    fn nrc_committee_has_nineteen_required_assignments() {
+        let institution = fixed_institutions()
+            .into_iter()
+            .find(|institution| institution.code == NRC)
+            .expect("国家储委会必须在受保护机构清单内");
         assert_eq!(
             fixed_role_assignment_bounds_by_identity(
-                institution.code,
+                NRC,
                 institution.cid_number.as_bytes(),
-                ROLE_CODE_LEGAL_REPRESENTATIVE,
+                ROLE_CODE_COMMITTEE_MEMBER,
             ),
-            Some((0, 1))
-        );
-        assert_eq!(
-            fixed_role_assignment_bounds_by_identity(
-                institution.code,
-                institution.cid_number.as_bytes(),
-                fixed_role_specs(institution.code)[0].role_code,
-            ),
-            Some((institution.expected_len, institution.expected_len))
+            Some((19, 19))
         );
     }
 
@@ -105,9 +116,18 @@ mod governance_skeleton {
     fn frg_groups_cover_all_provinces_with_five_seats() {
         let groups = frg_province_groups();
         assert_eq!(groups.len(), PROVINCE_CODE_INFOS.len());
-        assert!(groups
-            .iter()
-            .all(|(_, n)| *n == FRG_PROVINCE_GROUP_ADMIN_COUNT));
+        let institution = federal_registry_institution();
+        for (province_code, seats) in groups {
+            assert_eq!(seats, 5);
+            assert_eq!(
+                fixed_role_assignment_bounds_by_identity(
+                    FRG,
+                    institution.cid_number.as_bytes(),
+                    &province_commissioner_role_code(province_code),
+                ),
+                Some((5, 5))
+            );
+        }
     }
 
     #[test]
@@ -124,7 +144,7 @@ mod governance_skeleton {
                 FRG,
                 &province_commissioner_role_code(first_province.province_code)
             ),
-            Some(FRG_PROVINCE_GROUP_ADMIN_COUNT)
+            Some(FRG_COMMISSIONER_SEATS)
         );
         assert_eq!(fixed_role_seats(NJD, b"UNKNOWN"), None);
     }
@@ -134,6 +154,16 @@ mod institution_constraints {
     use crate::cid::code::*;
 
     use crate::institution_constraints::*;
+
+    fn assert_main_and_fee_first(kinds: &[InstitutionProtocolAccountKind]) {
+        assert!(
+            kinds.starts_with(&[
+                InstitutionProtocolAccountKind::Main,
+                InstitutionProtocolAccountKind::Fee,
+            ]),
+            "机构协议账户必须以主账户、费用账户开头"
+        );
+    }
 
     #[test]
     fn singleton_identities_and_codes_are_unique() {
@@ -178,6 +208,20 @@ mod institution_constraints {
             Some(PRB_PROTOCOL_ACCOUNT_KINDS)
         );
 
+        let fsc = crate::cid::china::china_zf::CHINA_ZF
+            .iter()
+            .find(|item| institution_code_from_cid_number(item.cid_number) == Some(FSC))
+            .expect("联邦安全局必须在创世机构清单内");
+        for (code, cid_number) in [
+            (NRC, nrc.cid_number),
+            (PRB, prb.cid_number),
+            (FSC, fsc.cid_number),
+        ] {
+            let kinds = required_protocol_account_kinds(code, cid_number.as_bytes(), None)
+                .expect("机构码与创世 CID 必须一致");
+            assert_main_and_fee_first(kinds);
+        }
+
         assert_eq!(
             required_protocol_account_kinds(NRC, prb.cid_number.as_bytes(), None),
             None
@@ -194,9 +238,9 @@ mod institution_constraints {
         const SFGP_CID: &[u8] = b"GD001-SFGP0-123456789-2026";
 
         let has_clearing = |kinds: Option<&'static [InstitutionProtocolAccountKind]>| {
-            kinds
-                .expect("CID 与机构码一致")
-                .contains(&InstitutionProtocolAccountKind::Clearing)
+            let kinds = kinds.expect("CID 与机构码一致");
+            assert_main_and_fee_first(kinds);
+            kinds.contains(&InstitutionProtocolAccountKind::Clearing)
         };
 
         // ① 股份公司本身。

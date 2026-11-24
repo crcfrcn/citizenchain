@@ -37,7 +37,7 @@ mod runtime {
     #[runtime::pallet_index(1)]
     pub type Timestamp = pallet_timestamp;
     #[runtime::pallet_index(2)]
-    pub type PowDifficulty = super;
+    pub type Difficulty = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -72,7 +72,7 @@ fn run_blocks(count: u32, block_time_ms: u64) {
         System::set_block_number(block);
         Timestamp::set_timestamp(now_ms);
         set_extrinsic_count(2);
-        PowDifficulty::on_finalize(block);
+        Difficulty::on_finalize(block);
     }
 }
 
@@ -88,7 +88,7 @@ fn difficulty_adjusted_events() -> Vec<Event<Test>> {
     System::events()
         .into_iter()
         .filter_map(|r| match r.event {
-            RuntimeEvent::PowDifficulty(event) => Some(event),
+            RuntimeEvent::Difficulty(event) => Some(event),
             _ => None,
         })
         .collect()

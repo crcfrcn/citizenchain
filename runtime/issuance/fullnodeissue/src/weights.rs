@@ -16,8 +16,8 @@ pub trait WeightInfo {
 }
 pub struct SubstrateWeight<T>(PhantomData<T>);
 impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
-	/// Storage: `FullnodeIssuance::RewardAccountIdByMiner` (r:1 w:1)
-	/// Proof: `FullnodeIssuance::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::RewardAccountIdByMiner` (r:1 w:1)
+	/// Proof: `FullnodeIssue::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
 	fn bind_reward_account() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `6`
@@ -28,8 +28,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(1))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
-	/// Storage: `FullnodeIssuance::RewardAccountIdByMiner` (r:1 w:1)
-	/// Proof: `FullnodeIssuance::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::RewardAccountIdByMiner` (r:1 w:1)
+	/// Proof: `FullnodeIssue::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
 	fn rebind_reward_account() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `111`
@@ -40,18 +40,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(1))
 			.saturating_add(T::DbWeight::get().writes(1))
 	}
-	/// Storage: `FullnodeIssuance::RewardAccountIdByMiner` (r:1 w:0)
-	/// Proof: `FullnodeIssuance::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::RewardAccountIdByMiner` (r:1 w:0)
+	/// Proof: `FullnodeIssue::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	/// Storage: `FullnodeIssuance::RewardedBlockCount` (r:1 w:1)
-	/// Proof: `FullnodeIssuance::RewardedBlockCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `FullnodeIssuance::TotalFullnodeIssued` (r:1 w:1)
-	/// Proof: `FullnodeIssuance::TotalFullnodeIssued` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `FullnodeIssuance::LastRewardAudit` (r:0 w:1)
-	/// Proof: `FullnodeIssuance::LastRewardAudit` (`max_values`: Some(1), `max_size`: Some(84), added: 579, mode: `MaxEncodedLen`)
-	/// Storage: `FullnodeIssuance::LastAuthoredBlockByMiner` (r:0 w:1)
-	/// Proof: `FullnodeIssuance::LastAuthoredBlockByMiner` (`max_values`: None, `max_size`: Some(52), added: 2527, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::RewardedBlockCount` (r:1 w:1)
+	/// Proof: `FullnodeIssue::RewardedBlockCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::TotalFullnodeIssued` (r:1 w:1)
+	/// Proof: `FullnodeIssue::TotalFullnodeIssued` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::LastRewardAudit` (r:0 w:1)
+	/// Proof: `FullnodeIssue::LastRewardAudit` (`max_values`: Some(1), `max_size`: Some(84), added: 579, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::LastAuthoredBlockByMiner` (r:0 w:1)
+	/// Proof: `FullnodeIssue::LastAuthoredBlockByMiner` (`max_values`: None, `max_size`: Some(52), added: 2527, mode: `MaxEncodedLen`)
 	fn on_finalize_reward() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `267`
@@ -64,8 +64,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 }
 impl WeightInfo for () {
-	/// Storage: `FullnodeIssuance::RewardAccountIdByMiner` (r:1 w:1)
-	/// Proof: `FullnodeIssuance::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::RewardAccountIdByMiner` (r:1 w:1)
+	/// Proof: `FullnodeIssue::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
 	fn bind_reward_account() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `6`
@@ -76,8 +76,8 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(1))
 			.saturating_add(RocksDbWeight::get().writes(1))
 	}
-	/// Storage: `FullnodeIssuance::RewardAccountIdByMiner` (r:1 w:1)
-	/// Proof: `FullnodeIssuance::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::RewardAccountIdByMiner` (r:1 w:1)
+	/// Proof: `FullnodeIssue::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
 	fn rebind_reward_account() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `111`
@@ -88,18 +88,18 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(1))
 			.saturating_add(RocksDbWeight::get().writes(1))
 	}
-	/// Storage: `FullnodeIssuance::RewardAccountIdByMiner` (r:1 w:0)
-	/// Proof: `FullnodeIssuance::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::RewardAccountIdByMiner` (r:1 w:0)
+	/// Proof: `FullnodeIssue::RewardAccountIdByMiner` (`max_values`: None, `max_size`: Some(80), added: 2555, mode: `MaxEncodedLen`)
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	/// Storage: `FullnodeIssuance::RewardedBlockCount` (r:1 w:1)
-	/// Proof: `FullnodeIssuance::RewardedBlockCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `FullnodeIssuance::TotalFullnodeIssued` (r:1 w:1)
-	/// Proof: `FullnodeIssuance::TotalFullnodeIssued` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `FullnodeIssuance::LastRewardAudit` (r:0 w:1)
-	/// Proof: `FullnodeIssuance::LastRewardAudit` (`max_values`: Some(1), `max_size`: Some(84), added: 579, mode: `MaxEncodedLen`)
-	/// Storage: `FullnodeIssuance::LastAuthoredBlockByMiner` (r:0 w:1)
-	/// Proof: `FullnodeIssuance::LastAuthoredBlockByMiner` (`max_values`: None, `max_size`: Some(52), added: 2527, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::RewardedBlockCount` (r:1 w:1)
+	/// Proof: `FullnodeIssue::RewardedBlockCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::TotalFullnodeIssued` (r:1 w:1)
+	/// Proof: `FullnodeIssue::TotalFullnodeIssued` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::LastRewardAudit` (r:0 w:1)
+	/// Proof: `FullnodeIssue::LastRewardAudit` (`max_values`: Some(1), `max_size`: Some(84), added: 579, mode: `MaxEncodedLen`)
+	/// Storage: `FullnodeIssue::LastAuthoredBlockByMiner` (r:0 w:1)
+	/// Proof: `FullnodeIssue::LastAuthoredBlockByMiner` (`max_values`: None, `max_size`: Some(52), added: 2527, mode: `MaxEncodedLen`)
 	fn on_finalize_reward() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `267`

@@ -1,28 +1,6 @@
 [
   {
     "group": "admin",
-    "path": "/api/admin/city-registry-admins",
-    "methods": [
-      "get"
-    ],
-    "handlers": [
-      "admins::city_registry_admins::list_city_registry_admins"
-    ],
-    "owner": "registry"
-  },
-  {
-    "group": "admin",
-    "path": "/api/admin/federal-registry-admins",
-    "methods": [
-      "get"
-    ],
-    "handlers": [
-      "admins::catalog::list_federal_registry_admins"
-    ],
-    "owner": "registry"
-  },
-  {
-    "group": "admin",
     "path": "/api/admin/registry/drill-in-project",
     "methods": [
       "post"
@@ -34,12 +12,12 @@
   },
   {
     "group": "admin",
-    "path": "/api/admin/institution/admins/register/prepare",
+    "path": "/api/admin/institution/roles/register/prepare",
     "methods": [
       "post"
     ],
     "handlers": [
-      "admins::governance::prepare_register_institution_admins"
+      "institutions::roles::prepare_register_institution_roles"
     ],
     "owner": "registry"
   },

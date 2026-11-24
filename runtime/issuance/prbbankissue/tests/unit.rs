@@ -50,11 +50,11 @@ fn first_year_mints_all_banks_and_writes_exact_audit() {
 fn settlement_only_happens_in_finalize() {
     new_test_ext().execute_with(|| {
         System::set_block_number(10);
-        let _ = ProvincialBankInterest::on_initialize(10);
+        let _ = PrbBankIssue::on_initialize(10);
         assert_eq!(LastSettledYear::<Test>::get(), 0);
         assert_eq!(Balances::total_issuance(), 0);
 
-        ProvincialBankInterest::on_finalize(10);
+        PrbBankIssue::on_finalize(10);
         assert_eq!(LastSettledYear::<Test>::get(), 1);
         assert_eq!(Balances::total_issuance(), annual_total(1));
     });
@@ -87,7 +87,7 @@ fn second_year_uses_decayed_rate_and_cumulative_audit() {
 fn missing_previous_year_rolls_back_entire_settlement() {
     new_test_ext().execute_with(|| {
         System::set_block_number(20);
-        ProvincialBankInterest::on_finalize(20);
+        PrbBankIssue::on_finalize(20);
 
         assert_eq!(LastSettledYear::<Test>::get(), 0);
         assert_eq!(TotalProvincialBankInterestIssued::<Test>::get(), 0);
@@ -103,12 +103,12 @@ fn missing_previous_year_rolls_back_entire_settlement() {
 fn non_boundary_and_zero_period_never_mint() {
     new_test_ext().execute_with(|| {
         System::set_block_number(9);
-        ProvincialBankInterest::on_finalize(9);
+        PrbBankIssue::on_finalize(9);
         assert_eq!(Balances::total_issuance(), 0);
 
         set_blocks_per_year(0);
         System::set_block_number(10);
-        ProvincialBankInterest::on_finalize(10);
+        PrbBankIssue::on_finalize(10);
         assert_eq!(LastSettledYear::<Test>::get(), 0);
         assert_eq!(Balances::total_issuance(), 0);
     });
@@ -143,7 +143,7 @@ fn year_100_is_last_and_uses_one_basis_point() {
         });
 
         System::set_block_number(1_000);
-        ProvincialBankInterest::on_finalize(1_000);
+        PrbBankIssue::on_finalize(1_000);
         assert_eq!(LastSettledYear::<Test>::get(), 100);
         assert_eq!(
             TotalProvincialBankInterestIssued::<Test>::get(),
@@ -153,7 +153,7 @@ fn year_100_is_last_and_uses_one_basis_point() {
 
         let total_after_100 = Balances::total_issuance();
         System::set_block_number(1_010);
-        ProvincialBankInterest::on_finalize(1_010);
+        PrbBankIssue::on_finalize(1_010);
         assert_eq!(LastSettledYear::<Test>::get(), 100);
         assert_eq!(Balances::total_issuance(), total_after_100);
     });

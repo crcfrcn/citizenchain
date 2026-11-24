@@ -21,7 +21,7 @@ use crate::{BalanceOf, RegisteredInstitution, RoleCodeOf};
 
 /// 发起"新增私权机构自定义命名账户"提案。
 ///
-/// 授权改为机构自身:`build_institution_vote_plan` 一次校验管理员名册、有效任职与业务权限
+/// 授权改为机构自身:`build_institution_vote_plan` 一次校验人员 CID、有效任职和岗位业务权限
 /// (与关闭账户同源、复用 `ACTION_INSTITUTION_CLOSE` 账户生命周期能力,不虚构岗位数据)。
 /// 保留登记同款派生+校验链;派生好的账户冻结进提案载荷,不立即插入。
 pub(crate) fn do_propose_add_institution_account<T: Config>(

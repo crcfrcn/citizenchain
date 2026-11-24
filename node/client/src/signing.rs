@@ -850,3 +850,39 @@ pub fn join_qr_frames(frames: Vec<String>) -> Result<Option<String>, String> {
     }
     chain_signing::mldsa::qr_join(&frames.join("\n")).map_err(str::to_owned)
 }
+
+/// 只验证钱包对原始消息的持有证明；不读取密钥、不生成或提交链交易。
+/// 二维码s/q编解码和两种算法均委托现有所属库，账户必须与公钥派生值一致。
+pub fn verify_message_signature(
+    account: &[u8; 32],
+    message: &[u8],
+    body: &SignResponseBody,
+) -> Result<bool, String> {
+    let signature = hex::decode(body.signature.strip_prefix("0x").ok_or("签名hex缺前缀")?)
+        .map_err(|e| e.to_string())?;
+    let pq = body
+        .pq_public_key
+        .as_deref()
+        .map(|q| {
+            qr_protocol::b64_to_prefixed_hex(q, chain_signing::mldsa::PUBLIC_KEY_BYTES, "b.q")
+                .map_err(|e| e.to_string())
+                .and_then(|s| hex::decode(s.trim_start_matches("0x")).map_err(|e| e.to_string()))
+        })
+        .transpose()?;
+    if let Some(public) = pq {
+        let wire = chain_signing::mldsa::join_signature_parts(Some(&public), &signature)?;
+        let (public, signature) = chain_signing::mldsa::decode_pq_signature(&wire)?;
+        return Ok(chain_signing::mldsa::verify_account_signature(
+            account, &public, message, &signature,
+        ));
+    }
+    use sp_core::Pair;
+    let signature: [u8; 64] = signature
+        .try_into()
+        .map_err(|_| "sr25519签名长度无效，PQ响应须提供公钥")?;
+    Ok(sp_core::sr25519::Pair::verify(
+        &sp_core::sr25519::Signature::from_raw(signature),
+        message,
+        &sp_core::sr25519::Public::from_raw(*account),
+    ))
+}

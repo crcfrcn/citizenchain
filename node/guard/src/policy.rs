@@ -23,7 +23,7 @@ use sp_state_machine::OverlayedChanges;
 use sp_state_machine::StateMachine;
 use std::collections::BTreeMap;
 
-const OFFCHAIN_PALLET: &[u8] = b"OffchainTransaction";
+const OFFCHAIN_PALLET: &[u8] = b"Offchain";
 
 const OFFCHAIN_RATE: &[u8] = b"L2FeeRateBp";
 
@@ -56,11 +56,15 @@ fn protected_fee(
     let (pallet, fields) = variant(call).ok_or("交易缺少 RuntimeCall 类型")?;
     let call = only_field(fields).ok_or("交易 pallet 调用结构非法")?;
     let (name, fields) = variant(call).ok_or("交易缺少 pallet Call 类型")?;
-    let transfer = pallet == "OnchainTransaction" && name == "transfer_with_remark";
+    let transfer =
+        matches!(pallet, "Onchain" | "OnchainTransaction") && name == "transfer_with_remark";
     let vote = matches!(
         (pallet, name),
         ("InternalVote", "cast")
-            | ("JointVote", "cast_admin" | "cast_referendum")
+            | (
+                "JointVote",
+                "cast_role_vote" | "cast_admin" | "cast_referendum"
+            )
             | (
                 "LegislationVote",
                 "cast_representative_vote"
@@ -283,12 +287,15 @@ where
         };
         let event = named_field(record, "event").ok_or("System::Events 缺少 event")?;
         let (pallet, outer_fields) = variant(event).ok_or("System::Events event 格式非法")?;
-        if pallet != "OnchainTransaction" && pallet != "OffchainTransaction" {
+        if !matches!(
+            pallet,
+            "Onchain" | "OnchainTransaction" | "Offchain" | "OffchainTransaction"
+        ) {
             continue;
         }
         let inner = only_field(outer_fields).ok_or("System::Events 业务事件格式非法")?;
         let (name, fields) = variant(inner).ok_or("System::Events 业务事件类型非法")?;
-        if pallet == "OnchainTransaction" && name == "FeePaid" {
+        if matches!(pallet, "Onchain" | "OnchainTransaction") && name == "FeePaid" {
             if !exact_fields(fields, &["account_id", "fee"]) {
                 return Err("FeePaid 字段格式非法".into());
             }
@@ -306,7 +313,7 @@ where
                 account_id,
                 fee,
             });
-        } else if pallet == "OffchainTransaction" && name == "PaymentSettled" {
+        } else if matches!(pallet, "Offchain" | "OffchainTransaction") && name == "PaymentSettled" {
             if !exact_fields(
                 fields,
                 &[
@@ -337,47 +344,52 @@ where
     Ok(fees)
 }
 
-// 唯一历史名称只用于识别不可改写的旧 metadata，不作为当前接口别名。
+// 旧名称仅由父块或历史metadata解释；当前存储入口固定使用现行注册名。
 fn remark_fee_enabled(
     metadata: &RuntimeMetadata,
     parent_enabled: Option<bool>,
 ) -> Result<bool, String> {
-    let constants: Vec<(&str, &[u8])> = match metadata {
+    let pallets: Vec<Vec<(&str, &[u8])>> = match metadata {
         RuntimeMetadata::V14(meta) => meta
             .pallets
             .iter()
-            .find(|p| p.name == "OnchainTransaction")
+            .filter(|p| matches!(p.name.as_str(), "Onchain" | "OnchainTransaction"))
             .map(|p| {
                 p.constants
                     .iter()
                     .map(|c| (c.name.as_str(), c.value.as_slice()))
                     .collect()
-            }),
+            })
+            .collect(),
         RuntimeMetadata::V15(meta) => meta
             .pallets
             .iter()
-            .find(|p| p.name == "OnchainTransaction")
+            .filter(|p| matches!(p.name.as_str(), "Onchain" | "OnchainTransaction"))
             .map(|p| {
                 p.constants
                     .iter()
                     .map(|c| (c.name.as_str(), c.value.as_slice()))
                     .collect()
-            }),
+            })
+            .collect(),
         RuntimeMetadata::V16(meta) => meta
             .pallets
             .iter()
-            .find(|p| p.name == "OnchainTransaction")
+            .filter(|p| matches!(p.name.as_str(), "Onchain" | "OnchainTransaction"))
             .map(|p| {
                 p.constants
                     .iter()
                     .map(|c| (c.name.as_str(), c.value.as_slice()))
                     .collect()
-            }),
+            })
+            .collect(),
         _ => return Err("费用 metadata 版本不受支持".into()),
-    }
-    .ok_or("metadata 缺少 OnchainTransaction")?;
+    };
+    let [constants] = pallets.as_slice() else {
+        return Err("metadata 链上费用模块缺失或重复".into());
+    };
     let mut policy = None;
-    for (name, raw) in constants {
+    for &(name, raw) in constants {
         let enabled = match name {
             "FLAT_FEE" => true,
             "VoteFlatFee" => false,
@@ -412,88 +424,87 @@ impl ExtrinsicSchema {
     fn new(raw: &[u8]) -> Result<Self, String> {
         let metadata = nodeclient::codec::decode_runtime_metadata(raw)?;
         let remark_fee_enabled = remark_fee_enabled(&metadata, None)?;
-        let (types, address, signature, call, versions, extensions) =
-            match metadata {
-                RuntimeMetadata::V14(meta) => {
-                    if !matches!(meta.extrinsic.version, 4 | 5) {
-                        return Err("父 Runtime 声明的交易格式非法".into());
-                    }
-                    let xt = meta
-                        .types
-                        .resolve(meta.extrinsic.ty.id)
-                        .ok_or("父 Runtime 缺少 extrinsic 类型")?;
-                    let param = |name: &str| {
-                        xt.type_params
-                            .iter()
-                            .find(|param| param.name == name)
-                            .and_then(|param| param.ty)
-                            .map(|ty| ty.id)
-                            .ok_or_else(|| format!("extrinsic 缺少 {name} 类型"))
-                    };
-                    let (address, signature, call) =
-                        (param("Address")?, param("Signature")?, param("Call")?);
-                    let extensions = meta
-                        .extrinsic
-                        .signed_extensions
-                        .into_iter()
-                        .map(|ext| (ext.identifier, ext.ty.id))
-                        .collect();
-                    (
-                        meta.types,
-                        address,
-                        signature,
-                        call,
-                        Vec::new(),
-                        BTreeMap::from([(0, extensions)]),
-                    )
+        let (types, address, signature, call, versions, extensions) = match metadata {
+            RuntimeMetadata::V14(meta) => {
+                if !matches!(meta.extrinsic.version, 4 | 5) {
+                    return Err("父 Runtime 声明的交易格式非法".into());
                 }
-                RuntimeMetadata::V15(meta) => {
-                    if !matches!(meta.extrinsic.version, 4 | 5) {
-                        return Err("父 Runtime 声明的交易格式非法".into());
-                    }
-                    let extensions = meta
-                        .extrinsic
-                        .signed_extensions
-                        .into_iter()
-                        .map(|ext| (ext.identifier, ext.ty.id))
-                        .collect();
-                    (
-                        meta.types,
-                        meta.extrinsic.address_ty.id,
-                        meta.extrinsic.signature_ty.id,
-                        meta.extrinsic.call_ty.id,
-                        Vec::new(),
-                        BTreeMap::from([(0, extensions)]),
-                    )
+                let xt = meta
+                    .types
+                    .resolve(meta.extrinsic.ty.id)
+                    .ok_or("父 Runtime 缺少 extrinsic 类型")?;
+                let param = |name: &str| {
+                    xt.type_params
+                        .iter()
+                        .find(|param| param.name == name)
+                        .and_then(|param| param.ty)
+                        .map(|ty| ty.id)
+                        .ok_or_else(|| format!("extrinsic 缺少 {name} 类型"))
+                };
+                let (address, signature, call) =
+                    (param("Address")?, param("Signature")?, param("Call")?);
+                let extensions = meta
+                    .extrinsic
+                    .signed_extensions
+                    .into_iter()
+                    .map(|ext| (ext.identifier, ext.ty.id))
+                    .collect();
+                (
+                    meta.types,
+                    address,
+                    signature,
+                    call,
+                    Vec::new(),
+                    BTreeMap::from([(0, extensions)]),
+                )
+            }
+            RuntimeMetadata::V15(meta) => {
+                if !matches!(meta.extrinsic.version, 4 | 5) {
+                    return Err("父 Runtime 声明的交易格式非法".into());
                 }
-                RuntimeMetadata::V16(meta) => {
-                    if meta.extrinsic.versions.is_empty() {
-                        return Err("父 Runtime 缺少交易格式声明".into());
-                    }
-                    let mut extensions = BTreeMap::new();
-                    for (version, indexes) in meta.extrinsic.transaction_extensions_by_version {
-                        let mut pipeline = Vec::new();
-                        for index in indexes {
-                            let ext = meta
-                                .extrinsic
-                                .transaction_extensions
-                                .get(index.0 as usize)
-                                .ok_or("交易扩展元数据索引越界")?;
-                            pipeline.push((ext.identifier.clone(), ext.ty.id));
-                        }
-                        extensions.insert(version, pipeline);
-                    }
-                    (
-                        meta.types,
-                        meta.extrinsic.address_ty.id,
-                        meta.extrinsic.signature_ty.id,
-                        meta.extrinsic.call_ty.id,
-                        meta.extrinsic.versions,
-                        extensions,
-                    )
+                let extensions = meta
+                    .extrinsic
+                    .signed_extensions
+                    .into_iter()
+                    .map(|ext| (ext.identifier, ext.ty.id))
+                    .collect();
+                (
+                    meta.types,
+                    meta.extrinsic.address_ty.id,
+                    meta.extrinsic.signature_ty.id,
+                    meta.extrinsic.call_ty.id,
+                    Vec::new(),
+                    BTreeMap::from([(0, extensions)]),
+                )
+            }
+            RuntimeMetadata::V16(meta) => {
+                if meta.extrinsic.versions.is_empty() {
+                    return Err("父 Runtime 缺少交易格式声明".into());
                 }
-                _ => unreachable!("元数据版本已校验"),
-            };
+                let mut extensions = BTreeMap::new();
+                for (version, indexes) in meta.extrinsic.transaction_extensions_by_version {
+                    let mut pipeline = Vec::new();
+                    for index in indexes {
+                        let ext = meta
+                            .extrinsic
+                            .transaction_extensions
+                            .get(index.0 as usize)
+                            .ok_or("交易扩展元数据索引越界")?;
+                        pipeline.push((ext.identifier.clone(), ext.ty.id));
+                    }
+                    extensions.insert(version, pipeline);
+                }
+                (
+                    meta.types,
+                    meta.extrinsic.address_ty.id,
+                    meta.extrinsic.signature_ty.id,
+                    meta.extrinsic.call_ty.id,
+                    meta.extrinsic.versions,
+                    extensions,
+                )
+            }
+            _ => unreachable!("元数据版本已校验"),
+        };
         Ok(Self {
             types,
             address,
@@ -615,11 +626,40 @@ fn check_max_rate(raw: Option<Vec<u8>>) -> Result<(), String> {
         // ValueQuery 的缺省 0 表示采用节点固定上限 0.1%。
         return Ok(());
     };
-    let rate: u32 = decode_exact(&raw, "OffchainTransaction::MaxL2FeeRateBp")?;
+    let rate: u32 = decode_exact(&raw, "Offchain::MaxL2FeeRateBp")?;
     if rate != 0 {
         check_rate_value(rate)?;
     }
     Ok(())
+}
+
+fn settlement_rate_key(metadata: &[u8], cid: &[u8]) -> Result<Vec<u8>, String> {
+    let metadata = nodeclient::codec::decode_runtime_metadata(metadata)?;
+    let pallets: Vec<Option<String>> = match metadata {
+        RuntimeMetadata::V14(m) => m
+            .pallets
+            .into_iter()
+            .filter(|p| matches!(p.name.as_str(), "Offchain" | "OffchainTransaction"))
+            .map(|p| p.storage.map(|s| s.prefix))
+            .collect(),
+        RuntimeMetadata::V15(m) => m
+            .pallets
+            .into_iter()
+            .filter(|p| matches!(p.name.as_str(), "Offchain" | "OffchainTransaction"))
+            .map(|p| p.storage.map(|s| s.prefix))
+            .collect(),
+        RuntimeMetadata::V16(m) => m
+            .pallets
+            .into_iter()
+            .filter(|p| matches!(p.name.as_str(), "Offchain" | "OffchainTransaction"))
+            .map(|p| p.storage.map(|s| s.prefix))
+            .collect(),
+        _ => return Err("费用metadata版本不受支持".into()),
+    };
+    let [Some(prefix)] = pallets.as_slice() else {
+        return Err("metadata清算费用模块或存储缺失或重复".into());
+    };
+    Ok(storage_key::rate_in(prefix.as_bytes(), cid))
 }
 
 /// 校验普通区块实际产生的固定链上费用和链下清算费用。
@@ -670,11 +710,12 @@ where
         else {
             continue;
         };
-        let raw = read_post(&crate::guard::runtime_policy::storage_key::rate(
+        let raw = read_post(&settlement_rate_key(
+            parent_metadata,
             recipient_bank_cid.as_slice(),
-        ))
+        )?)
         .ok_or("链下清算结果缺少收款方清算行费率")?;
-        let rate: u32 = decode_exact(&raw, "OffchainTransaction::L2FeeRateBp")?;
+        let rate: u32 = decode_exact(&raw, "Offchain::L2FeeRateBp")?;
         check_rate_value(rate)?;
         let expected = offchain_fee(*transfer_amount, rate);
         if *fee_amount != expected {
@@ -694,21 +735,24 @@ pub(crate) fn check_transition<F>(
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
-    check_max_rate(read_post(
-        &crate::guard::runtime_policy::storage_key::max_rate(),
-    ))?;
-    let rate_prefix = crate::guard::runtime_policy::storage_key::rate_prefix();
-    let proposed_prefix = crate::guard::runtime_policy::storage_key::proposed_prefix();
-    for key in delta.keys() {
-        if key.starts_with(&rate_prefix) {
-            if let Some(raw) = read_post(key) {
-                check_rate_value(decode_exact(&raw, "OffchainTransaction::L2FeeRateBp")?)?;
-            }
-        } else if key.starts_with(&proposed_prefix) {
-            if let Some(raw) = read_post(key) {
-                let (rate, _effective_at): (u32, u32) =
-                    decode_exact(&raw, "OffchainTransaction::L2FeeRateProposed")?;
-                check_rate_value(rate)?;
+    // 历史前缀仅用于校验既存原始状态；不承接当前业务读写或提供旧名回退。
+    for pallet in [OFFCHAIN_PALLET, b"OffchainTransaction".as_slice()] {
+        check_max_rate(read_post(&storage_key::prefix_in(
+            pallet,
+            OFFCHAIN_MAX_RATE,
+        )))?;
+        let rate_prefix = storage_key::prefix_in(pallet, OFFCHAIN_RATE);
+        let proposed_prefix = storage_key::prefix_in(pallet, OFFCHAIN_RATE_PROPOSED);
+        for key in delta.keys() {
+            if key.starts_with(&rate_prefix) {
+                if let Some(raw) = read_post(key) {
+                    check_rate_value(decode_exact(&raw, "清算行费率")?)?;
+                }
+            } else if key.starts_with(&proposed_prefix) {
+                if let Some(raw) = read_post(key) {
+                    let (rate, _effective_at): (u32, u32) = decode_exact(&raw, "清算行待生效费率")?;
+                    check_rate_value(rate)?;
+                }
             }
         }
     }
@@ -721,20 +765,22 @@ where
     I: IntoIterator<Item = (&'a Vec<u8>, &'a Vec<u8>)>,
 {
     let state = entries.into_iter().collect::<BTreeMap<_, _>>();
-    check_max_rate(
-        state
-            .get(&crate::guard::runtime_policy::storage_key::max_rate())
-            .map(|raw| (*raw).clone()),
-    )?;
-    let rate_prefix = crate::guard::runtime_policy::storage_key::rate_prefix();
-    let proposed_prefix = crate::guard::runtime_policy::storage_key::proposed_prefix();
-    for (key, raw) in state {
-        if key.starts_with(&rate_prefix) {
-            check_rate_value(decode_exact(raw, "OffchainTransaction::L2FeeRateBp")?)?;
-        } else if key.starts_with(&proposed_prefix) {
-            let (rate, _effective_at): (u32, u32) =
-                decode_exact(raw, "OffchainTransaction::L2FeeRateProposed")?;
-            check_rate_value(rate)?;
+    // 包括旧区块保留的原始键；每个实际值均校验，不以一个前缀替代另一个。
+    for pallet in [OFFCHAIN_PALLET, b"OffchainTransaction".as_slice()] {
+        check_max_rate(
+            state
+                .get(&storage_key::prefix_in(pallet, OFFCHAIN_MAX_RATE))
+                .map(|raw| (*raw).clone()),
+        )?;
+        let rate_prefix = storage_key::prefix_in(pallet, OFFCHAIN_RATE);
+        let proposed_prefix = storage_key::prefix_in(pallet, OFFCHAIN_RATE_PROPOSED);
+        for (key, raw) in &state {
+            if key.starts_with(&rate_prefix) {
+                check_rate_value(decode_exact(raw, "清算行费率")?)?;
+            } else if key.starts_with(&proposed_prefix) {
+                let (rate, _effective_at): (u32, u32) = decode_exact(raw, "清算行待生效费率")?;
+                check_rate_value(rate)?;
+            }
         }
     }
     Ok(())
@@ -865,7 +911,11 @@ pub mod storage_key {
     use sp_crypto_hashing::twox_128;
 
     fn prefix(item: &[u8]) -> Vec<u8> {
-        [twox_128(OFFCHAIN_PALLET), twox_128(item)].concat()
+        prefix_in(OFFCHAIN_PALLET, item)
+    }
+
+    pub(super) fn prefix_in(pallet: &[u8], item: &[u8]) -> Vec<u8> {
+        [twox_128(pallet), twox_128(item)].concat()
     }
 
     pub fn events() -> Vec<u8> {
@@ -885,9 +935,18 @@ pub mod storage_key {
     }
 
     pub fn rate(bank_cid: &[u8]) -> Vec<u8> {
-        // CID 键 = InstitutionCidNumber(BoundedVec<u8>),SCALE = Compact(len) || bytes。
+        rate_in(OFFCHAIN_PALLET, bank_cid)
+    }
+
+    pub(super) fn rate_in(pallet: &[u8], bank_cid: &[u8]) -> Vec<u8> {
+        // CID键使用所属块storage前缀及原BoundedVec SCALE。
         let encoded = bank_cid.to_vec().encode();
-        [rate_prefix(), blake2_128(&encoded).to_vec(), encoded].concat()
+        [
+            prefix_in(pallet, OFFCHAIN_RATE),
+            blake2_128(&encoded).to_vec(),
+            encoded,
+        ]
+        .concat()
     }
 
     pub fn relevant_prefixes() -> [Vec<u8>; 2] {

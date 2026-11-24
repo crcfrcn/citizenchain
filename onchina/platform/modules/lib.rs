@@ -79,7 +79,6 @@ pub use crate::database::Db;
 pub use crate::response::*;
 pub use crate::security_http::*;
 pub use authentication::login::{parse_account_id_bytes, require_admin_any};
-pub use authentication::model::*;
 
 /// HTTPS 入口唯一真源；宿主通过 --describe 向节点公开。
 pub const PLATFORM_HOST: &str = "onchina.crcfrcn.com";

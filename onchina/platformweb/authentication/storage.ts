@@ -14,15 +14,15 @@ export function readStoredAuth(): AdminAuth | null {
     if (
       typeof parsed === 'object' &&
       parsed &&
-      typeof parsed.walletRevision === 'string' && /^(0|[1-9][0-9]*)$/.test(parsed.walletRevision) &&
-      BigInt(parsed.walletRevision) <= 18446744073709551615n &&
-      (parsed.walletNamespace === 'PublicAdmins' || parsed.walletNamespace === 'PrivateAdmins') &&
+      typeof parsed.bindingRevision === 'string' && /^[1-9][0-9]*$/.test(parsed.bindingRevision) &&
+      BigInt(parsed.bindingRevision) <= 18446744073709551615n &&
+      typeof parsed.personCid === 'string' && parsed.personCid.length > 0 && typeof parsed.roleCode === 'string' && parsed.roleCode.length > 0 && !('walletRevision' in parsed) && !('walletNamespace' in parsed) &&
       typeof parsed.institutionCidNumber === 'string' && parsed.institutionCidNumber.length > 0 &&
       typeof parsed.setupRequired === 'boolean' &&
       'accessToken' in parsed &&
       typeof parsed.accessToken === 'string' &&
       typeof parsed.accountId === 'string' &&
-      typeof parsed.institutionCode === 'string'
+      typeof parsed.institutionCode === 'string' && typeof parsed.familyName === 'string' && typeof parsed.givenName === 'string'
     ) {
       return parsed as AdminAuth;
     }

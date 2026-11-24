@@ -8,7 +8,7 @@ use primitives::genesis::GENESIS_CITIZEN_MAX;
 
 use std::collections::BTreeMap;
 
-const PALLET_NAME: &[u8] = b"GenesisPallet";
+const PALLET_NAME: &[u8] = b"Genesis";
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum GuardError {
@@ -51,7 +51,7 @@ where
 {
     let storage_version = read(&crate::guard::genesis_pallet::storage_key::storage_version())
         .map(|raw| {
-            crate::guard::genesis_pallet::decode_exact::<u16>(&raw, "GenesisPallet::StorageVersion")
+            crate::guard::genesis_pallet::decode_exact::<u16>(&raw, "Genesis::StorageVersion")
         })
         .transpose()?
         .unwrap_or_default();
@@ -75,10 +75,8 @@ where
 
     let citizen_max = read(&crate::guard::genesis_pallet::storage_key::citizen_max())
         .ok_or(crate::guard::genesis_pallet::GuardError::CitizenMaxMissing)?;
-    let citizen_max = crate::guard::genesis_pallet::decode_exact::<u64>(
-        &citizen_max,
-        "GenesisPallet::CitizenMax",
-    )?;
+    let citizen_max =
+        crate::guard::genesis_pallet::decode_exact::<u64>(&citizen_max, "Genesis::CitizenMax")?;
     if citizen_max != GENESIS_CITIZEN_MAX {
         return Err(crate::guard::genesis_pallet::GuardError::CitizenMaxChanged(
             citizen_max,

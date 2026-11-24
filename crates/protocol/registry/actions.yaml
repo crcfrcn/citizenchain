@@ -237,16 +237,16 @@
     - expires_at
     - nonce
 
-- action_key: onchina_admin_action
+- action_key: onchina_confirm
   action_code: 3
-  action_label_zh: 链上中国管理员确认
+  action_label_zh: 链上中国操作确认
   kind: offchain_sign
   qr_kind: sign_request
   pallet:
   call:
-  decoder: onchina_admin_action
+  decoder: onchina_confirm
   hash_only_allowed: false
-  signing_category: onchina_admin
+  signing_category: onchina_confirm
   required_fields:
     - action_type
     - actor_cid_number
@@ -256,29 +256,29 @@
     - before_hash
     - after_hash
 
-- action_key: activate_admin_account
+- action_key: role_access
   action_code: 5
-  action_label_zh: 管理员账户激活
+  action_label_zh: 本机岗位授权
   kind: offchain_sign
   qr_kind: sign_request
   pallet:
   call:
-  decoder: activate_admin_account
+  decoder: role_access
   hash_only_allowed: false
-  signing_category: admin_activation
+  signing_category: role_access
   required_fields:
     - signer_public_key
 
-- action_key: decrypt_admin
+- action_key: clearing_decrypt
   action_code: 6
-  action_label_zh: 管理员解密确认
+  action_label_zh: 清算行解密授权
   kind: offchain_sign
   qr_kind: sign_request
   pallet:
   call:
-  decoder: decrypt_admin
+  decoder: clearing_decrypt
   hash_only_allowed: false
-  signing_category: admin_decrypt
+  signing_category: clearing_decrypt
   required_fields:
     - signer_public_key
 
@@ -317,7 +317,7 @@
   action_label_zh: 发布广场动态
   kind: chain_call
   qr_kind: sign_request
-  pallet: SquarePost
+  pallet: Square
   call: publish_post
   decoder: publish_post
   hash_only_allowed: false
@@ -333,7 +333,7 @@
   action_label_zh: 订阅会员
   kind: chain_call
   qr_kind: sign_request
-  pallet: SquarePost
+  pallet: Square
   call: subscribe
   decoder: subscribe
   hash_only_allowed: false
@@ -350,7 +350,7 @@
   action_label_zh: 取消订阅
   kind: chain_call
   qr_kind: sign_request
-  pallet: SquarePost
+  pallet: Square
   call: cancel
   decoder: cancel
   hash_only_allowed: false
@@ -363,7 +363,7 @@
   action_label_zh: 设置创作者会员档位
   kind: chain_call
   qr_kind: sign_request
-  pallet: SquarePost
+  pallet: Square
   call: set_creator_plans
   decoder: set_creator_plans
   hash_only_allowed: false
@@ -376,7 +376,7 @@
   action_label_zh: 更换订阅档位
   kind: chain_call
   qr_kind: sign_request
-  pallet: SquarePost
+  pallet: Square
   call: change_subscription_plan
   decoder: change_subscription_plan
   hash_only_allowed: false
@@ -393,7 +393,7 @@
   action_label_zh: 发起平台会员调价提案
   kind: chain_call
   qr_kind: sign_request
-  pallet: SquarePost
+  pallet: Square
   call: propose_set_platform_price
   decoder: propose_set_platform_price
   hash_only_allowed: false
@@ -409,7 +409,7 @@
   action_label_zh: 修改创作者档位名称
   kind: chain_call
   qr_kind: sign_request
-  pallet: SquarePost
+  pallet: Square
   call: update_creator_tier_name
   decoder: update_creator_tier_name
   hash_only_allowed: false
@@ -423,7 +423,7 @@
   action_label_zh: 转账
   kind: chain_call
   qr_kind: sign_request
-  pallet: OnchainTransaction
+  pallet: Onchain
   call: transfer_with_remark
   decoder: transfer
   hash_only_allowed: false
@@ -438,7 +438,7 @@
   action_label_zh: 发起创建个人多签
   kind: chain_call
   qr_kind: sign_request
-  pallet: PersonalManage
+  pallet: Personal
   call: propose_create
   decoder: propose_create_personal
   hash_only_allowed: false
@@ -456,7 +456,7 @@
   action_label_zh: 发起关闭个人多签
   kind: chain_call
   qr_kind: sign_request
-  pallet: PersonalManage
+  pallet: Personal
   call: propose_close
   decoder: propose_close_personal
   hash_only_allowed: false
@@ -466,11 +466,11 @@
     - beneficiary_account_id
 
 - action_key: propose_personal_admin_set_change
-  action_code: 0x1d00
+  action_code: 0x0703
   action_label_zh: 发起个人多签管理员变更
   kind: chain_call
   qr_kind: sign_request
-  pallet: PersonalAdmins
+  pallet: Personal
   call: propose_admin_set_change
   decoder: propose_personal_admin_set_change
   hash_only_allowed: false
@@ -486,7 +486,7 @@
   action_label_zh: 发起决议发行
   kind: chain_call
   qr_kind: sign_request
-  pallet: ResolutionIssuance
+  pallet: ResolutionIssue
   call: propose_issuance
   decoder: propose_issuance
   hash_only_allowed: false
@@ -546,7 +546,7 @@
   action_label_zh: 登记投票身份
   kind: chain_call
   qr_kind: sign_request
-  pallet: CitizenIdentity
+  pallet: Identity
   call: register_voting_identity
   decoder: register_voting_identity
   hash_only_allowed: false
@@ -565,7 +565,7 @@
   action_label_zh: 发起 Runtime 升级
   kind: chain_call
   qr_kind: sign_request
-  pallet: RuntimeUpgrade
+  pallet: Upgrade
   call: propose_runtime_upgrade
   decoder: propose_runtime_upgrade
   hash_only_allowed: true
@@ -578,7 +578,7 @@
   action_label_zh: 开发者直升 Runtime
   kind: chain_call
   qr_kind: sign_request
-  pallet: RuntimeUpgrade
+  pallet: Upgrade
   call: developer_direct_upgrade
   decoder: developer_direct_upgrade
   hash_only_allowed: true
@@ -610,7 +610,7 @@
   action_label_zh: 发起 GRANDPA 密钥紧急恢复
   kind: chain_call
   qr_kind: sign_request
-  pallet: GrandpaKeyChange
+  pallet: GrandpaKey
   call: propose_emergency_grandpa_key_recovery
   decoder: propose_emergency_grandpa_key_recovery
   hash_only_allowed: false
@@ -627,7 +627,7 @@
   action_label_zh: 正常更换 GRANDPA 密钥
   kind: chain_call
   qr_kind: sign_request
-  pallet: GrandpaKeyChange
+  pallet: GrandpaKey
   call: schedule_grandpa_key_rotation
   decoder: schedule_grandpa_key_rotation
   hash_only_allowed: false
@@ -644,7 +644,7 @@
   action_label_zh: 发起关闭公权机构
   kind: chain_call
   qr_kind: sign_request
-  pallet: PublicManage
+  pallet: PublicEntity
   call: propose_close_public_institution
   decoder: propose_close_public_institution
   hash_only_allowed: false
@@ -660,7 +660,7 @@
   action_label_zh: 更新公权机构信息
   kind: chain_call
   qr_kind: sign_request
-  pallet: PublicManage
+  pallet: PublicEntity
   call: update_institution_info
   decoder: update_public_institution_info
   hash_only_allowed: false
@@ -677,7 +677,7 @@
   action_label_zh: 新增公权机构账户
   kind: chain_call
   qr_kind: sign_request
-  pallet: PublicManage
+  pallet: PublicEntity
   call: add_institution_account
   decoder: add_public_institution_account
   hash_only_allowed: false
@@ -694,7 +694,7 @@
   action_label_zh: 发起公权机构治理
   kind: chain_call
   qr_kind: sign_request
-  pallet: PublicManage
+  pallet: PublicEntity
   call: propose_institution_governance
   decoder: propose_public_institution_governance
   hash_only_allowed: false
@@ -707,20 +707,18 @@
     - proposer_role_code
     - fee_payer_description
 
-- action_key: register_public_institution_admins
+- action_key: register_public_institution_roles
   action_code: 0x1e09
-  action_label_zh: 登记公权机构管理员
+  action_label_zh: 登记公权机构岗位与任职
   kind: chain_call
   qr_kind: sign_request
-  pallet: PublicManage
-  call: register_institution_admins
-  decoder: register_public_institution_admins
+  pallet: PublicEntity
+  call: register_institution_roles
+  decoder: register_public_institution_roles
   hash_only_allowed: false
   signing_category: chain_tx
   required_fields:
     - cid_number
-    - admins
-    - governance_action
     - governance_detail
     - expected_state_hash
     - initial_threshold
@@ -733,7 +731,7 @@
   action_label_zh: 发起关闭私权机构
   kind: chain_call
   qr_kind: sign_request
-  pallet: PrivateManage
+  pallet: PrivateEntity
   call: propose_close_private_institution
   decoder: propose_close_private_institution
   hash_only_allowed: false
@@ -749,7 +747,7 @@
   action_label_zh: 更新私权机构信息
   kind: chain_call
   qr_kind: sign_request
-  pallet: PrivateManage
+  pallet: PrivateEntity
   call: update_institution_info
   decoder: update_private_institution_info
   hash_only_allowed: false
@@ -766,7 +764,7 @@
   action_label_zh: 新增私权机构账户
   kind: chain_call
   qr_kind: sign_request
-  pallet: PrivateManage
+  pallet: PrivateEntity
   call: add_institution_account
   decoder: add_private_institution_account
   hash_only_allowed: false
@@ -783,7 +781,7 @@
   action_label_zh: 发起私权机构治理
   kind: chain_call
   qr_kind: sign_request
-  pallet: PrivateManage
+  pallet: PrivateEntity
   call: propose_institution_governance
   decoder: propose_private_institution_governance
   hash_only_allowed: false
@@ -796,20 +794,18 @@
     - proposer_role_code
     - fee_payer_description
 
-- action_key: register_private_institution_admins
+- action_key: register_private_institution_roles
   action_code: 0x1f09
-  action_label_zh: 登记私权机构管理员
+  action_label_zh: 登记私权机构岗位与任职
   kind: chain_call
   qr_kind: sign_request
-  pallet: PrivateManage
-  call: register_institution_admins
-  decoder: register_private_institution_admins
+  pallet: PrivateEntity
+  call: register_institution_roles
+  decoder: register_private_institution_roles
   hash_only_allowed: false
   signing_category: chain_tx
   required_fields:
     - cid_number
-    - admins
-    - governance_action
     - governance_detail
     - expected_state_hash
     - initial_threshold
@@ -822,7 +818,7 @@
   action_label_zh: 设置地址目录版本
   kind: chain_call
   qr_kind: sign_request
-  pallet: AddressRegistry
+  pallet: Address
   call: set_catalog_version
   decoder: set_address_catalog_version
   hash_only_allowed: false
@@ -838,7 +834,7 @@
   action_label_zh: 设置地址名称
   kind: chain_call
   qr_kind: sign_request
-  pallet: AddressRegistry
+  pallet: Address
   call: set_address_name
   decoder: set_address_name
   hash_only_allowed: false
@@ -857,7 +853,7 @@
   action_label_zh: 删除地址名称
   kind: chain_call
   qr_kind: sign_request
-  pallet: AddressRegistry
+  pallet: Address
   call: remove_address_name
   decoder: remove_address_name
   hash_only_allowed: false
@@ -875,7 +871,7 @@
   action_label_zh: 设置详细地址
   kind: chain_call
   qr_kind: sign_request
-  pallet: AddressRegistry
+  pallet: Address
   call: set_address
   decoder: set_address
   hash_only_allowed: false
@@ -895,7 +891,7 @@
   action_label_zh: 删除详细地址
   kind: chain_call
   qr_kind: sign_request
-  pallet: AddressRegistry
+  pallet: Address
   call: remove_address
   decoder: remove_address
   hash_only_allowed: false
@@ -915,7 +911,7 @@
   action_label_zh: 发起机构转账
   kind: chain_call
   qr_kind: sign_request
-  pallet: MultisigTransfer
+  pallet: Multisig
   call: propose_transfer
   decoder: propose_transfer
   hash_only_allowed: false
@@ -934,7 +930,7 @@
   action_label_zh: 发起安全基金转账
   kind: chain_call
   qr_kind: sign_request
-  pallet: MultisigTransfer
+  pallet: Multisig
   call: propose_safety_fund
   decoder: propose_safety_fund_transfer
   hash_only_allowed: false
@@ -954,7 +950,7 @@
   action_label_zh: 发起归集到主账户
   kind: chain_call
   qr_kind: sign_request
-  pallet: MultisigTransfer
+  pallet: Multisig
   call: propose_sweep
   decoder: propose_sweep_to_main
   hash_only_allowed: false
@@ -972,7 +968,7 @@
   action_label_zh: 登记清算行
   kind: chain_call
   qr_kind: sign_request
-  pallet: OffchainTransaction
+  pallet: Offchain
   call: register_clearing_bank
   decoder: register_clearing_bank
   hash_only_allowed: false
@@ -989,7 +985,7 @@
   action_label_zh: 更新清算行端点
   kind: chain_call
   qr_kind: sign_request
-  pallet: OffchainTransaction
+  pallet: Offchain
   call: update_clearing_bank_endpoint
   decoder: update_clearing_bank_endpoint
   hash_only_allowed: false
@@ -1005,7 +1001,7 @@
   action_label_zh: 注销清算行
   kind: chain_call
   qr_kind: sign_request
-  pallet: OffchainTransaction
+  pallet: Offchain
   call: unregister_clearing_bank
   decoder: unregister_clearing_bank
   hash_only_allowed: false
@@ -1035,7 +1031,7 @@
   kind: chain_call
   qr_kind: sign_request
   pallet: JointVote
-  call: cast_admin
+  call: cast_role_vote
   decoder: joint_vote
   hash_only_allowed: false
   signing_category: chain_tx
@@ -1098,7 +1094,7 @@
   action_label_zh: 注册公民参选身份
   kind: chain_call
   qr_kind: sign_request
-  pallet: CitizenIdentity
+  pallet: Identity
   call: upgrade_to_candidate_identity
   decoder: upgrade_to_candidate_identity
   hash_only_allowed: false
@@ -1122,7 +1118,7 @@
   action_label_zh: 更新公民链上身份
   kind: chain_call
   qr_kind: sign_request
-  pallet: CitizenIdentity
+  pallet: Identity
   call: update_voting_identity
   decoder: update_voting_identity
   hash_only_allowed: false
@@ -1141,7 +1137,7 @@
   action_label_zh: 更新公民参选身份
   kind: chain_call
   qr_kind: sign_request
-  pallet: CitizenIdentity
+  pallet: Identity
   call: update_candidate_identity
   decoder: update_candidate_identity
   hash_only_allowed: false
@@ -1165,7 +1161,7 @@
   action_label_zh: 吊销公民链上身份
   kind: chain_call
   qr_kind: sign_request
-  pallet: CitizenIdentity
+  pallet: Identity
   call: revoke_identity
   decoder: revoke_identity
   hash_only_allowed: false
@@ -1181,7 +1177,7 @@
   action_label_zh: 自助注册CID
   kind: chain_call
   qr_kind: sign_request
-  pallet: CitizenIdentity
+  pallet: Identity
   call: self_occupy_cid
   decoder: self_occupy_cid
   hash_only_allowed: false
@@ -1194,7 +1190,7 @@
   action_label_zh: 注册局占用CID
   kind: chain_call
   qr_kind: sign_request
-  pallet: CitizenIdentity
+  pallet: Identity
   call: occupy_cid
   decoder: occupy_cid
   hash_only_allowed: false
@@ -1208,14 +1204,14 @@
     - expires_at
 
 # 链上 call 7 已由注册局换绑独占；已删除的旧批量绑定调用不得恢复。
-- action_key: admin_rebind_cid_account_id
+- action_key: registrar_rebind_cid
   action_code: 0x0a07
   action_label_zh: 注册局换绑CID钱包账户
   kind: chain_call
   qr_kind: sign_request
-  pallet: CitizenIdentity
-  call: admin_rebind_cid_account_id
-  decoder: admin_rebind_cid_account_id
+  pallet: Identity
+  call: registrar_rebind_cid
+  decoder: registrar_rebind_cid
   hash_only_allowed: false
   signing_category: chain_tx
   required_fields:
@@ -1231,7 +1227,7 @@
   action_label_zh: 注册局吊销CID
   kind: chain_call
   qr_kind: sign_request
-  pallet: CitizenIdentity
+  pallet: Identity
   call: revoke_cid
   decoder: revoke_cid
   hash_only_allowed: false
@@ -1247,7 +1243,7 @@
   action_label_zh: 公民号自助换绑交易
   kind: chain_call
   qr_kind: sign_request
-  pallet: CitizenIdentity
+  pallet: Identity
   call: self_rebind_cid_account_id
   decoder: self_rebind_cid_account_id
   hash_only_allowed: false
@@ -1262,7 +1258,7 @@
   action_label_zh: 绑定清算行
   kind: chain_call
   qr_kind: sign_request
-  pallet: OffchainTransaction
+  pallet: Offchain
   call: bind_clearing_bank
   decoder: bind_clearing_bank
   hash_only_allowed: false
@@ -1275,7 +1271,7 @@
   action_label_zh: 充值到清算行
   kind: chain_call
   qr_kind: sign_request
-  pallet: OffchainTransaction
+  pallet: Offchain
   call: deposit
   decoder: deposit_clearing_bank
   hash_only_allowed: false
@@ -1288,7 +1284,7 @@
   action_label_zh: 从清算行提现
   kind: chain_call
   qr_kind: sign_request
-  pallet: OffchainTransaction
+  pallet: Offchain
   call: withdraw
   decoder: withdraw_clearing_bank
   hash_only_allowed: false
@@ -1301,7 +1297,7 @@
   action_label_zh: 切换清算行
   kind: chain_call
   qr_kind: sign_request
-  pallet: OffchainTransaction
+  pallet: Offchain
   call: switch_bank
   decoder: switch_clearing_bank
   hash_only_allowed: false
@@ -1314,7 +1310,7 @@
   action_label_zh: 提案调整链下费率
   kind: chain_call
   qr_kind: sign_request
-  pallet: OffchainTransaction
+  pallet: Offchain
   call: propose_l2_fee_rate
   decoder: propose_l2_fee_rate
   hash_only_allowed: false
@@ -1330,7 +1326,7 @@
   action_label_zh: 创建链上资产提案
   kind: chain_call
   qr_kind: sign_request
-  pallet: OnchainIssuance
+  pallet: OnchainIssue
   call: propose_issue
   decoder: propose_asset_issue
   hash_only_allowed: false
@@ -1351,7 +1347,7 @@
   action_label_zh: 链上资产增发提案
   kind: chain_call
   qr_kind: sign_request
-  pallet: OnchainIssuance
+  pallet: OnchainIssue
   call: propose_mint
   decoder: propose_asset_mint
   hash_only_allowed: false
@@ -1368,7 +1364,7 @@
   action_label_zh: 链上资产销毁提案
   kind: chain_call
   qr_kind: sign_request
-  pallet: OnchainIssuance
+  pallet: OnchainIssue
   call: propose_burn
   decoder: propose_asset_burn
   hash_only_allowed: false
@@ -1385,7 +1381,7 @@
   action_label_zh: 关闭链上资产提案
   kind: chain_call
   qr_kind: sign_request
-  pallet: OnchainIssuance
+  pallet: OnchainIssue
   call: propose_close
   decoder: propose_asset_close
   hash_only_allowed: false
@@ -1400,7 +1396,7 @@
   action_label_zh: 链上资产划转提案
   kind: chain_call
   qr_kind: sign_request
-  pallet: OnchainIssuance
+  pallet: OnchainIssue
   call: propose_transfer
   decoder: propose_asset_transfer
   hash_only_allowed: false
@@ -1418,7 +1414,7 @@
   action_label_zh: 监管冻结资产持仓提案
   kind: chain_call
   qr_kind: sign_request
-  pallet: OnchainIssuance
+  pallet: OnchainIssue
   call: propose_monitor_freeze
   decoder: propose_monitor_freeze
   hash_only_allowed: false
@@ -1435,7 +1431,7 @@
   action_label_zh: 监管解冻资产持仓提案
   kind: chain_call
   qr_kind: sign_request
-  pallet: OnchainIssuance
+  pallet: OnchainIssue
   call: propose_monitor_unfreeze
   decoder: propose_monitor_unfreeze
   hash_only_allowed: false
@@ -1452,7 +1448,7 @@
   action_label_zh: 监管扣押资产提案
   kind: chain_call
   qr_kind: sign_request
-  pallet: OnchainIssuance
+  pallet: OnchainIssue
   call: propose_monitor_confiscate
   decoder: propose_monitor_confiscate
   hash_only_allowed: false
@@ -1470,7 +1466,7 @@
   action_label_zh: 监管强制划转资产提案
   kind: chain_call
   qr_kind: sign_request
-  pallet: OnchainIssuance
+  pallet: OnchainIssue
   call: propose_monitor_force_transfer
   decoder: propose_monitor_force_transfer
   hash_only_allowed: false
@@ -1489,7 +1485,7 @@
   action_label_zh: 监管封禁资产提案
   kind: chain_call
   qr_kind: sign_request
-  pallet: OnchainIssuance
+  pallet: OnchainIssue
   call: propose_monitor_force_close
   decoder: propose_monitor_force_close
   hash_only_allowed: false
@@ -1505,7 +1501,7 @@
   action_label_zh: 发起立法
   kind: chain_call
   qr_kind: sign_request
-  pallet: LegislationYuan
+  pallet: Legislation
   call: propose_enact_law
   decoder: propose_enact_law
   hash_only_allowed: false
@@ -1526,7 +1522,7 @@
   action_label_zh: 发起修法
   kind: chain_call
   qr_kind: sign_request
-  pallet: LegislationYuan
+  pallet: Legislation
   call: propose_amend_law
   decoder: propose_amend_law
   hash_only_allowed: false
@@ -1548,7 +1544,7 @@
   action_label_zh: 发起废法
   kind: chain_call
   qr_kind: sign_request
-  pallet: LegislationYuan
+  pallet: Legislation
   call: propose_repeal_law
   decoder: propose_repeal_law
   hash_only_allowed: false
@@ -1625,60 +1621,3 @@
   required_fields:
     - proposal_id
     - approve
-
-# Institution-only acceptance proof; does not rebind a personal CID.
-- action_key: institution_wallet_accept
-  action_code: 21
-  action_label_zh: 机构管理员新钱包接收确认
-  kind: offchain_sign
-  qr_kind: sign_request
-  pallet:
-  call:
-  decoder: institution_wallet_accept
-  hash_only_allowed: false
-  signing_category: offchain_auth
-  required_fields:
-    - genesis_hash
-    - cid_number
-    - admin_account_id
-    - old_wallet_account_id
-    - new_wallet_account_id
-    - wallet_revision
-    - wallet_change_mode
-    - expires_at
-
-- action_key: rotate_public_institution_admin_wallet
-  action_code: 7690
-  action_label_zh: 本人更换机构管理员钱包
-  kind: chain_call
-  qr_kind: sign_request
-  pallet: PublicManage
-  call: rotate_institution_admin_wallet
-  decoder: rotate_public_institution_admin_wallet
-  hash_only_allowed: false
-  signing_category: chain_tx
-  required_fields:
-    - cid_number
-    - admin_account_id
-    - old_wallet_account_id
-    - new_wallet_account_id
-    - wallet_revision
-    - expires_at
-
-- action_key: rotate_private_institution_admin_wallet
-  action_code: 7946
-  action_label_zh: 本人更换机构管理员钱包
-  kind: chain_call
-  qr_kind: sign_request
-  pallet: PrivateManage
-  call: rotate_institution_admin_wallet
-  decoder: rotate_private_institution_admin_wallet
-  hash_only_allowed: false
-  signing_category: chain_tx
-  required_fields:
-    - cid_number
-    - admin_account_id
-    - old_wallet_account_id
-    - new_wallet_account_id
-    - wallet_revision
-    - expires_at

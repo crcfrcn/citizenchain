@@ -6,8 +6,9 @@ import type { CapabilitySet } from '../workspace/modules';
 import type { InstitutionWorkspace } from '../workspace/types';
 
 export type AdminAuthCheck = {
-  walletRevision: string;
-  walletNamespace: AdminAuth['walletNamespace'];
+  bindingRevision: string;
+  personCid: string;
+  roleCode: string;
   setupRequired: boolean;
   ok: boolean;
   accountId: string;
@@ -25,8 +26,9 @@ export type AdminAuthCheck = {
 };
 
 export type AdminIdentifyResult = {
-  walletRevision: string;
-  walletNamespace: AdminAuth['walletNamespace'];
+  bindingRevision: string;
+  personCid: string;
+  roleCode: string;
   setupRequired: boolean;
   accountId: string;
   institutionCidNumber: string;
@@ -60,6 +62,9 @@ export type AdminVerifyResult = {
 
 export type AdminInstitutionCandidate = {
   candidateId: string;
+  personCid: string;
+  roleCode: string;
+  roleName: string;
   institutionCode: string;
   adminLevel?: string | null;
   institutionCidNumber?: string | null;

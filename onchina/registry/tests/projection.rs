@@ -379,7 +379,7 @@ fn chain_institution() -> ChainInstitution {
             family_name: "程".to_string(),
             given_name: "伟".to_string(),
             cid_number: "CN220-CTZN2-198805200-2026".to_string(),
-            account_id: "0x".to_string() + &"9c".repeat(32),
+            account_id: Some("0x".to_string() + &"9c".repeat(32)),
         }),
     }
 }

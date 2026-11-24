@@ -21,11 +21,6 @@ pub(crate) fn legislation_sections(capabilities: CapabilitySet) -> Vec<Workspace
                     "立法与表决",
                     capabilities.can_view_legislation,
                 ),
-                action(
-                    "view_own_admins".to_string(),
-                    "本机构管理员",
-                    capabilities.view_own_admins,
-                ),
             ],
         ),
         section(

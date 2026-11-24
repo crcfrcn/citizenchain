@@ -43,7 +43,7 @@ fn raw_storage_keys_match_runtime_contract() {
     use sp_crypto_hashing::{blake2_128, twox_128};
 
     let account = [5u8; 32];
-    let mut expected_reward_account_id = twox_128(b"FullnodeIssuance").to_vec();
+    let mut expected_reward_account_id = twox_128(b"FullnodeIssue").to_vec();
     expected_reward_account_id.extend_from_slice(&twox_128(b"RewardAccountIdByMiner"));
     expected_reward_account_id.extend_from_slice(&blake2_128(&account));
     expected_reward_account_id.extend_from_slice(&account);

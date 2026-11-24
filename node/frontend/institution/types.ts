@@ -1,6 +1,6 @@
 // 定义清算行候选、账户余额和机构查询的公开类型。
 
-import type { InstitutionAdminInfo } from "./council";
+import type { InstitutionRoleInfo } from "./assignments";
 
 
 // 清算行机构身份只读 DTO,与 Tauri 后端 transaction/offchain_transaction/institution_read/types.rs 对齐。
@@ -42,10 +42,9 @@ export type InstitutionDetail = {
   /** 主账户/费用账户之外的其它账户(自定义初始账户)。 */
   otherAccounts: AccountWithBalance[];
 
-  adminsLen: number;
   threshold: number;
-  /** 管理员账户及其全部有效岗位任职。 */
-  admins: InstitutionAdminInfo[];
+  /** 岗位及其人员任职。 */
+  roles: InstitutionRoleInfo[];
 
   createdAt: number;
   accountCount: number;

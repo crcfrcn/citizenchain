@@ -19,7 +19,7 @@ fn prc_institution<T: Config>() -> T::AccountId {
 }
 
 fn prc_admin<T: Config>(index: usize) -> T::AccountId {
-    decode_account::<T>(CHINA_CB[1].admins[index])
+    frame_benchmarking::account(CHINA_CB[1].cid_number, index as u32, 0)
 }
 
 fn prc_cid_number() -> engingcore::CidNumber {

@@ -1,19 +1,19 @@
-//! 统一公开机构接口，查询本机构资料和管理员，并维护机构投影。
+//! 统一公开机构接口，查询本机构资料，并维护机构投影。
 
 #[path = "accounts.rs"]
 mod accounts;
-#[path = "admins.rs"]
-mod admins;
 #[path = "chain_call.rs"]
 mod chain_call;
 #[path = "subjects_chain_multisig_info.rs"]
 mod chain_multisig_info;
-#[path = "admins_chain_roles.rs"]
-mod chain_roles;
+#[path = "governance.rs"]
+mod governance;
 #[path = "subjects_model.rs"]
 mod model;
 #[path = "subjects_photos.rs"]
 mod photos;
+#[path = "roles.rs"]
+mod roles;
 #[path = "subjects_service.rs"]
 mod service;
 #[path = "subjects.rs"]
@@ -21,51 +21,38 @@ mod subjects;
 #[path = "subjects_unincorporated_org.rs"]
 mod unincorporated_org;
 
-#[cfg(test)]
-use admins::{can_read_institution_governance, retained_registration_admin};
-
 pub use accounts::ChainAccountRow;
 pub(crate) use accounts::{
     create_account, delete_account, detail_accounts, list_accounts, reserved_account_names,
     PURPOSE_INSTITUTION_ADD_ACCOUNT, PURPOSE_INSTITUTION_CLOSE_ACCOUNT,
 };
-pub use admins::{
-    build_chain_sign_output, code_bytes, parse_admin_inputs, parse_registration_action,
-    parse_registration_admin_inputs, parse_registry_wallet_action, InstitutionAdminInput, InstitutionAssignmentChangeInput,
-    InstitutionAssignmentTargetInput, InstitutionChainSignRequest, InstitutionRoleMutationInput,
-    InstitutionRolePermissionInput, PrepareInstitutionChainOutput, RegistryWalletOperationsInput,
-};
-pub(crate) use admins::{
-    get_governance_state, prepare_institution_governance, prepare_institution_wallet,
-    recheck_institution_wallet, PURPOSE_INSTITUTION_GOVERNANCE, PURPOSE_INSTITUTION_WALLET,
-};
 pub use chain_call::{
-    chain_action_code, encode_admins_payload, encode_propose_add_institution_account,
-    encode_propose_close_institution, encode_propose_institution_governance,
-    encode_register_institution_admins, institution_manage_pallet_index, ChainCall,
-    InstitutionAdminsPayload, ProposeAddInstitutionAccountArgs, ProposeCloseInstitutionArgs,
-    ProposeInstitutionGovernanceArgs, RegisterInstitutionAdminsArgs, PRIVATE_MANAGE_PALLET_INDEX,
+    chain_action_code, encode_propose_add_institution_account, encode_propose_close_institution,
+    encode_propose_institution_governance, encode_register_institution_roles, ChainCall,
+    ProposeAddInstitutionAccountArgs, ProposeCloseInstitutionArgs,
+    ProposeInstitutionGovernanceArgs, RegisterInstitutionRolesArgs, PRIVATE_MANAGE_PALLET_INDEX,
     PROPOSE_ADD_INSTITUTION_ACCOUNT_CALL_INDEX, PROPOSE_CLOSE_INSTITUTION_CALL_INDEX,
     PROPOSE_INSTITUTION_GOVERNANCE_CALL_INDEX, PUBLIC_MANAGE_PALLET_INDEX,
-    REGISTER_INSTITUTION_ADMINS_CALL_INDEX,
+    REGISTER_INSTITUTION_ROLES_CALL_INDEX,
 };
 pub(crate) use chain_multisig_info::{
     app_get_institution, app_list_accounts, app_search_institutions,
 };
-pub(crate) use chain_roles::fetch_frg_province_codes_for_admin;
-pub use chain_roles::{
-    fetch_active_assignments_onchain, fetch_all_federal_registry_assignments,
-    fetch_authorized_public_roles_at, fetch_governance_state, fetch_registration_roles_at,
-    fetch_registration_snapshot, select_registration_role, FederalRegistryProvinceAssignments,
-    GovernanceAssignment, GovernanceMember, GovernancePermission, GovernanceRepresentative,
-    GovernanceRole, GovernanceState, InstitutionAssignmentView, RegistrationRoleChoice,
-    RegistrationSnapshot,
+pub use entitybase::{business_action, BusinessActionId};
+pub use governance::{
+    build_chain_sign_output, code_bytes, parse_role_action, validate_action_people,
+    InstitutionAssignmentChangeInput, InstitutionAssignmentTargetInput,
+    InstitutionChainSignRequest, InstitutionRoleMutationInput, InstitutionRolePermissionInput,
+    PrepareInstitutionChainOutput,
+};
+pub(crate) use governance::{
+    get_governance_state, prepare_institution_governance, PURPOSE_INSTITUTION_GOVERNANCE,
 };
 pub use model::{
-    CreateAccountInput, CreateInstitutionAdminInput, CreateInstitutionInput, DeleteAccountInput,
-    Institution, InstitutionAccount, InstitutionDetailOutput, InstitutionDocument,
-    InstitutionListFilter, InstitutionListRow, LegalRepresentative, LegalRepresentativePhoto,
-    ParentInstitutionRow, UpdateInstitutionInput, EDUCATION_TYPE_CITY_CITIZEN_EDU_COMMITTEE,
+    CreateAccountInput, CreateInstitutionInput, DeleteAccountInput, Institution,
+    InstitutionAccount, InstitutionDetailOutput, InstitutionDocument, InstitutionListFilter,
+    InstitutionListRow, LegalRepresentative, LegalRepresentativePhoto, ParentInstitutionRow,
+    UpdateInstitutionInput, EDUCATION_TYPE_CITY_CITIZEN_EDU_COMMITTEE,
     EDUCATION_TYPE_NATIONAL_CITIZEN_EDU_COMMITTEE, VALID_DOC_TYPES,
 };
 pub(crate) use photos::SCHEMA;
@@ -73,6 +60,13 @@ pub(crate) use projection::refresh_bound_institution;
 pub use projection::{
     apply_institution_projection_conn, chain_institution_from_lookup, chain_or_local_str,
     merge_institution_record, r5_province_city, resolve_node_scope, ChainInstitution, NodeScope,
+};
+pub(crate) use roles::{fetch_active_assignments_at, person_allowed, registration_snapshot_at};
+pub use roles::{
+    fetch_active_assignments_onchain, fetch_authorized_roles_at, fetch_governance_state,
+    fetch_registration_roles_at, fetch_registration_snapshot, select_registration_role,
+    GovernanceAssignment, GovernancePermission, GovernanceRepresentative, GovernanceRole,
+    GovernanceState, InstitutionAssignmentView, RegistrationRoleChoice, RegistrationSnapshot,
 };
 pub use service::{
     institution_account_kind_label, is_protocol_account_name,
@@ -90,8 +84,7 @@ pub use subjects::{
     SearchParentsQuery,
 };
 pub(crate) use subjects::{
-    get_institution, read_legal_representative_photo, resolve_created_by,
-    service_error_to_response, update_institution,
+    get_institution, read_legal_representative_photo, service_error_to_response, update_institution,
 };
 pub use unincorporated_org::{
     can_attach_to_parent, parent_subject_requirement_message, requires_parent,
@@ -100,9 +93,6 @@ pub use unincorporated_org::{
 use axum::{extract::State, http::HeaderMap, http::StatusCode, response::IntoResponse, Json};
 use std::collections::BTreeMap;
 
-use crate::authentication::repo;
-use crate::chain_runtime;
-use crate::crypto::pubkey::same_account_id;
 use crate::*;
 
 fn balance_lookup_key(account_id: &str) -> String {
@@ -119,124 +109,9 @@ pub fn balance_fen(
         .flatten()
 }
 
-/// 普通机构只读“本机构管理员”列表。
-///
-/// 权威集合仍来自链上 Active 管理员集合;本地 admins 表只补展示姓名,不能决定准入。
-pub(crate) async fn list_own_institution_admins(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    let ctx = match require_admin_any(&state, &headers) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-    let capabilities =
-        crate::modules::capability::capabilities_for(&state.modules, &ctx.institution_code);
-    if !capabilities.view_own_admins {
-        return api_error(StatusCode::FORBIDDEN, 1003, "permission denied");
-    }
-    let binding = match repo::active_node_binding(&state.db) {
-        Ok(Some(binding)) => binding,
-        Ok(None) => return api_error(StatusCode::FORBIDDEN, 2002, "not an on-chain admin"),
-        Err(err) => {
-            let message = format!("query node binding failed: {err}");
-            return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
-        }
-    };
-    if binding.institution_code != ctx.institution_code {
-        return api_error(StatusCode::FORBIDDEN, 1003, "permission denied");
-    }
-    let identity = match chain_runtime::identity_from_binding_parts(
-        &binding.institution_code,
-        Some(binding.institution_cid_number.as_str()),
-    ) {
-        Ok(identity) => identity,
-        Err(err) => {
-            let message = format!("node binding invalid: {err}");
-            return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
-        }
-    };
-    let chain_assignments =
-        match crate::institutions::fetch_active_assignments_onchain(&identity).await {
-            Ok(Some(assignments)) => assignments,
-            Ok(None) => return api_error(StatusCode::FORBIDDEN, 2002, "not an on-chain admin"),
-            Err(err) => {
-                tracing::warn!(error = %err, "chain unreachable listing own institution admins");
-                return api_error(StatusCode::BAD_GATEWAY, 5002, "chain unreachable");
-            }
-        };
-    // 列表展示也做一次链上 active 复查,避免后台清退窗口内的失效管理员继续读取。
-    if !chain_assignments
-        .iter()
-        .any(|assignment| same_account_id(assignment.account_id.as_str(), ctx.account_id.as_str()))
-    {
-        return api_error(StatusCode::FORBIDDEN, 2002, "not an on-chain admin");
-    }
-    let actor_account_id = ctx.account_id.clone();
-    let institution_code = ctx.institution_code.clone();
-    let cid_short_name = ctx.cid_short_name.clone();
-    let balance_account_ids = chain_assignments
-        .iter()
-        .map(|assignment| assignment.account_id.clone())
-        .collect::<Vec<_>>();
-    let balance_by_account_id = match chain_runtime::fetch_account_balances_onchain(
-        &balance_account_ids,
-    )
-    .await
-    {
-        Ok(v) => v,
-        Err(err) => {
-            tracing::warn!(error = %err, "chain balance unavailable listing own institution admins");
-            BTreeMap::new()
-        }
-    };
-    let result = {
-        let mut rows = Vec::with_capacity(chain_assignments.len());
-        for assignment in chain_assignments {
-            let is_self =
-                same_account_id(assignment.account_id.as_str(), actor_account_id.as_str());
-            let balance = balance_fen(&balance_by_account_id, assignment.account_id.as_str());
-            rows.push(OwnInstitutionAdminRow {
-                account_id: assignment.account_id,
-                family_name: assignment.family_name,
-                given_name: assignment.given_name,
-                role_code: assignment.role_code,
-                role_name: assignment.role_name,
-                term_required: assignment.term_required,
-                term_start: assignment.term_start,
-                term_end: assignment.term_end,
-                assignment_source: assignment.assignment_source,
-                assignment_source_label: assignment.assignment_source_label,
-                assignment_source_ref: assignment.assignment_source_ref,
-                balance_fen: balance,
-                is_self,
-            });
-        }
-        Ok::<_, String>(OwnInstitutionAdminListOutput {
-            institution_code,
-            cid_short_name,
-            rows,
-        })
-    };
-    let data = match result {
-        Ok(v) => v,
-        Err(err) => {
-            let message = format!("query own institution admins failed: {err}");
-            return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
-        }
-    };
-    Json(ApiResponse {
-        code: 0,
-        message: "ok".to_string(),
-        data,
-    })
-    .into_response()
-}
-
 /// 当前登录机构详情。
 ///
-/// 只读取本节点 active binding 对应的机构 CID,不允许前端传 cid_number,避免把“本机构信息”
-/// 变成任意机构详情读取入口。管理员资格仍由登录守卫和链上 active admins 决定。
+/// 只读取本次有效任职选择的机构CID；不接受客户端另传机构，不改宿主绑定。
 pub(crate) async fn get_own_institution(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -245,42 +120,45 @@ pub(crate) async fn get_own_institution(
         Ok(v) => v,
         Err(resp) => return resp,
     };
-    let binding = match repo::active_node_binding(&state.db) {
-        Ok(Some(binding)) => binding,
-        Ok(None) => return api_error(StatusCode::FORBIDDEN, 2002, "not an on-chain admin"),
-        Err(err) => {
-            let message = format!("query node binding failed: {err}");
-            return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
+    // 本机构来自本次已验证的任职选择，宿主绑定只管理本机生命周期。
+    let cid_number = ctx.institution_cid_number.clone();
+    let local = match state.db.get_institution_with_accounts(&cid_number) {
+        Ok(row) => row.map(|(inst, _)| inst),
+        Err(err) => return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, &err),
+    };
+    let lookup = match crate::chain_runtime::institution_lookup(&cid_number).await {
+        Ok(Some(info)) => info,
+        Ok(None) => return api_error(StatusCode::NOT_FOUND, 1004, "institution not found"),
+        Err(error) => {
+            tracing::warn!(%error,"selected institution unavailable");
+            return api_error(StatusCode::BAD_GATEWAY, 5002, "chain unreachable");
         }
     };
-    if binding.institution_code != ctx.institution_code {
-        return api_error(StatusCode::FORBIDDEN, 1003, "permission denied");
-    }
-    if binding.institution_cid_number != ctx.institution_cid_number {
-        return api_error(StatusCode::FORBIDDEN, 1003, "permission denied");
-    }
-    if let Err(error) = crate::institutions::refresh_bound_institution(&state.db).await {
-        tracing::warn!(error = %error, "bound institution projection unavailable");
-        return api_error(StatusCode::BAD_GATEWAY, 5002, "chain unreachable");
-    }
-    let cid_number = binding.institution_cid_number.trim().to_string();
-    if cid_number.is_empty() {
+    let chain = match chain_institution_from_lookup(&cid_number, lookup) {
+        Ok(chain) => chain,
+        Err(error) => return api_error(StatusCode::BAD_GATEWAY, 5002, &error),
+    };
+    let scope = NodeScope {
+        province_code: chain.province_code.clone(),
+        city_code: chain.city_code.clone(),
+    };
+    let Some(mut inst) =
+        merge_institution_record(&chain, local.as_ref(), &scope, chrono::Utc::now())
+    else {
         return api_error(
-            StatusCode::CONFLICT,
-            1007,
-            "binding institution_cid_number is required",
+            StatusCode::BAD_GATEWAY,
+            5002,
+            "institution projection invalid",
         );
-    }
-    let Some((inst, _accounts)) = (match state.db.get_institution_with_accounts(cid_number.as_str())
-    {
-        Ok(v) => v,
-        Err(err) => {
-            let message = format!("query own institution failed: {err}");
-            return api_error(StatusCode::INTERNAL_SERVER_ERROR, 5001, message.as_str());
-        }
-    }) else {
-        return api_error(StatusCode::NOT_FOUND, 1004, "institution not found");
     };
+    let (province, city, town) = crate::codes::china::area_display_names(
+        &inst.province_code,
+        Some(&inst.city_code),
+        Some(&inst.town_code),
+    );
+    inst.province_name = province;
+    inst.city_name = city;
+    inst.town_name = town;
     let accounts = match crate::institutions::detail_accounts(
         &inst.institution_code,
         &inst.cid_number,
@@ -293,8 +171,7 @@ pub(crate) async fn get_own_institution(
             return api_error(StatusCode::BAD_GATEWAY, 5002, "chain unreachable");
         }
     };
-    let (creator_family_name, creator_given_name, creator_institution_code) =
-        resolve_created_by(&state, inst.creator_account_id.as_deref().unwrap_or(""));
+    let (creator_family_name, creator_given_name, creator_institution_code) = (None, None, None);
     Json(ApiResponse {
         code: 0,
         message: "ok".to_string(),
@@ -396,7 +273,9 @@ mod projection {
                         .map_err(|_| "institution representative given name is not UTF-8")?,
                     cid_number: String::from_utf8(lr.cid_number)
                         .map_err(|_| "institution representative CID is not UTF-8")?,
-                    account_id: format!("0x{}", hex::encode(lr.account_id)),
+                    account_id: lr
+                        .account_id
+                        .map(|account| format!("0x{}", hex::encode(account))),
                 })
             })
             .transpose()?;
@@ -567,8 +446,6 @@ mod projection {
     }
 }
 
-use serde::Serialize;
-
 /// 公共机构治理只读的身份字段；完整公民档案与投影仍由注册局维护。
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct GovernanceCitizen {
@@ -577,33 +454,6 @@ pub(crate) struct GovernanceCitizen {
     pub(crate) given_name: String,
     pub(crate) account_id: Option<String>,
 }
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct OwnInstitutionAdminRow {
-    pub(crate) account_id: String,
-    pub(crate) family_name: String,
-    pub(crate) given_name: String,
-    pub(crate) role_code: String,
-    pub(crate) role_name: String,
-    pub(crate) term_required: bool,
-    pub(crate) term_start: u32,
-    pub(crate) term_end: u32,
-    pub(crate) assignment_source: u8,
-    pub(crate) assignment_source_label: String,
-    pub(crate) assignment_source_ref: String,
-    /// 链上 finalized free 余额(分);查询失败或账户不存在时为空。
-    pub(crate) balance_fen: Option<String>,
-    pub(crate) is_self: bool,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct OwnInstitutionAdminListOutput {
-    pub(crate) institution_code: String,
-    pub(crate) cid_short_name: Option<String>,
-    pub(crate) rows: Vec<OwnInstitutionAdminRow>,
-}
-
 // 私权机构类别字符串真源，既有值不变；此处不解析CID或地区。
 pub const PRIVATE_TYPE_SOLE: &str = "SOLE";
 pub const PRIVATE_TYPE_PARTNERSHIP: &str = "PARTNERSHIP";

@@ -114,9 +114,9 @@ impl FrozenFixture {
         let mut account = [0u8; 32];
         account[..4].copy_from_slice(&self.next_account.to_le_bytes());
         let account_key =
-            nodeclient::query::map_key("PublicManage", "AccountRegisteredCid", &account);
+            nodeclient::query::map_key("PublicEntity", "AccountRegisteredCid", &account);
         let progress_key = nodeclient::query::map_key(
-            "CitizenIdentity",
+            "Identity",
             "CityRegistryProgress",
             &cid.as_bytes().to_vec().encode(),
         );

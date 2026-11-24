@@ -99,14 +99,26 @@ impl ProposalTrackHandler<u64, u64> for Track {
         Self::handles(kind).then_some(Weight::from_parts(1_000, 32))
     }
 }
-pub struct FixtureWallets;
-impl crate::InternalAdminProvider<u64> for FixtureWallets {
-    fn is_institution_admin(_code: crate::types::InstitutionCode, _cid: &[u8], _who: &u64) -> bool {
-        false
+thread_local! {
+    pub(crate) static FIRST_PERSON_WALLET: core::cell::Cell<u64> = const { core::cell::Cell::new(1) };
+}
+
+pub struct FixtureIdentity;
+impl crate::CitizenIdentityReader<u64> for FixtureIdentity {
+    fn person_cid(who: &u64) -> Option<crate::CidNumber> {
+        let first = FIRST_PERSON_WALLET.with(|wallet| wallet.get());
+        let raw = if *who == first { 1 } else if *who == 2 { 2 } else { return None; };
+        vec![raw].try_into().ok()
     }
-    fn institution_wallet_snapshot(_cid: &[u8], references: &[u64]) -> Option<Vec<(u64, u64)>> {
-        Some(references.iter().map(|wallet| (*wallet, 0)).collect())
+    fn person_account(person_cid: &crate::CidNumber) -> Option<u64> {
+        match person_cid.as_slice() {
+            [1] => Some(FIRST_PERSON_WALLET.with(|wallet| wallet.get())),
+            [2] => Some(2),
+            _ => None,
+        }
     }
+    fn voting_subject(_: &u64, _: &identity::PopulationScope) -> Option<identity::CitizenSubject<u64>> { None }
+    fn candidate_subject(_: &u64, _: &identity::PopulationScope) -> Option<identity::CitizenSubject<u64>> { None }
 }
 
 impl Config for Test {
@@ -130,11 +142,11 @@ impl Config for Test {
     type ExecutionRetryGraceBlocks = ConstU64<10>;
     type MaxExecutionRetryDeadlinesPerBlock = ConstU32<4>;
     type MaxPendingRetryExpirationsPerBlock = ConstU32<2>;
-    type CitizenIdentityReader = ();
+    type CitizenIdentityReader = FixtureIdentity;
     type JointVoteResultCallback = ();
     type InternalVoteResultCallback = Callback;
-    type InternalAdminProvider = FixtureWallets;
-    type MaxAdminsPerInstitution = ConstU32<8>;
+    type InternalVoteProvider = ();
+    type MaxSnapshotVoters = ConstU32<8>;
     type TimeProvider = Clock;
     type WeightInfo = ();
     type TrackHandlers = (Track, ());
@@ -142,6 +154,7 @@ impl Config for Test {
     type ElectionVoteResultCallback = ();
 }
 fn ext() -> sp_io::TestExternalities {
+    FIRST_PERSON_WALLET.with(|wallet| wallet.set(1));
     FAIL_CALLBACK.with(|value| value.set(false));
     CALLBACK_COUNT.with(|value| value.set(0));
     AutoBudget::set(Weight::MAX);

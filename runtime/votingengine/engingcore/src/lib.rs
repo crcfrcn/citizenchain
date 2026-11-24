@@ -138,10 +138,10 @@ pub mod pallet {
         /// Runtime 用 tuple 注册多个业务模块的 Executor,投票引擎在提案进入
         /// `STATUS_PASSED` / `STATUS_REJECTED` 时广播到每个成员。
         type InternalVoteResultCallback: InternalVoteResultCallback;
-        type InternalAdminProvider: InternalAdminProvider<Self::AccountId>;
-        /// 单个资格快照最大账户数；上限与机构 admins 最大人数一致。
+        type InternalVoteProvider: InternalVoteProvider<Self::AccountId>;
+        /// 单个机构岗位人员快照的最大人数；个人快照使用独立上限。
         #[pallet::constant]
-        type MaxAdminsPerInstitution: Get<u32>;
+        type MaxSnapshotVoters: Get<u32>;
 
         /// 时间源，用于提案 ID 编码年份。
         type TimeProvider: frame_support::traits::UnixTime;
@@ -251,7 +251,7 @@ pub mod pallet {
         u128,
         Blake2_128Concat,
         ProposalSubject<T::AccountId>,
-        BoundedVec<T::AccountId, T::MaxAdminsPerInstitution>,
+        BoundedVec<T::AccountId, ConstU32<{ primitives::multisig::MAX_PERSONAL_ADMINS }>>,
         OptionQuery,
     >;
 
@@ -261,51 +261,22 @@ pub mod pallet {
     pub type ProposalVotePlans<T: Config> =
         StorageMap<_, Blake2_128Concat, u128, crate::types::VotePlanOf<T::AccountId>, OptionQuery>;
 
-    /// 完整授权主体的投票人快照。
-    ///
-    /// 机构主体的 key 同时包含 CID 与岗位码，禁止退化成裸 CID 管理员集合。
+    /// 提案冻结的机构岗位人员 CID。实际签名钱包由 identity 在投票时解析。
     #[pallet::storage]
-    pub type VoterSnapshot<T: Config> = StorageDoubleMap<
+    pub type RoleVoters<T: Config> = StorageDoubleMap<
         _,
         Blake2_128Concat,
         u128,
         Blake2_128Concat,
-        crate::types::AuthorizationSubject<
-            crate::types::CidNumber,
-            crate::types::RoleCode,
-            T::AccountId,
-        >,
-        BoundedVec<T::AccountId, T::MaxAdminsPerInstitution>,
+        crate::types::RoleSubject<crate::types::CidNumber, crate::types::RoleCode>,
+        BoundedVec<crate::types::CidNumber, T::MaxSnapshotVoters>,
         OptionQuery,
     >;
-
-    /// 冻结的钱包版本与VoterSnapshot逐项对应；不改变原名单和既有票据编码。
-    /// 缺失元数据明确拒绝投票，不能从当前管理员/个人CID/默认0猜测。
-    #[pallet::storage]
-    #[pallet::getter(fn frozen_wallet_versions)]
-    pub type FrozenWalletVersions<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        u128,
-        Blake2_128Concat,
-        crate::types::AuthorizationSubject<
-            crate::types::CidNumber,
-            crate::types::RoleCode,
-            T::AccountId,
-        >,
-        BoundedVec<(T::AccountId, u64), T::MaxAdminsPerInstitution>,
-        OptionQuery,
-    >;
-
-    /// 完整管理员名单动作的创建时钱包版本指纹；不保存或重建旧名单/票据。
-    #[pallet::storage]
-    pub type FrozenGovernanceWalletState<T: Config> =
-        StorageMap<_, Blake2_128Concat, u128, [u8; 32], OptionQuery>;
 
     /// 提案创建时冻结的机构岗位票据总数。
     ///
     /// 数量等于该机构全部投票岗位快照中的有效任职席位之和，不按账户去重；
-    /// 具体资格始终由 `VoterSnapshot` 中的完整 CID + 岗位码校验。
+    /// 具体资格始终由 `RoleVoters` 中的完整 CID + 岗位码校验。
     #[pallet::storage]
     pub type InstitutionTicketCountSnapshot<T: Config> = StorageDoubleMap<
         _,
@@ -743,7 +714,7 @@ pub mod pallet {
         // 引擎核心仅承载生命周期 extrinsic(超时结算 / 重试 / 取消)。
         // mode-specific 投票 extrinsic 由各 sub-pallet 提供:
         //   - InternalVote::cast(20.0)
-        //   - JointVote::cast_admin(21.0)
+        //   - JointVote::cast_role_vote(21.0)
         //   - JointVote::cast_referendum(23.1)
         // call_index 从 3 起,0/1/2 留空。
 

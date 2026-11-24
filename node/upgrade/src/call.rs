@@ -66,7 +66,7 @@ pub(crate) fn read_wasm(wasm_path: &str) -> Result<(Vec<u8>, f64), String> {
     Ok((wasm_code, wasm_size_mb))
 }
 
-/// 构建运行期协议升级提案 call_data: RuntimeUpgrade.propose_runtime_upgrade(...)。
+/// 构建运行期协议升级提案 call_data: Upgrade.propose_runtime_upgrade(...)。
 pub(crate) fn propose_runtime_upgrade(
     actor_cid_number: &str,
     wasm_code: &[u8],

@@ -13,7 +13,7 @@ use primitives::pow_const::BLOCKS_PER_YEAR;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-const PALLET_NAME: &[u8] = b"ProvincialBankInterest";
+const PALLET_NAME: &[u8] = b"PrbBankIssue";
 
 const SYSTEM_PALLET: &[u8] = b"System";
 

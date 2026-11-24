@@ -395,6 +395,8 @@ mod benchmarks {
             &authorization,
         );
 
+        let sufficients = frame_system::Pallet::<T>::sufficients(&account_id);
+
         #[extrinsic_call]
         _(
             RawOrigin::Signed(authority.0),
@@ -407,6 +409,7 @@ mod benchmarks {
         );
 
         assert!(CidRegistry::<T>::contains_key(&cid_number));
+        assert_eq!(frame_system::Pallet::<T>::sufficients(&account_id), sufficients);
         assert_eq!(AccountIdByCid::<T>::get(&cid_number), Some(account_id));
         assert_eq!(BindingRevisionByCid::<T>::get(&cid_number), Some(1));
     }
@@ -416,10 +419,13 @@ mod benchmarks {
         let account_id: T::AccountId = whitelisted_caller();
         let cid_number = citizen_cid(7);
 
+        let sufficients = frame_system::Pallet::<T>::sufficients(&account_id);
+
         #[extrinsic_call]
         _(RawOrigin::Signed(account_id.clone()), cid_number.clone());
 
         assert!(CidRegistry::<T>::contains_key(&cid_number));
+        assert_eq!(frame_system::Pallet::<T>::sufficients(&account_id), sufficients);
         assert_eq!(AccountIdByCid::<T>::get(&cid_number), Some(account_id));
     }
 
@@ -448,6 +454,8 @@ mod benchmarks {
             &authorization,
         );
 
+        let sufficients = frame_system::Pallet::<T>::sufficients(&new_account_id);
+
         #[extrinsic_call]
         _(
             RawOrigin::Signed(new_account_id.clone()),
@@ -456,16 +464,17 @@ mod benchmarks {
             signature,
         );
 
+        assert_eq!(frame_system::Pallet::<T>::sufficients(&new_account_id), sufficients);
         assert_eq!(AccountIdByCid::<T>::get(&cid_number), Some(new_account_id));
         assert_eq!(BindingRevisionByCid::<T>::get(&cid_number), Some(2));
     }
 
     #[benchmark]
-    fn admin_rebind_cid_account_id() {
+    fn registrar_rebind_cid() {
         set_time::<T>(BENCHMARK_TIMESTAMP_MILLIS);
         // 先自助占号建立当前绑定，再由注册局代换绑到新账户。
         let authority = authority::<T>();
-        let current_account_id: T::AccountId = account("admin_rebind_current", 0, 0);
+        let current_account_id: T::AccountId = account("registrar_rebind_current", 0, 0);
         let (new_signer, new_account_id) = signer::<T>();
         let cid_number = citizen_cid(9);
         Pallet::<T>::self_occupy_cid(
@@ -486,9 +495,11 @@ mod benchmarks {
         };
         let signature = signature::<T>(
             &new_signer,
-            primitives::sign::OP_SIGN_CID_ADMIN_REBIND,
+            primitives::sign::OP_SIGN_CID_REGISTRAR_REBIND,
             &authorization,
         );
+
+        let sufficients = frame_system::Pallet::<T>::sufficients(&new_account_id);
 
         #[extrinsic_call]
         _(
@@ -502,6 +513,7 @@ mod benchmarks {
             signature,
         );
 
+        assert_eq!(frame_system::Pallet::<T>::sufficients(&new_account_id), sufficients);
         assert_eq!(AccountIdByCid::<T>::get(&cid_number), Some(new_account_id));
         assert_eq!(BindingRevisionByCid::<T>::get(&cid_number), Some(2));
     }

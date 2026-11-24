@@ -9,7 +9,7 @@ use tauri::AppHandle;
 
 fn pow_storage_key(name: &[u8]) -> String {
     let key = [
-        twox_128(b"PowDifficulty").as_slice(),
+        twox_128(b"Difficulty").as_slice(),
         twox_128(name).as_slice(),
     ]
     .concat();
@@ -37,7 +37,7 @@ where
     F: FnMut(&str, &str) -> Result<Option<String>, String>,
 {
     let raw = read(&pow_storage_key(b"ActiveParams"), finalized_hash)?
-        .ok_or("链上缺少 PowDifficulty::ActiveParams")?;
+        .ok_or("链上缺少 Difficulty::ActiveParams")?;
     let active: difficulty::PowDifficultyParams = decode_pow_storage(&raw, "PoW 生效参数")?;
     active.validate().map_err(str::to_string)?;
     let pending = read(&pow_storage_key(b"PendingParams"), finalized_hash)?

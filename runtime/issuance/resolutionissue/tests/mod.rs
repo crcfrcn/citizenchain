@@ -48,7 +48,7 @@ mod runtime {
     pub type InternalVote = internalvote;
 
     #[runtime::pallet_index(8)]
-    pub type ResolutionIssuance = super;
+    pub type ResolutionIssue = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -173,22 +173,14 @@ impl engingcore::JointVoteEngine<AccountId32> for TestJointVoteEngine {
     }
 }
 
-pub struct TestInternalAdminProvider;
-impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
-    fn institution_wallet_snapshot(
-        _cid: &[u8],
-        references: &[AccountId32],
-    ) -> Option<Vec<(AccountId32, u64)>> {
-        Some(
-            references
-                .iter()
-                .cloned()
-                .map(|wallet| (wallet, 0))
-                .collect(),
-        )
-    }
+pub struct TestInternalVoteProvider;
+impl engingcore::InternalVoteProvider<AccountId32> for TestInternalVoteProvider {
 
-    fn is_institution_admin(
+
+
+}
+impl TestInternalVoteProvider {
+    fn fixture_is_appointed(
         institution_code: engingcore::types::InstitutionCode,
         cid_number: &[u8],
         who: &AccountId32,
@@ -201,6 +193,7 @@ impl engingcore::InternalAdminProvider<AccountId32> for TestInternalAdminProvide
         cid_number == expected_cid.as_bytes() && who == &AccountId32::new([1u8; 32])
     }
 }
+
 
 pub struct TestInstitutionRoleAuthorization;
 impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32>
@@ -260,23 +253,39 @@ impl engingcore::InstitutionRoleProvider<AccountId32> for TestInstitutionRoleAut
             && [engingcore::types::NRC, engingcore::types::PRC]
                 .into_iter()
                 .any(|code| {
-                    <TestInternalAdminProvider as engingcore::InternalAdminProvider<
-                        AccountId32,
-                    >>::is_institution_admin(code, cid_number, who)
+                    TestInternalVoteProvider::fixture_is_appointed(code, cid_number, who)
                 })
     }
 
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
+    fn active_persons_for_role(cid: &[u8], role: &[u8]) -> Vec<Vec<u8>> {
+        Self::fixture_wallets_for_role(cid, role).iter().map(codec::Encode::encode).collect()
+    }
+
+}
+impl TestInstitutionRoleAuthorization {
+    fn fixture_wallets_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
         let admin = AccountId32::new([1u8; 32]);
-        Self::is_active_assignment(cid_number, &admin, role_code)
+        <Self as engingcore::InstitutionRoleProvider<AccountId32>>::is_active_assignment(
+            cid_number, &admin, role_code,
+        )
             .then_some(admin)
             .into_iter()
             .collect()
     }
 }
 
+
 pub struct TestCitizenIdentityReader;
 impl engingcore::CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+    fn person_cid(who: &AccountId32) -> Option<engingcore::CidNumber> {
+        codec::Encode::encode(who).try_into().ok()
+    }
+
+    fn person_account(cid: &engingcore::CidNumber) -> Option<AccountId32> {
+        let bytes: [u8; 32] = cid.as_slice().try_into().ok()?;
+        Some(AccountId32::new(bytes))
+    }
+
     fn voting_subject(
         who: &AccountId32,
         _scope: &engingcore::PopulationScope,
@@ -336,8 +345,8 @@ impl engingcore::Config for Test {
     type CitizenIdentityReader = TestCitizenIdentityReader;
     type JointVoteResultCallback = ();
     type InternalVoteResultCallback = ();
-    type InternalAdminProvider = TestInternalAdminProvider;
-    type MaxAdminsPerInstitution = ConstU32<32>;
+    type InternalVoteProvider = TestInternalVoteProvider;
+    type MaxSnapshotVoters = ConstU32<32>;
     type TimeProvider = TestTimeProvider;
     type WeightInfo = ();
     type TrackHandlers = (InternalVote, ());
@@ -426,7 +435,7 @@ fn call_joint_callback(
     approved: bool,
 ) -> Result<engingcore::ProposalExecutionOutcome, DispatchError> {
     engingcore::pallet::CallbackExecutionScopes::<Test>::insert(proposal_id, ());
-    let result = ResolutionIssuance::on_joint_vote_finalized(proposal_id, approved);
+    let result = ResolutionIssue::on_joint_vote_finalized(proposal_id, approved);
     engingcore::pallet::CallbackExecutionScopes::<Test>::remove(proposal_id);
     match result {
         Ok(outcome) => {

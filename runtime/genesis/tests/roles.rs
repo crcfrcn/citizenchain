@@ -1,67 +1,55 @@
-//! 验证固定机构岗位数量及管理员账户到岗位的准确映射。
+//! 验证创世固定岗位直接从法定席位枚举。
 
 use super::*;
 use primitives::{
-    count_const::{NJD_ADMIN_COUNT, NRC_ADMIN_COUNT, PRB_ADMIN_COUNT, PRC_ADMIN_COUNT},
-    governance_skeleton::{
-        ROLE_CODE_CHIEF_JUSTICE, ROLE_CODE_COMMITTEE_MEMBER, ROLE_CODE_CONSTITUTION_GUARD,
-        ROLE_CODE_DEPUTY_CHIEF_JUSTICE, ROLE_CODE_DIRECTOR, ROLE_CODE_JUSTICE,
-        ROLE_CODE_PROVINCE_COMMISSIONER_PREFIX,
+    cid::code::{FRG, NJD, NRC, PRB, PRC},
+    count_const::{
+        FRG_COMMISSIONER_SEATS, NJD_JUDICIAL_SEATS, NRC_COMMITTEE_SEATS, PRB_DIRECTOR_SEATS,
+        PRC_COMMITTEE_SEATS,
     },
+    governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+    institution_constraints::{ROLE_CODE_DIRECTOR, ROLE_CODE_LEGAL_REPRESENTATIVE},
 };
 
-fn role_code(code: InstitutionCode, index: usize) -> Vec<u8> {
-    role_for_fixed_admin(code, index).0
-}
-
 #[test]
-fn fixed_account_id_counts_equal_seat_totals() {
-    assert_eq!(expected_admin_count(NRC), NRC_ADMIN_COUNT as usize);
-    assert_eq!(expected_admin_count(PRC), PRC_ADMIN_COUNT as usize);
-    assert_eq!(expected_admin_count(PRB), PRB_ADMIN_COUNT as usize);
-    assert_eq!(expected_admin_count(NJD), NJD_ADMIN_COUNT as usize);
+fn fixed_positions_match_explicit_seat_counts() {
+    for (institution, role, seats) in [
+        (NRC, ROLE_CODE_COMMITTEE_MEMBER, NRC_COMMITTEE_SEATS),
+        (PRC, ROLE_CODE_COMMITTEE_MEMBER, PRC_COMMITTEE_SEATS),
+        (PRB, ROLE_CODE_DIRECTOR, PRB_DIRECTOR_SEATS),
+    ] {
+        let rows = fixed_seats(institution);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].0.as_slice(), role);
+        assert_eq!(rows[0].2, seats);
+    }
+    let judicial = fixed_seats(NJD);
     assert_eq!(
-        expected_admin_count(FRG),
-        PROVINCE_CODE_INFOS.len() * FRG_PROVINCE_GROUP_ADMIN_COUNT as usize
+        judicial.iter().map(|row| row.2).collect::<Vec<_>>(),
+        vec![7, 1, 2, 5]
     );
-}
-
-#[test]
-fn committee_and_bank_account_ids_map_to_single_role() {
-    assert_eq!(role_code(NRC, 0), ROLE_CODE_COMMITTEE_MEMBER);
     assert_eq!(
-        role_code(NRC, NRC_ADMIN_COUNT as usize - 1),
-        ROLE_CODE_COMMITTEE_MEMBER
+        judicial.iter().map(|row| row.2).sum::<u32>(),
+        NJD_JUDICIAL_SEATS
     );
-    assert_eq!(role_code(PRC, 0), ROLE_CODE_COMMITTEE_MEMBER);
-    assert_eq!(role_code(PRB, 0), ROLE_CODE_DIRECTOR);
-    assert_eq!(
-        role_code(PRB, PRB_ADMIN_COUNT as usize - 1),
-        ROLE_CODE_DIRECTOR
-    );
+    assert!(judicial
+        .iter()
+        .all(|row| row.0.as_slice() != ROLE_CODE_LEGAL_REPRESENTATIVE));
 }
 
 #[test]
-fn judicial_account_id_order_maps_to_seven_one_two_five() {
-    assert_eq!(role_code(NJD, 0), ROLE_CODE_CONSTITUTION_GUARD);
-    assert_eq!(role_code(NJD, 6), ROLE_CODE_CONSTITUTION_GUARD);
-    assert_eq!(role_code(NJD, 7), ROLE_CODE_CHIEF_JUSTICE);
-    assert_eq!(role_code(NJD, 8), ROLE_CODE_DEPUTY_CHIEF_JUSTICE);
-    assert_eq!(role_code(NJD, 9), ROLE_CODE_DEPUTY_CHIEF_JUSTICE);
-    assert_eq!(role_code(NJD, 10), ROLE_CODE_JUSTICE);
-    assert_eq!(role_code(NJD, 14), ROLE_CODE_JUSTICE);
-}
-
-#[test]
-fn federal_registry_maps_five_account_ids_per_province_role() {
-    let group_size = FRG_PROVINCE_GROUP_ADMIN_COUNT as usize;
-    for (province_index, province) in PROVINCE_CODE_INFOS.iter().enumerate() {
-        let first = province_index * group_size;
-        let expected = province_commissioner_role_code(province.province_code);
-        for offset in 0..group_size {
-            let code = role_code(FRG, first + offset);
-            assert_eq!(code, expected);
-            assert!(code.starts_with(ROLE_CODE_PROVINCE_COMMISSIONER_PREFIX));
-        }
+fn commissioner_positions_keep_each_province_code_and_capacity() {
+    let rows = fixed_seats(FRG);
+    assert_eq!(rows.len(), PROVINCE_CODE_INFOS.len());
+    for (row, province) in rows.iter().zip(PROVINCE_CODE_INFOS) {
+        assert_eq!(
+            row.0,
+            province_commissioner_role_code(province.province_code)
+        );
+        assert_eq!(
+            row.1,
+            province_commissioner_role_name(province.province_name)
+        );
+        assert_eq!(row.2, FRG_COMMISSIONER_SEATS);
     }
 }

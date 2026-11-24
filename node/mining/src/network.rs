@@ -84,12 +84,12 @@ fn ensure_expected_rpc_node() -> Result<(), String> {
     Ok(())
 }
 
-/// 链上 `CitizenIdentity::CidCount` 的完整存储键。
+/// 链上 `Identity::CidCount` 的完整存储键。
 ///
 /// pallet 名与 storage 名一旦改动，这里必须同步；单测钉住本函数的字节口径。
 fn cid_count_storage_key() -> Vec<u8> {
     [
-        twox_128(b"CitizenIdentity").as_slice(),
+        twox_128(b"Identity").as_slice(),
         twox_128(b"CidCount").as_slice(),
     ]
     .concat()

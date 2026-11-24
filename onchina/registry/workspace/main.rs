@@ -10,7 +10,6 @@ use onchina::*;
 use onchina::{authentication, authorization, modules, transactions};
 use std::sync::Arc;
 
-pub(crate) use admins::model::*;
 pub(crate) use citizens::model::*;
 pub(crate) use documents::model::*;
 
@@ -32,8 +31,6 @@ pub(crate) mod projection;
 #[path = "mod.rs"]
 pub(crate) mod workspace;
 
-#[path = "../admins/mod.rs"]
-pub(crate) mod admins;
 mod module;
 fn local_module() -> Option<Arc<dyn modules::model::ModuleBusiness>> {
     Some(Arc::new(module::Module::default()))

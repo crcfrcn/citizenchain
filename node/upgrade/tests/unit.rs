@@ -77,7 +77,7 @@ fn pow_preflight_rejects_zero_and_window_overflow_without_new_limits() {
 }
 
 fn pow_key(name: &[u8]) -> String {
-    let mut bytes = sp_crypto_hashing::twox_128(b"PowDifficulty").to_vec();
+    let mut bytes = sp_crypto_hashing::twox_128(b"Difficulty").to_vec();
     bytes.extend_from_slice(&sp_crypto_hashing::twox_128(name));
     format!("0x{}", hex::encode(bytes))
 }

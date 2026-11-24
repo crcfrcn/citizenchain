@@ -22,19 +22,15 @@ pub mod weights;
 #[path = "../tests/mod.rs"]
 mod tests;
 
-use adminbase::{Admin, InstitutionAdminLifecycle, InstitutionAdminQuery};
-use adminbase::{
-    InstitutionAdminWalletLifecycle, InstitutionAdminWalletQuery,
-    InstitutionWalletSignatureVerifier,
-};
-use codec::{Decode, Encode};
+use codec::{Decode, DecodeAll, Encode};
 use engingcore::{
     types::{
         AuthorizationSubject, BusinessActionId, CidNumber, InstitutionCode, RoleCode, RoleSubject,
         VotePlanOf, VotingEngineKind,
     },
-    InternalVoteEngine, InternalVoteResultCallback, ProposalExecutionOutcome,
+    CitizenIdentityReader as _, InternalVoteEngine, InternalVoteResultCallback, ProposalExecutionOutcome,
 };
+#[cfg(feature = "runtime-benchmarks")]
 use frame_support::traits::UnixTime;
 use frame_support::{
     ensure,
@@ -43,7 +39,6 @@ use frame_support::{
     BoundedVec,
 };
 use frame_system::pallet_prelude::*;
-use sp_core::sr25519::Public as Sr25519Public;
 use sp_std::{collections::btree_set::BTreeSet, prelude::*};
 pub use traits::{
     AccountValidator, InstitutionCidQuery, InstitutionMultisigQuery, ProtectedSourceChecker,
@@ -51,13 +46,13 @@ pub use traits::{
 };
 
 pub use entitybase::{
-    InstitutionAdminAssignment, InstitutionAssignmentSource, InstitutionAssignmentStatus,
+    InstitutionAssignment, InstitutionAssignmentSource, InstitutionAssignmentStatus,
     InstitutionGovernanceAction, InstitutionGovernanceProposal, InstitutionGovernanceResult,
     InstitutionRole, InstitutionRoleAuthorizationQuery, InstitutionRoleMutation,
-    InstitutionRoleStatus, LegalRepresentative, RolePermissionOperation, RolePermissionSpec,
+    InstitutionRoleStatus, InstitutionRoleRegistration, LegalRepresentative, RolePermissionOperation, RolePermissionSpec,
 };
 pub use institution::role::{
-    InstitutionAdminAssignmentOf, InstitutionAdminAssignmentsOf, InstitutionRoleOf,
+    InstitutionAssignmentOf, InstitutionAssignmentsOf, InstitutionRoleOf,
     InstitutionRolesOf, ModuleTagOf, RoleCodeOf, RolePermissionsOf,
 };
 pub use institution::types::{
@@ -74,7 +69,8 @@ pub mod pallet {
     use super::*;
     use crate::weights::WeightInfo;
 
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+    // 第 1 版按人员 CID 保存任职，并使用统一的实体存储前缀。
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
     #[pallet::config]
     pub trait Config: frame_system::Config + engingcore::Config {
@@ -89,17 +85,8 @@ pub mod pallet {
         /// 内部投票引擎
         type InternalVoteEngine: engingcore::InternalVoteEngine<Self::AccountId>;
 
-        /// 公权机构管理员集合写入口。
-        type AdminLifecycle: InstitutionAdminLifecycle<Self::AccountId, Admin<Self::AccountId>>
-            + InstitutionAdminWalletLifecycle<Self::AccountId>
-            + InstitutionAdminWalletQuery<Self::AccountId>;
-        type WalletSignatureVerifier: InstitutionWalletSignatureVerifier<Self::AccountId>;
-
         /// 兄弟机构 CID 查询入口，用于禁止同一 CID 在私权模块重复登记。
         type SiblingInstitutionQuery: InstitutionCidQuery<CidNumberOf<Self>>;
-
-        /// 管理员统一查询入口，由 runtime 路由到公权/私权/创世管理员模块。
-        type InstitutionAdminQuery: InstitutionAdminQuery<Self::AccountId>;
 
         /// 完整 CID 的顶层业务能力策略；未知能力必须拒绝。
         type InstitutionCapabilityPolicy: entitybase::InstitutionCapabilityPolicy;
@@ -117,13 +104,11 @@ pub mod pallet {
         >;
         /// 注册局登记授权校验入口。
         ///
-        /// 注册局管理员代登记/维护机构时,origin 是注册局管理员,目标 admins
-        /// 是目标机构自己的管理员;二者不能再强制相同。本 trait 负责校验 FRG/CREG
-        /// 对目标 CID 与机构码是否有登记权(省/市作用域由目标 CID 直接派生)。
+        /// 依据注册局岗位、业务权限与目标机构辖区校验签名人。
         type RegistryAuthority: RegistryAuthority<Self::AccountId>;
 
         #[pallet::constant]
-        type MaxAdmins: Get<u32>;
+        type MaxRoleEntries: Get<u32>;
 
         #[pallet::constant]
         type MaxCidNumberLength: Get<u32>;
@@ -138,20 +123,6 @@ pub mod pallet {
 
         type WeightInfo: crate::weights::WeightInfo;
     }
-
-    pub type AdminsOf<T> =
-        BoundedVec<<T as frame_system::Config>::AccountId, <T as Config>::MaxAdmins>;
-    /// 机构原子初始化使用的管理员人员集合；姓名只展示，账户是唯一授权字段。
-    pub type InstitutionAdminsInputOf<T> =
-        BoundedVec<Admin<<T as frame_system::Config>::AccountId>, <T as Config>::MaxAdmins>;
-    pub type InstitutionGovernanceActionOf<T> = InstitutionGovernanceAction<
-        <T as frame_system::Config>::AccountId,
-        Admin<<T as frame_system::Config>::AccountId>,
-    >;
-    pub type InstitutionGovernanceProposalOf<T> = InstitutionGovernanceProposal<
-        <T as frame_system::Config>::AccountId,
-        Admin<<T as frame_system::Config>::AccountId>,
-    >;
 
     pub type CidNumberOf<T> = BoundedVec<u8, <T as Config>::MaxCidNumberLength>;
     pub type AccountNameOf<T> = BoundedVec<u8, <T as Config>::MaxAccountNameLength>;
@@ -178,7 +149,6 @@ pub mod pallet {
         BlockNumberFor<T>,
         AccountNameOf<T>,
         CidNumberOf<T>,
-        <T as frame_system::Config>::AccountId,
     >;
     /// 机构账户信息。
     pub type InstitutionAccountInfoOf<T> = InstitutionAccountInfo<
@@ -205,15 +175,13 @@ pub mod pallet {
     ///
     /// 只保存全国可见的机构身份事实:名称(仅公权)、机构码与创建块号。
     /// 主账户/费用账户由 (cid_number, 保留名) 派生且常驻 InstitutionAccounts,不在此重复;
-    /// 管理员集合长期真源在 admins 模块；机构治理阈值在本 entity 的
-    /// `InstitutionGovernanceThresholds` 独立保存。投票引擎只在建案时读取岗位任职
-    /// 与机构阈值并冻结提案快照，不回写机构配置。
+    /// 机构治理阈值由 `InstitutionGovernanceThresholds` 保存。建案时冻结岗位任职和阈值。
     #[pallet::storage]
     #[pallet::getter(fn institution_of)]
     pub type Institutions<T: Config> =
         StorageMap<_, Blake2_128Concat, CidNumberOf<T>, InstitutionInfoOf<T>, OptionQuery>;
 
-    /// 机构治理阈值唯一真源；与 admins 人数、岗位数量分别独立。
+    /// 机构治理所用阈值，建立投票时冻结。
     #[pallet::storage]
     #[pallet::getter(fn institution_governance_threshold)]
     pub type InstitutionGovernanceThresholds<T: Config> =
@@ -232,7 +200,7 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// 机构岗位上的任职集合：岗位负责分组，记录负责绑定管理员账户和任职来源。
+    /// 按机构和岗位保存人员 CID、任期及任职来源。
     #[pallet::storage]
     #[pallet::getter(fn institution_role_assignments)]
     pub type InstitutionRoleAssignments<T: Config> = StorageDoubleMap<
@@ -293,7 +261,7 @@ pub mod pallet {
 
     /// 公权机构多签当前进行中的关闭提案 ID（防止并发注销提案）。
     /// 发起 propose_close 时写入，execute_close 成功或执行失败后清除。
-    /// PendingCloseProposal 分两份:个人侧在 personalentity 自持,
+    /// PendingCloseProposal 分两份:个人侧在 personal 自持,
     /// 机构侧由本表承载,作用域为公权机构多签账户。
     #[pallet::storage]
     #[pallet::getter(fn institution_pending_close)]
@@ -357,7 +325,7 @@ pub mod pallet {
             proposal_id: u128,
             account_id: T::AccountId,
         },
-        /// 机构注册创建成功：机构、账户和管理员集合均已激活。
+        /// 机构注册创建成功：机构和账户均已登记。
         InstitutionCreated {
             cid_number: CidNumberOf<T>,
             main_account: T::AccountId,
@@ -366,12 +334,10 @@ pub mod pallet {
             fee: BalanceOf<T>,
         },
         /// 已完成的业务结果原子更新机构岗位、任职和法定代表人。
-        /// admins 是独立授权真源，治理结果不得反向生成或覆盖管理员。
         InstitutionGovernanceApplied {
             cid_number: CidNumberOf<T>,
             role_mutations: u32,
             assignment_changes: u32,
-            admins_len: u32,
             legal_representative_updated: bool,
             result_source_ref: crate::institution::role::AssignmentSourceRefOf,
         },
@@ -381,10 +347,9 @@ pub mod pallet {
             cid_number: CidNumberOf<T>,
             proposer_account_id: T::AccountId,
         },
-        /// 注册局已原子登记管理员及显式岗位/任职初始化。
-        InstitutionAdminsRegistered {
+        /// 注册局已完成机构岗位和人员任职登记。
+        InstitutionRolesRegistered {
             cid_number: CidNumberOf<T>,
-            admins_len: u32,
             submitter: T::AccountId,
         },
         /// 机构信息(全称/简称)已更新。
@@ -424,12 +389,12 @@ pub mod pallet {
         AccountReserved,
         /// 账户已存在（已初始化）
         AccountAlreadyExists,
-        /// 管理员重复
-        DuplicateAdmin,
-        /// 管理员姓为空。
-        InvalidFamilyName,
-        /// 管理员名为空。
-        InvalidGivenName,
+        /// 保留已退役错误的编码位置。
+        Reserved4,
+        /// 保留已退役错误的编码位置。
+        Reserved5,
+        /// 保留已退役错误的编码位置。
+        Reserved6,
         /// 阈值不合法
         InvalidThreshold,
         /// 金额不足
@@ -450,11 +415,11 @@ pub mod pallet {
         PermissionDenied,
         /// 注册局无权登记目标机构
         RegistryAuthorityDenied,
-        /// 管理员数量不合法（必须 >=2）
-        InvalidAdminsLen,
-        /// 管理员数量与列表长度不一致
-        AdminsLenMismatch,
-        /// 机构账户管理员机构码只能是公权/私权法人机构码。
+        /// 保留已退役错误的编码位置。
+        Reserved17,
+        /// 保留已退役错误的编码位置。
+        Reserved18,
+        /// 机构账户须使用支持的公权或私权法人机构码。
         /// 非法人必须由 CID 上层按所属法人归属显式路由。
         InvalidInstitutionCode,
         /// 多签账户不存在
@@ -501,7 +466,7 @@ pub mod pallet {
         DuplicateAccountName,
         /// 机构已经存在
         InstitutionAlreadyExists,
-        /// propose_close 校验:仅机构地址可走本入口(个人地址转 personalentity)。
+        /// propose_close 校验:仅机构地址可走本入口(个人地址转 personal)。
         NotInstitutionAccount,
         /// 机构账户列表为空
         EmptyInstitutionAccounts,
@@ -554,17 +519,17 @@ pub mod pallet {
         InvalidAssignmentTerm,
         /// 无任期岗位携带了任期值。
         UnexpectedAssignmentTerm,
-        /// 同一管理员在同一岗位存在重复任职。
+        /// 同一人员 CID 在同一岗位存在重复任职。
         DuplicateAssignment,
         /// 初始岗位没有任何管理员任职。
         RoleHasNoAssignment,
-        /// 任职去重后的管理员数量超过机构上限。
-        TooManyInstitutionAdmins,
+        /// 一组岗位任职记录超过机构处理上限。
+        TooManyInstitutionAssignments,
         /// 治理结果目标不是机构主账户或与机构码不匹配。
         InvalidAssignmentResultInstitution,
         /// 治理结果没有管理员或包含重复管理员。
         InvalidAssignmentResultAdmins,
-        /// 固定岗位的结果人数不等于协议席位。
+        /// 任职人数违反岗位定义或协议要求的席位范围。
         FixedRoleSeatsMismatch,
         /// 治理结果缺少投票、选举或任命追溯引用。
         AssignmentSourceRefEmpty,
@@ -614,9 +579,8 @@ pub mod pallet {
         MissingInitialConfiguration,
         /// 成立后的岗位定义和权限变化须走机构自身治理。
         RegistrationRoleChangeDenied,
-        InvalidWalletProof,
-        /// 创建后的钱包事实已改变，完整名单动作不得覆盖当前合法凭据。
-        StaleGovernanceWalletState,
+        /// 人员 CID 类型或当前钱包绑定不符合任职条件。
+        InvalidAssignmentPerson,
     }
 
     /// 提案操作类型标记：存储在 ProposalData 的第一个字节。
@@ -638,50 +602,7 @@ pub mod pallet {
 
         /// 注册局更新机构全称/简称(链是机构信息唯一真源)。
         /// 机构码/CID/省市码物理编码在 CID 里,不可改故不作为参数。
-        /// 本人旧钱包签交易，新钱包签接收证明；仅更新机构钱包。
-        #[pallet::call_index(10)]
-        #[pallet::weight(Pallet::<T>::wallet_change_weight(&cid_number))]
-        #[frame_support::transactional]
-        pub fn rotate_institution_admin_wallet(
-            origin: OriginFor<T>,
-            cid_number: CidNumberOf<T>,
-            change: adminbase::InstitutionAdminWalletChange<T::AccountId>,
-            expires_at: u64,
-            new_wallet_proof: adminbase::InstitutionWalletProof,
-        ) -> DispatchResult {
-            let who = ensure_signed(origin)?;
-            let info =
-                Institutions::<T>::get(&cid_number).ok_or(Error::<T>::InstitutionNotFound)?;
-            ensure!(
-                info.institution_code
-                    == primitives::cid::code::institution_code_from_cid_number(
-                        core::str::from_utf8(&cid_number)
-                            .map_err(|_| Error::<T>::InvalidInstitutionCode)?
-                    )
-                    .ok_or(Error::<T>::InvalidInstitutionCode)?,
-                Error::<T>::InvalidInstitutionCode
-            );
-            ensure!(
-                T::InstitutionAdminQuery::resolve_admin_account(
-                    info.institution_code,
-                    &cid_number,
-                    &who
-                )
-                .as_ref()
-                    == Some(&change.admin_account)
-                    && who == change.expected_wallet,
-                Error::<T>::PermissionDenied
-            );
-            Self::check_wallet_acceptance(
-                &cid_number,
-                &change,
-                adminbase::InstitutionWalletChangeMode::SelfSigned,
-                expires_at,
-                &new_wallet_proof,
-            )?;
-            Self::apply_wallet_change(info.institution_code, &cid_number, change)
-        }
-
+        // 原机构钱包轮换调用 10 已退役。
         #[pallet::call_index(6)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::update_institution_info())]
         #[allow(clippy::too_many_arguments)]
@@ -707,7 +628,7 @@ pub mod pallet {
         /// 发起"给已存在机构新增自定义命名账户"提案。
         ///
         /// 与关闭账户完全对称:授权改为本机构自身(`build_institution_vote_plan` 校验
-        /// 管理员名册 + 有效任职 + 岗位业务权限),发起时派生+校验并冻结进提案载荷,
+        /// 人员 CID 的有效任职与岗位业务权限),发起时派生+校验并冻结进提案载荷,
         /// 内部投票通过后由 `add::execute_institution_add_account_with_finalizer` 落库。
         #[pallet::call_index(7)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::add_institution_account())]
@@ -729,14 +650,14 @@ pub mod pallet {
         /// 本机构指定岗位任职人发起机构内部治理提案。
         ///
         /// 本入口只允许治理 `actor_cid_number == cid_number` 的本机构；注册局替
-        /// 目标机构登记管理员集合必须走 `register_institution_admins`。
+        /// 目标机构登记管理员集合必须走 `register_institution_roles`。
         #[pallet::call_index(8)]
         #[pallet::weight(Pallet::<T>::governance_weight(&cid_number, &action))]
         #[allow(clippy::too_many_arguments)]
         pub fn propose_institution_governance(
             origin: OriginFor<T>,
             cid_number: CidNumberOf<T>,
-            action: InstitutionGovernanceActionOf<T>,
+            action: InstitutionGovernanceAction,
             actor_cid_number: Vec<u8>,
             proposer_role_code: RoleCodeOf,
         ) -> DispatchResult {
@@ -750,23 +671,21 @@ pub mod pallet {
             )
         }
 
-        /// 注册局原子办理钱包维护或纯岗位配置，两种动作不混合。
-        /// call索引保持9；新载荷必须包含状态哈希与首次阈值，旧编码不兼容。
-        /// 办理权限仍来自actor岗位，不创建虚假投票或CREG专用管理员模型。
+        /// 注册局按岗位权限和辖区原子登记机构岗位及人员任职。
         #[pallet::call_index(9)]
         #[pallet::weight(Pallet::<T>::registration_weight(&cid_number, &action))]
         #[allow(clippy::too_many_arguments)]
-        pub fn register_institution_admins(
+        pub fn register_institution_roles(
             origin: OriginFor<T>,
             cid_number: CidNumberOf<T>,
-            action: InstitutionGovernanceActionOf<T>,
+            action: InstitutionRoleRegistration,
             actor_cid_number: Vec<u8>,
             actor_role_code: Vec<u8>,
             expected_state_hash: [u8; 32],
             initial_threshold: Option<u32>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            Self::do_register_institution_admins(
+            Self::do_register_institution_roles(
                 who,
                 cid_number,
                 action,
@@ -780,7 +699,7 @@ pub mod pallet {
         /// 发起"关闭公权机构多签账户"提案。
         ///
         /// 仅服务于 CID 注册机构地址(`AccountRegisteredCid` 命中);
-        /// 个人多签关闭走 personalentity::propose_close 入口,
+        /// 个人多签关闭走 personal::propose_close 入口,
         /// 输入个人地址会返回 `Error::NotInstitutionAccount`。
         #[pallet::call_index(1)]
         #[pallet::weight(<T as pallet::Config>::WeightInfo::propose_close_public_institution())]
@@ -836,201 +755,36 @@ pub mod pallet {
             Ok((account_id, kind))
         }
 
-        // derive_personal_account 在 personalentity::Pallet;
+        // derive_personal_account 在 personal::Pallet;
         // publicentity 的机构地址只走 derive_institution_account。
 
-        /// 计算 `admins_root = blake2_256(SCALE.encode(sorted_admins))`。
-        ///
-        /// 排序规则:按 `AccountId` 的字节序(Substrate AccountId32 默认 Ord 即字典序)。
-        /// citizenapp 端需要用同样的排序规则 + SCALE 布局,保证签名消息字节一致。
-        pub fn compute_admins_root(admins: &AdminsOf<T>) -> [u8; 32] {
-            let mut sorted: Vec<T::AccountId> = admins.iter().cloned().collect();
-            sorted.sort();
-            sp_io::hashing::blake2_256(&sorted.encode())
-        }
-
-        /// 把 `AccountId` 编码后的前 32 字节当作 sr25519 公钥。
-        ///
-        /// 铁律:项目内 `AccountId = AccountId32`,其 32 字节原始内容即对应 sr25519 公钥。
-        /// 与 `offchain-transaction::settlement::pubkey_from_accountid` 语义对齐。
-        pub fn pubkey_from_accountid(acc: &T::AccountId) -> Result<Sr25519Public, Error<T>> {
-            let encoded = acc.encode();
-            if encoded.len() < 32 {
-                return Err(Error::<T>::MalformedSignature);
-            }
-            let mut arr = [0u8; 32];
-            arr.copy_from_slice(&encoded[..32]);
-            Ok(Sr25519Public::from_raw(arr))
-        }
-
-        /// Changing an effective signer invalidates frozen registration fingerprints too.
-        #[frame_support::transactional]
-        pub(crate) fn apply_wallet_change(
-            code: InstitutionCode,
-            cid: &CidNumberOf<T>,
-            change: adminbase::InstitutionAdminWalletChange<T::AccountId>,
-        ) -> DispatchResult {
-            T::AdminLifecycle::change_institution_wallet(code, cid.to_vec(), change)?;
-            InstitutionRoleNonce::<T>::try_mutate(cid, |nonce| -> DispatchResult {
-                *nonce = nonce.checked_add(1).ok_or(Error::<T>::RoleNonceOverflow)?;
-                Ok(())
-            })
-        }
-
-        pub fn wallet_change_weight(cid: &CidNumberOf<T>) -> Weight {
-            let n = Institutions::<T>::get(cid)
-                .and_then(|i| {
-                    T::InstitutionAdminQuery::institution_admins_len(i.institution_code, cid)
-                })
-                .unwrap_or(0);
-            <T as Config>::WeightInfo::institution_wallet_change(n)
-        }
-
-        /// 大范围名单动作的源事实只含实际钱包和版本，不含余额或人员信息。
-
-        pub fn governance_weight(
-            cid: &CidNumberOf<T>,
-            action: &InstitutionGovernanceActionOf<T>,
-        ) -> Weight {
-            let cost = <T as Config>::WeightInfo::propose_institution_governance()
-                .max(<T as Config>::WeightInfo::governance_names());
-            let wallets = Institutions::<T>::get(cid)
-                .and_then(|info| {
-                    T::InstitutionAdminQuery::institution_admins_len(info.institution_code, cid)
-                })
-                .unwrap_or(0);
+        /// 按最大岗位选民数与本案投票岗位数预留建案权重。
+        pub fn governance_weight(cid: &CidNumberOf<T>, _action: &InstitutionGovernanceAction) -> Weight {
             let business = BusinessActionId {
                 module_tag: crate::MODULE_TAG.to_vec(),
                 action_code: entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
             };
-            let subjects = if Institutions::<T>::get(cid)
-                .is_some_and(|info| crate::frg::handles::<T>(info.institution_code, cid, action))
-            {
-                1
-            } else {
-                <Self as entitybase::InstitutionRoleAuthorizationQuery<T::AccountId>>::role_subjects_with_permission(cid,&business,RolePermissionOperation::Vote).len() as u32
-            };
-            let cost = cost.saturating_add(engingcore::Pallet::<T>::frozen_snapshot_weight(
-                wallets, subjects,
-            ));
-            let cost = if matches!(
-                action,
-                InstitutionGovernanceAction::ReplaceAdmins { .. }
-                    | InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles { .. }
-            ) {
-                cost.saturating_add(
-                    T::DbWeight::get().reads_writes(u64::from(wallets).saturating_add(2), 1),
-                )
-            } else {
-                cost
-            };
-            if matches!(
-                action,
-                InstitutionGovernanceAction::RotateAdminWallet { .. }
-            ) {
-                cost.saturating_add(Self::wallet_change_weight(cid))
-            } else {
-                cost
-            }
-        }
-
-        pub(crate) fn check_wallet_acceptance(
-            cid: &CidNumberOf<T>,
-            change: &adminbase::InstitutionAdminWalletChange<T::AccountId>,
-            mode: adminbase::InstitutionWalletChangeMode,
-            expires_at: u64,
-            proof: &[u8],
-        ) -> DispatchResult {
-            let info = Institutions::<T>::get(cid).ok_or(Error::<T>::InstitutionNotFound)?;
-            let now = <T as engingcore::Config>::TimeProvider::now().as_secs();
-            ensure!(
-                expires_at > now
-                    && expires_at.saturating_sub(now)
-                        <= adminbase::INSTITUTION_WALLET_PROOF_MAX_LIFETIME_SECS,
-                Error::<T>::InvalidWalletProof
-            );
-            let state = T::AdminLifecycle::institution_wallet_state(
-                info.institution_code,
-                cid,
-                &change.admin_account,
-            )
-            .ok_or(Error::<T>::InvalidWalletProof)?;
-            ensure!(
-                T::AdminLifecycle::current_institution_wallet(
-                    info.institution_code,
-                    cid,
-                    &change.admin_account
-                )
-                .as_ref()
-                    == Some(&change.expected_wallet)
-                    && state.revision == change.expected_revision
-                    && change.expected_wallet != change.new_wallet,
-                Error::<T>::InvalidWalletProof
-            );
-            let payload = adminbase::InstitutionWalletAcceptance {
-                genesis_hash: frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::default()),
-                cid_number: cid
-                    .to_vec()
-                    .try_into()
-                    .map_err(|_| Error::<T>::InvalidInstitutionCode)?,
-                change: change.clone(),
-                mode,
-                expires_at,
-            }
-            .encode();
-            ensure!(
-                T::WalletSignatureVerifier::verify(&change.new_wallet, &payload, proof),
-                Error::<T>::InvalidWalletProof
-            );
-            Ok(())
+            let subjects = <Self as entitybase::InstitutionRoleAuthorizationQuery<T::AccountId>>
+                ::role_subjects_with_permission(cid, &business, RolePermissionOperation::Vote).len() as u32;
+            <T as Config>::WeightInfo::propose_institution_governance()
+                .max(<T as Config>::WeightInfo::governance_names())
+                .saturating_add(engingcore::Pallet::<T>::frozen_snapshot_weight(T::MaxRoleEntries::get(), subjects))
         }
 
         fn ensure_governance_action_valid(
-            action: &InstitutionGovernanceActionOf<T>,
+            action: &InstitutionGovernanceAction,
         ) -> DispatchResult {
-            match action {
-                InstitutionGovernanceAction::RegisterAdminWalletChanges { .. } => {
-                    Err(Error::<T>::InvalidRegistrationAction.into())
-                }
-                InstitutionGovernanceAction::RotateAdminWallet { .. } => Ok(()),
-                InstitutionGovernanceAction::ReplaceAdmins { .. }
-                | InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles { .. } => {
-                    Err(Error::<T>::InvalidInstitutionGovernanceAction.into())
-                }
-                InstitutionGovernanceAction::MutateRolesAndAssignments {
-                    role_mutations,
-                    assignment_changes,
-                    legal_representative_change,
-                } => {
-                    for mutation in role_mutations {
-                        if let InstitutionRoleMutation::Create { assignments, .. } = mutation {
-                            for target in assignments {
-                                ensure!(
-                                    target.assignment_source
-                                        == InstitutionAssignmentSource::InstitutionGovernance,
-                                    Error::<T>::InvalidAssignmentSource
-                                );
-                            }
-                        }
-                    }
-                    for change in assignment_changes {
-                        for target in &change.assignments {
-                            ensure!(
-                                target.assignment_source
-                                    == InstitutionAssignmentSource::InstitutionGovernance,
-                                Error::<T>::InvalidAssignmentSource
-                            );
-                        }
-                    }
-                    ensure!(
-                        !role_mutations.is_empty()
-                            || !assignment_changes.is_empty()
-                            || legal_representative_change.is_some(),
-                        Error::<T>::GovernanceResultEmpty
-                    );
-                    Ok(())
-                }
+            let InstitutionGovernanceAction { role_mutations, assignment_changes, legal_representative_change } = action;
+            ensure!(!role_mutations.is_empty() || !assignment_changes.is_empty() || legal_representative_change.is_some(), Error::<T>::GovernanceResultEmpty);
+            let people = role_mutations.iter().filter_map(|mutation| match mutation {
+                InstitutionRoleMutation::Create { assignments, .. } => Some(assignments),
+                _ => None,
+            }).chain(assignment_changes.iter().map(|change| &change.assignments)).flatten();
+            for target in people {
+                ensure!(target.assignment_source == InstitutionAssignmentSource::InstitutionGovernance, Error::<T>::InvalidAssignmentSource);
+                ensure!(Self::has_person_binding(&target.person_cid), Error::<T>::InvalidAssignmentPerson);
             }
+            Ok(())
         }
 
         #[allow(clippy::too_many_arguments)]
@@ -1038,14 +792,10 @@ pub mod pallet {
         pub(crate) fn do_propose_institution_governance(
             who: T::AccountId,
             cid_number: CidNumberOf<T>,
-            action: InstitutionGovernanceActionOf<T>,
+            action: InstitutionGovernanceAction,
             actor_cid_number: Vec<u8>,
             proposer_role_code: RoleCodeOf,
         ) -> DispatchResult {
-            ensure!(
-                action.allowed_in_governance(),
-                Error::<T>::InvalidInstitutionGovernanceAction
-            );
             ensure!(!cid_number.is_empty(), Error::<T>::EmptyCidNumber);
             ensure!(
                 actor_cid_number.as_slice() == cid_number.as_slice(),
@@ -1053,28 +803,9 @@ pub mod pallet {
             );
             let info =
                 Institutions::<T>::get(&cid_number).ok_or(Error::<T>::InstitutionNotFound)?;
-            if let InstitutionGovernanceAction::RotateAdminWallet {
-                change,
-                expires_at,
-                new_wallet_proof,
-            } = &action
-            {
-                Self::check_wallet_acceptance(
-                    &cid_number,
-                    change,
-                    adminbase::InstitutionWalletChangeMode::Governance,
-                    *expires_at,
-                    new_wallet_proof,
-                )?;
-            } else {
-                Self::ensure_lifecycle_institution_code(&info.institution_code)?;
-            }
-            // `build_institution_vote_plan` 一次校验 CID、岗位码、任职账户和业务权限；
-            // 禁止在业务入口把管理员名册成员身份单独当成授权。
+            Self::ensure_lifecycle_institution_code(&info.institution_code)?;
+            Self::ensure_governance_action_valid(&action)?;
             let frg_change = crate::frg::handles::<T>(info.institution_code, &cid_number, &action);
-            if !frg_change {
-                Self::ensure_governance_action_valid(&action)?;
-            }
             let proposal = InstitutionGovernanceProposal {
                 institution_code: info.institution_code,
                 cid_number: cid_number.to_vec(),
@@ -1189,10 +920,10 @@ pub mod pallet {
         }
 
         #[allow(clippy::too_many_arguments)]
-        pub(crate) fn do_register_institution_admins(
+        pub(crate) fn do_register_institution_roles(
             who: T::AccountId,
             cid_number: CidNumberOf<T>,
-            action: InstitutionGovernanceActionOf<T>,
+            action: InstitutionRoleRegistration,
             actor_cid_number: Vec<u8>,
             actor_role_code: Vec<u8>,
             expected_state_hash: [u8; 32],
@@ -1211,13 +942,9 @@ pub mod pallet {
 
         pub(crate) fn execute_governance_proposal(
             proposal_id: u128,
-            proposal: InstitutionGovernanceProposalOf<T>,
+            proposal: InstitutionGovernanceProposal,
         ) -> DispatchResult {
             // 历史动作也不兼容执行：拒绝发生在FRG分流和任何业务写入之前。
-            ensure!(
-                proposal.action.allowed_in_governance(),
-                Error::<T>::InvalidInstitutionGovernanceAction
-            );
             ensure!(
                 engingcore::Pallet::<T>::is_callback_execution_scope(proposal_id),
                 Error::<T>::PermissionDenied
@@ -1231,60 +958,32 @@ pub mod pallet {
                 return crate::frg::execute::<T>(proposal_id, &cid_number, &proposal.action);
             }
             let result_source_ref = proposal_id.to_le_bytes().to_vec();
-            match proposal.action {
-                InstitutionGovernanceAction::RegisterAdminWalletChanges { .. } => {
-                    Err(Error::<T>::InvalidRegistrationAction.into())
-                }
-                InstitutionGovernanceAction::RotateAdminWallet {
-                    change,
-                    expires_at,
-                    new_wallet_proof,
-                } => {
-                    ensure!(
-                        engingcore::Pallet::<T>::is_callback_execution_scope(proposal_id),
-                        Error::<T>::PermissionDenied
-                    );
-                    Self::check_wallet_acceptance(
-                        &cid_number,
-                        &change,
-                        adminbase::InstitutionWalletChangeMode::Governance,
-                        expires_at,
-                        &new_wallet_proof,
-                    )?;
-                    Self::apply_wallet_change(proposal.institution_code, &cid_number, change)
-                }
-                InstitutionGovernanceAction::ReplaceAdmins { .. }
-                | InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles { .. } => {
-                    Err(Error::<T>::InvalidInstitutionGovernanceAction.into())
-                }
-                InstitutionGovernanceAction::MutateRolesAndAssignments {
-                    role_mutations,
-                    assignment_changes,
-                    legal_representative_change,
-                } => Self::apply_institution_governance_result(InstitutionGovernanceResult {
-                    institution_code: proposal.institution_code,
-                    cid_number: proposal.cid_number,
-                    proposal_id,
-                    role_mutations,
-                    assignment_changes,
-                    legal_representative_change,
-                    result_source_ref,
-                }),
-            }
+            let InstitutionGovernanceAction { role_mutations, assignment_changes, legal_representative_change } = proposal.action;
+            Self::apply_institution_governance_result(InstitutionGovernanceResult {
+                institution_code: proposal.institution_code,
+                cid_number: proposal.cid_number,
+                proposal_id,
+                role_mutations,
+                assignment_changes,
+                legal_representative_change,
+                result_source_ref,
+            })
         }
 
-        /// 公权机构管理员模块只接受公权法人机构码。
+        /// 校验公权机构生命周期允许的机构码。
         pub(crate) fn ensure_lifecycle_institution_code(
             institution_code: &InstitutionCode,
         ) -> DispatchResult {
             ensure!(
-                adminbase::can_store_public_admin_code(institution_code),
+                primitives::cid::code::is_public_legal_code(institution_code)
+                    || primitives::cid::code::is_fixed_governance_code(institution_code)
+                    || primitives::cid::code::is_unincorporated_code(institution_code),
                 Error::<T>::InvalidInstitutionCode
             );
             Ok(())
         }
 
-        /// 从任意机构账户反查管理员更换机构码。
+        /// 从任意机构账户反查机构码。
         ///
         /// 机构账户必须使用公权/私权法人机构码；PMUL 只属于个人多签。
         pub fn resolve_institution_code_for_account(
@@ -1296,7 +995,7 @@ pub mod pallet {
 
         // 投票回调执行体:
         // - ACTION_CLOSE → crate::close::execute_institution_close_with_finalizer
-        // (ACTION_CREATE_PERSONAL 在 personalentity 独立 pallet)
+        // (ACTION_CREATE_PERSONAL 在 personal 独立 pallet)
     }
 }
 
@@ -1337,23 +1036,6 @@ impl<T: pallet::Config> traits::InstitutionMultisigQuery<T::AccountId> for palle
         pallet::Pallet::<T>::resolve_institution_code_for_account(addr)
     }
 
-    fn lookup_admin_config(
-        addr: &T::AccountId,
-    ) -> Option<primitives::multisig::MultisigConfigSnapshot<T::AccountId>> {
-        let institution_code = Self::lookup_org(addr)?;
-        let cid_number = Self::lookup_cid(addr)?;
-        let admins =
-            T::InstitutionAdminQuery::institution_admins(institution_code, cid_number.as_slice())?;
-        let admins_len = admins.len() as u32;
-        let cid: pallet::CidNumberOf<T> = cid_number.clone().try_into().ok()?;
-        let threshold = pallet::InstitutionGovernanceThresholds::<T>::get(cid)?;
-        Some(primitives::multisig::MultisigConfigSnapshot {
-            admins,
-            admins_len,
-            threshold,
-        })
-    }
-
     fn account_exists(addr: &T::AccountId) -> bool {
         let Some(registered) = pallet::AccountRegisteredCid::<T>::get(addr) else {
             return false;
@@ -1375,16 +1057,16 @@ impl<T: pallet::Config> traits::InstitutionLegalRepresentativeQuery<T::AccountId
 {
     fn legal_representative(cid_number: &[u8]) -> Option<T::AccountId> {
         let cid_number = pallet::CidNumberOf::<T>::try_from(cid_number.to_vec()).ok()?;
-        pallet::Institutions::<T>::get(cid_number)?
-            .legal_representative
-            .map(|representative| representative.account_id)
+        let representative = pallet::Institutions::<T>::get(cid_number)?.legal_representative?;
+        let person_cid = CidNumber::try_from(representative.person_cid.into_inner()).ok()?;
+        T::CitizenIdentityReader::person_account(&person_cid)
     }
 
     fn legal_representative_cid(cid_number: &[u8]) -> Option<Vec<u8>> {
         let cid_number = pallet::CidNumberOf::<T>::try_from(cid_number.to_vec()).ok()?;
         pallet::Institutions::<T>::get(cid_number)?
             .legal_representative
-            .map(|representative| representative.cid_number.to_vec())
+            .map(|representative| representative.person_cid.to_vec())
     }
 }
 
@@ -1396,7 +1078,7 @@ impl<T: pallet::Config> traits::InstitutionLegalRepresentativeQuery<T::AccountId
 // - `ACTION_ADD_ACCOUNT` + approved → 分派到 `add::execute_institution_add_account_with_finalizer`;
 // - `ACTION_CLOSE` + approved → 分派到 `close::execute_institution_close_with_finalizer`;
 // - `approved = false` → 清理对应 Pending(新增按 CID、关闭按账户),释放占用。
-// (ACTION_CREATE_PERSONAL 在 personalentity::InternalVoteExecutor)
+// (ACTION_CREATE_PERSONAL 在 personal::InternalVoteExecutor)
 pub struct InternalVoteExecutor<T>(core::marker::PhantomData<T>);
 
 impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
@@ -1470,14 +1152,9 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
                     return Ok(ProposalExecutionOutcome::Executed);
                 }
                 ACTION_GOVERNANCE => {
-                    let proposal = pallet::InstitutionGovernanceProposalOf::<T>::decode(
-                        &mut &raw[tag.len() + 1..],
-                    )
-                    .map_err(|_| pallet::Error::<T>::InvalidInstitutionGovernanceAction)?;
-                    // 停用动作是确定失败，复用既有FatalFailed终态，不进入重试循环。
-                    if !proposal.action.allowed_in_governance() {
+                    let Ok(proposal) = InstitutionGovernanceProposal::decode_all(&mut &raw[tag.len() + 1..]) else {
                         return Ok(ProposalExecutionOutcome::FatalFailed);
-                    }
+                    };
                     let exec_result =
                         with_transaction(
                             || match pallet::Pallet::<T>::execute_governance_proposal(
@@ -1527,12 +1204,6 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
             .saturating_add(
                 <T::OnAccountRegistered as Get<Weight>>::get()
                     .saturating_mul(T::MaxInstitutionAccounts::get() as u64),
-            )
-            // Wallet rotation creates no accounts or EVM mappings.
-            .max(
-                <T as crate::pallet::Config>::WeightInfo::institution_wallet_change(
-                    <T as crate::pallet::Config>::MaxAdmins::get(),
-                ),
             )
     }
 
@@ -1600,8 +1271,7 @@ impl<T: Config> Pallet<T> {
         action: u32,
         accounts: sp_std::vec::Vec<T::AccountId>,
     ) -> sp_runtime::DispatchResult {
-        use adminbase::InstitutionAdminQuery;
-        use frame_support::{ensure, traits::UnixTime};
+        use frame_support::ensure;
         let cid: CidNumberOf<T> = cid
             .to_vec()
             .try_into()
@@ -1650,6 +1320,7 @@ impl<T: Config> Pallet<T> {
                     .unwrap(),
                     term_required: false,
                     role_status: entitybase::InstitutionRoleStatus::Active,
+                    seats: accounts.len().max(1) as u32,
                 },
             );
         }
@@ -1670,6 +1341,18 @@ impl<T: Config> Pallet<T> {
             .try_into()
             .unwrap();
         InstitutionRolePermissions::<T>::insert(&cid, &role, permissions);
+        Self::benchmark_seed_role_assignments(&cid, &role, accounts)
+    }
+
+    /// 在基准 externalities 配置人员任职，保留所属岗位的权限。
+    pub fn benchmark_seed_role_assignments(
+        cid: &[u8],
+        role: &[u8],
+        accounts: Vec<T::AccountId>,
+    ) -> sp_runtime::DispatchResult {
+        let cid = CidNumberOf::<T>::try_from(cid.to_vec()).map_err(|_| Error::<T>::AssignmentCidMismatch)?;
+        let role = RoleCodeOf::try_from(role.to_vec()).map_err(|_| Error::<T>::InvalidRoleCode)?;
+        let institution = Institutions::<T>::get(&cid).ok_or(Error::<T>::InstitutionNotFound)?;
         let info = InstitutionRoles::<T>::get(&cid, &role)
             .ok_or(sp_runtime::DispatchError::Other("benchmark role missing"))?;
         ensure!(
@@ -1691,17 +1374,13 @@ impl<T: Config> Pallet<T> {
         let assignments = accounts
             .into_iter()
             .map(|account_id| {
-                ensure!(
-                    T::InstitutionAdminQuery::is_institution_admin(
-                        institution.institution_code,
-                        cid.as_slice(),
-                        &account_id
-                    ),
-                    sp_runtime::DispatchError::Other("benchmark admin absent")
-                );
-                Ok(entitybase::InstitutionAdminAssignment {
+                let person_cid = T::CitizenIdentityReader::person_cid(&account_id)
+                    .ok_or(sp_runtime::DispatchError::Other("benchmark person binding absent"))?;
+                let person_cid = CidNumberOf::<T>::try_from(person_cid.into_inner())
+                    .map_err(|_| sp_runtime::DispatchError::Other("benchmark person CID exceeds bound"))?;
+                Ok(entitybase::InstitutionAssignment {
                     cid_number: cid.clone(),
-                    account_id,
+                    person_cid,
                     role_code: role.clone(),
                     term_start: if info.term_required { day.max(1) } else { 0 },
                     term_end: if info.term_required {

@@ -35,13 +35,16 @@ pub(crate) fn postgres_error_text(err: &postgres::Error) -> String {
 }
 
 // PostgreSQL原生schema注释只记录格式版本；不是业务数据副本。
-const SCHEMA_FORMAT: &str = "onchina:3";
+const SCHEMA_FORMAT: &str = "onchina:4";
 
 #[derive(Clone)]
 pub struct Db {
-    /// 仅单元/隔离HTTP测试注入明确的钱包权威快照；正式构建不存在此字段。
+    /// 仅单元/隔离HTTP测试注入明确的人员任职快照；正式构建不存在此字段。
     #[cfg(test)]
-    pub(crate) wallet_snapshot: Arc<Mutex<Option<crate::authentication::login::AdminAuthContext>>>,
+    pub(crate) role_snapshot: Arc<Mutex<Option<crate::authentication::login::AdminAuthContext>>>,
+    #[cfg(test)]
+    pub(crate) role_permissions:
+        Arc<Mutex<Vec<entitybase::RoleBusinessPermission<Vec<u8>, Vec<u8>, Vec<u8>>>>>,
     clients: Arc<Vec<Mutex<postgres::Client>>>,
     next_client_idx: Arc<AtomicUsize>,
 }
@@ -89,7 +92,9 @@ impl Db {
         };
         Ok(Self {
             #[cfg(test)]
-            wallet_snapshot: Arc::new(Mutex::new(None)),
+            role_snapshot: Arc::new(Mutex::new(None)),
+            #[cfg(test)]
+            role_permissions: Arc::new(Mutex::new(Vec::new())),
             clients: Arc::new(clients),
             next_client_idx: Arc::new(AtomicUsize::new(0)),
         })
@@ -138,7 +143,7 @@ impl Db {
         if objects == 0 && matches!(format.as_deref(), None | Some("standard public schema")) {
             return Ok(false);
         }
-        if format.as_deref() == Some(SCHEMA_FORMAT) && tables == 27 && columns == 205 && names {
+        if format.as_deref() == Some(SCHEMA_FORMAT) && tables == 26 && columns == 204 && names {
             return Ok(true);
         }
         Err("onchina database format mismatch; explicit data operation required".into())
@@ -190,28 +195,6 @@ impl Db {
              );
              CREATE INDEX IF NOT EXISTS idx_chain_sign_sessions_expiry
                 ON signing(expires_at) WHERE consumed_at IS NULL;
-
-             CREATE TABLE IF NOT EXISTS admin (
-                admin_id BIGINT PRIMARY KEY,
-                account_id TEXT NOT NULL UNIQUE CHECK (account_id ~ '^0x[0-9a-f]{64}$'),
-                family_name TEXT NOT NULL,
-                given_name TEXT NOT NULL,
-                institution_code TEXT NOT NULL,
-                institution_cid TEXT,
-                built_in BOOLEAN NOT NULL DEFAULT FALSE,
-                creator_account TEXT NOT NULL
-                    CHECK (creator_account ~ '^0x[0-9a-f]{64}$'),
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                updated_at TIMESTAMPTZ,
-                city_name TEXT NOT NULL DEFAULT ''
-             );
-             CREATE INDEX IF NOT EXISTS idx_admins_institution_code
-                ON admin(institution_code);
-             CREATE INDEX IF NOT EXISTS idx_admins_institution_code_city_name
-                ON admin(institution_code, city_name);
-             CREATE INDEX IF NOT EXISTS idx_admins_institution_cid ON admin(institution_cid);
-             CREATE INDEX IF NOT EXISTS idx_admins_creator_account_id
-                ON admin(creator_account);
 
              CREATE TABLE IF NOT EXISTS challenge (
                 payload_json JSONB NOT NULL CHECK (jsonb_typeof(payload_json) = 'object' AND payload_json ?& ARRAY['actionId','actorAccountId','actionType','expiresAt','consumed'] AND jsonb_typeof(payload_json->'actionId') = 'string' AND jsonb_typeof(payload_json->'actorAccountId') = 'string' AND jsonb_typeof(payload_json->'actionType') = 'string' AND jsonb_typeof(payload_json->'expiresAt') = 'number' AND jsonb_typeof(payload_json->'consumed') = 'boolean' AND payload_json->>'actorAccountId' ~ '^0x[0-9a-f]{64}$')
@@ -272,29 +255,39 @@ impl Db {
 
              CREATE TABLE IF NOT EXISTS credential (
                 credential_id TEXT PRIMARY KEY,
+                person_cid TEXT NOT NULL,
+                binding_revision TEXT NOT NULL CHECK (binding_revision ~ '^[1-9][0-9]*$'),
                 account_id TEXT NOT NULL CHECK (account_id ~ '^0x[0-9a-f]{64}$'),
                 passkey_data JSONB NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
              );
-             CREATE INDEX IF NOT EXISTS idx_admin_passkey_credentials_account
-                ON credential(account_id);
+             CREATE INDEX IF NOT EXISTS credential_binding
+                ON credential(person_cid,binding_revision,account_id);
 
              CREATE TABLE IF NOT EXISTS ceremony (
                 ceremony_id TEXT PRIMARY KEY,
+                institution_cid TEXT NOT NULL,
+                role_code TEXT NOT NULL,
+                person_cid TEXT NOT NULL,
+                binding_revision TEXT NOT NULL CHECK (binding_revision ~ '^[1-9][0-9]*$'),
                 account_id TEXT NOT NULL CHECK (account_id ~ '^0x[0-9a-f]{64}$'),
                 record_kind TEXT NOT NULL CHECK (record_kind IN ('REG', 'AUTH')),
                 state_data JSONB NOT NULL,
                 expires_at TIMESTAMPTZ NOT NULL
              );
-             CREATE INDEX IF NOT EXISTS idx_admin_passkey_ceremonies_expires
+             CREATE INDEX IF NOT EXISTS ceremony_expiry
                 ON ceremony(expires_at);
 
              CREATE TABLE IF NOT EXISTS assertion (
                 assertion_id TEXT PRIMARY KEY,
+                institution_cid TEXT NOT NULL,
+                role_code TEXT NOT NULL,
+                person_cid TEXT NOT NULL,
+                binding_revision TEXT NOT NULL CHECK (binding_revision ~ '^[1-9][0-9]*$'),
                 account_id TEXT NOT NULL CHECK (account_id ~ '^0x[0-9a-f]{64}$'),
                 expires_at TIMESTAMPTZ NOT NULL
              );
-             CREATE INDEX IF NOT EXISTS idx_admin_passkey_assertions_expires
+             CREATE INDEX IF NOT EXISTS assertion_expiry
                 ON assertion(expires_at);
 
              CREATE TABLE IF NOT EXISTS \"transaction\" (

@@ -57,7 +57,7 @@ use primitives::{
     cid::china::china_ch::CHINA_CH,
     cid::china::china_zf::CHINA_ZF,
     cid::china::citizenchain::{
-        CITIZENCHAIN_GENESIS_ADMINS, LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER,
+        LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER,
     },
     cid::code::{institution_code_from_cid_number, FRG},
     core_const::SS58_FORMAT,
@@ -66,6 +66,17 @@ use primitives::{
 use serde_json::{json, Value};
 use sp_core::crypto::{Ss58AddressFormat, Ss58Codec};
 use std::collections::BTreeSet;
+
+fn frozen_patch() -> Value {
+    let data: Value = serde_json::from_slice(::genesis::config::frozen_chain_spec()).unwrap();
+    data.pointer("/genesis/runtimeGenesis/patch").unwrap().clone()
+}
+
+fn foundation_genesis_wallet() -> AccountId {
+    let patch = frozen_patch();
+    let wallet = patch["citizenIdentity"]["initialCidBindings"][0][1].as_str().unwrap();
+    AccountId::from_ss58check(wallet).unwrap()
+}
 
 fn account_to_genesis_ss58(account: &AccountId) -> String {
     account.to_ss58check_with_version(Ss58AddressFormat::custom(SS58_FORMAT))
@@ -85,10 +96,13 @@ fn genesis_contains_nrc_and_all_provincialbank_balances() {
         .as_array()
         .expect("balances.balances should be an array");
 
-    // 创世包含 1 个国家储委会多签账户 + 19 个 NRC 管理员 + 43 个省储行 stake 质押地址
+    // 创世包含 1 个国家储委会多签账户 + 19 个历史拨付账户 + 43 个省储行 stake 质押地址
     // + 1 个国家储委会两和基金账户 + 6 笔创世分账账户。
-    let nrc_admins_len = CHINA_CB.first().map(|n| n.admins.len()).unwrap_or(0);
-    assert_eq!(balances.len(), 1 + nrc_admins_len + CHINA_CH.len() + 1 + 6);
+    let nrc_initial_grants = primitives::count_const::NRC_COMMITTEE_SEATS as usize;
+    assert_eq!(balances.len(), 1 + nrc_initial_grants + CHINA_CH.len() + 1 + 6);
+
+    assert_eq!(patch["balances"], frozen_patch()["balances"]);
+    assert_eq!(balances.iter().filter(|row| json_amount_to_u128(&row[1])==Some(1_000_000_000)).count(), nrc_initial_grants);
 
     // 每家省储行的创立发行必须逐户精确进入无私钥 stake_account，不能改发主账户或汇总账户。
     for bank in CHINA_CH {
@@ -132,14 +146,11 @@ fn genesis_issuance_splits_nrc_main_and_six_allocations() {
         })
         .expect("NRC balance entry should exist");
 
-    // 创世发行分配到国家储委会多签账户 = 总发行量 - NRC 管理员预置总额 - 六账户分账总额(700 亿元)。
-    let admin_each: u128 = 1_000_000_000;
-    let nrc_admins_len = CHINA_CB
-        .first()
-        .map(|n| n.admins.len() as u128)
-        .unwrap_or(0);
+    // 创世发行分配到国家储委会多签账户 = 总发行量 - 19 笔国储会历史拨付 - 六账户分账总额(700 亿元)。
+    let grant_each: u128 = 1_000_000_000;
+    let nrc_grants = u128::from(primitives::count_const::NRC_COMMITTEE_SEATS);
     let allocated_total: u128 = 7_000_000_000_000; // 700 亿元 = 6 笔创世分账合计
-    let expected_nrc = GENESIS_ISSUANCE - admin_each * nrc_admins_len - allocated_total;
+    let expected_nrc = GENESIS_ISSUANCE - grant_each * nrc_grants - allocated_total;
     assert_eq!(nrc_amount, expected_nrc);
 
     let total_in_patch: u128 = balances
@@ -168,9 +179,7 @@ fn genesis_six_allocations_have_exact_amounts() {
     use primitives::cid::china::china_cb::SAFETY_FUND_ACCOUNT;
     use primitives::cid::china::china_sf::CHINA_SF;
     use primitives::cid::china::china_zf::CHINA_ZF;
-    use primitives::cid::china::citizenchain::{
-        CITIZENCHAIN_FOUNDATION, CITIZENCHAIN_GENESIS_ADMINS,
-    };
+    use primitives::cid::china::citizenchain::CITIZENCHAIN_FOUNDATION;
     use primitives::cid::code::{institution_code_from_cid_number, FRG, FSC};
     use primitives::core_const::SS58_FORMAT;
 
@@ -218,7 +227,7 @@ fn genesis_six_allocations_have_exact_amounts() {
     // 六账户金额逐一精确核对(单位:分)。
     assert_eq!(amount_of(&fcsf), 1_000_000_000_000); // 联邦公民安全基金 100 亿元
     assert_eq!(
-        amount_of(&AccountId::new(CITIZENCHAIN_GENESIS_ADMINS[0].account_id)),
+        amount_of(&foundation_genesis_wallet()),
         2_000_000_000_000
     ); // 公民程伟钱包 200 亿元
     assert_eq!(
@@ -243,94 +252,43 @@ fn genesis_omits_national_institutional_registry_without_runtime_pallet() {
 }
 
 #[test]
-fn china_cb_grandpa_keys_are_valid_unique_ed25519_pubkeys() {
-    let mut uniq = BTreeSet::new();
-    for node in CHINA_CB {
-        VerifyingKey::from_bytes(&node.grandpa_key)
-            .expect("CHINA_CB.grandpa_key must be valid ed25519 point");
-        assert!(
-            uniq.insert(node.grandpa_key),
-            "CHINA_CB.grandpa_key must be unique"
-        );
+fn frozen_grandpa_registrations_match_cids_and_valid_keys() {
+    let patch = ::genesis::config::genesis_config::<RuntimeGenesisConfig>();
+    assert_eq!(patch["grandpa"], frozen_patch()["grandpa"]);
+    assert_eq!(patch["grandpa"]["authorities"].as_array().unwrap().len(), 1);
+    let registered: Vec<(Vec<u8>, [u8; 32])> =
+        serde_json::from_value(patch["grandpaKey"]["registeredKeys"].clone()).unwrap();
+    let mut unique = BTreeSet::new();
+    assert_eq!(registered.len(), 44);
+    for ((cid, key), institution) in registered.iter().zip(CHINA_CB) {
+        assert_eq!(cid.as_slice(), institution.cid_number.as_bytes());
+        assert!(!VerifyingKey::from_bytes(key).unwrap().is_weak());
+        assert!(unique.insert(*key));
     }
-    assert_eq!(uniq.len(), 44, "must contain exactly 44 grandpa keys");
 }
 
 #[test]
-fn governance_admin_keys_unique_and_counts_match_seats() {
-    // 治理机构管理员公钥不变量:各机构数量必须匹配岗位席位,且全部公钥全局唯一。
-    // 每把 32 字节的长度合法性已由 `hex!` 宏 + `[u8; 32]` 类型在编译期强制,
-    // 编译器抓不到的是「数量不符」和「公钥重复」,故在此显式断言(替代脆弱的正则脚本)。
-    use primitives::cid::china::china_ch::CHINA_CH;
-    use primitives::cid::china::china_sf::NATIONAL_JUDICIAL_YUAN_ADMINS;
-    use primitives::cid::china::china_zf::FEDERAL_REGISTRY_ADMINS;
-    use primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ADMINS;
-    use primitives::cid::code::PROVINCE_CODE_INFOS;
-    use primitives::count_const::{
-        FRG_PROVINCE_GROUP_ADMIN_COUNT, NJD_ADMIN_COUNT, NRC_ADMIN_COUNT, PRB_ADMIN_COUNT,
-        PRC_ADMIN_COUNT,
-    };
+fn fixed_institution_seats_match_declared_positions() {
+    use primitives::cid::code::{FRG, NJD, NRC, PRB, PRC};
+    use primitives::count_const::*;
+    use primitives::governance_skeleton::{fixed_role_specs, frg_province_groups};
+    use primitives::institution_constraints::ROLE_CODE_LEGAL_REPRESENTATIVE;
 
-    let mut all: Vec<[u8; 32]> = Vec::new();
-
-    // 国家储委会(NRC=第 1 个)19 席 + 43 个省储委会(PRC)各 9 席。
-    for (i, cb) in CHINA_CB.iter().enumerate() {
-        let expected = if i == 0 {
-            NRC_ADMIN_COUNT as usize
-        } else {
-            PRC_ADMIN_COUNT as usize
-        };
-        assert_eq!(
-            cb.admins.len(),
-            expected,
-            "储委会 {} 管理员数量与岗位席位不符",
-            cb.cid_number
-        );
-        all.extend_from_slice(cb.admins);
+    for (code, count) in [
+        (NRC, NRC_COMMITTEE_SEATS), (PRC, PRC_COMMITTEE_SEATS),
+        (PRB, PRB_DIRECTOR_SEATS), (NJD, NJD_JUDICIAL_SEATS),
+    ] {
+        let roles = fixed_role_specs(code);
+        let (representative, ordinary): (Vec<_>, Vec<_>) = roles.into_iter()
+            .partition(|role| role.role_code == ROLE_CODE_LEGAL_REPRESENTATIVE);
+        assert_eq!(representative.len(), 1);
+        assert_eq!(representative[0].seats, 1);
+        assert_eq!(ordinary.iter().map(|role| role.seats).sum::<u32>(), count);
     }
-
-    // 43 个省储行(PRB)各 9 席。
-    for ch in CHINA_CH {
-        assert_eq!(
-            ch.admins.len(),
-            PRB_ADMIN_COUNT as usize,
-            "省储行 {} 管理员数量与岗位席位不符",
-            ch.cid_number
-        );
-        all.extend_from_slice(ch.admins);
-    }
-
-    // 国家司法院(NJD)15 席。
-    assert_eq!(
-        NATIONAL_JUDICIAL_YUAN_ADMINS.len(),
-        NJD_ADMIN_COUNT as usize,
-        "国家司法院管理员数量与岗位席位不符"
-    );
-    all.extend_from_slice(NATIONAL_JUDICIAL_YUAN_ADMINS);
-
-    // 联邦注册局(FRG)= 省数 × 每省组人数。
-    assert_eq!(
-        FEDERAL_REGISTRY_ADMINS.len(),
-        PROVINCE_CODE_INFOS.len() * FRG_PROVINCE_GROUP_ADMIN_COUNT as usize,
-        "联邦注册局管理员数量与岗位席位不符"
-    );
-    all.extend_from_slice(FEDERAL_REGISTRY_ADMINS);
-
-    // 公民链技术发展基金会创世管理员(程伟,1 名)。
-    assert_eq!(
-        CITIZENCHAIN_GENESIS_ADMINS.len(),
-        1,
-        "基金会创世管理员数量应为 1"
-    );
-    all.extend(
-        CITIZENCHAIN_GENESIS_ADMINS
-            .iter()
-            .map(|admin| admin.account_id),
-    );
-
-    // 全局唯一:去重后数量必须与原始数量相等。
-    let unique: BTreeSet<[u8; 32]> = all.iter().copied().collect();
-    assert_eq!(unique.len(), all.len(), "存在重复的治理机构管理员公钥");
+    let groups = frg_province_groups();
+    assert_eq!(groups.len(), primitives::cid::code::PROVINCE_CODE_INFOS.len());
+    assert!(groups.iter().all(|(_, seats)| *seats == FRG_COMMISSIONER_SEATS));
+    assert_eq!(fixed_role_specs(FRG).len(), 0);
 }
 
 #[test]
@@ -361,7 +319,7 @@ fn genesis_account_strings_deserialize_individually() {
         );
     }
 
-    for account in patch["resolutionIssuance"]["allowedRecipients"]
+    for account in patch["resolutionIssue"]["allowedRecipients"]
         .as_array()
         .expect("allowedRecipients should be an array")
     {
@@ -373,7 +331,7 @@ fn genesis_account_strings_deserialize_individually() {
         );
     }
 
-    let binding = patch["citizenIdentity"]["initialCidBindings"][0]
+    let binding = patch["identity"]["initialCidBindings"][0]
         .as_array()
         .expect("citizen identity binding should be a three-field tuple");
     let parsed: Result<AccountId, _> = serde_json::from_value(binding[1].clone());
@@ -406,7 +364,7 @@ fn genesis_top_level_sections_deserialize_individually() {
     );
 
     let resolutionissue: Result<resolutionissue::GenesisConfig<crate::Runtime>, _> =
-        serde_json::from_value(patch["resolutionIssuance"].clone());
+        serde_json::from_value(patch["resolutionIssue"].clone());
     assert!(
         resolutionissue.is_ok(),
         "resolutionIssuance should deserialize: {:?}",
@@ -414,7 +372,7 @@ fn genesis_top_level_sections_deserialize_individually() {
     );
 
     let identity: Result<identity::GenesisConfig<crate::Runtime>, _> =
-        serde_json::from_value(patch["citizenIdentity"].clone());
+        serde_json::from_value(patch["identity"].clone());
     assert!(
         identity.is_ok(),
         "citizenIdentity should deserialize: {:?}",
@@ -423,12 +381,12 @@ fn genesis_top_level_sections_deserialize_individually() {
 }
 
 #[test]
-fn genesis_contains_fixed_admin_citizen_identity_binding() {
+fn genesis_contains_frozen_citizen_identity_binding() {
     let patch = ::genesis::config::genesis_config::<RuntimeGenesisConfig>();
-    let bindings = patch["citizenIdentity"]["initialCidBindings"]
+    let bindings = patch["identity"]["initialCidBindings"]
         .as_array()
         .expect("citizen identity bindings should be an array");
-    assert_eq!(bindings.len(), 1, "创世只预置固定基金会管理员身份");
+    assert_eq!(bindings.len(), 1, "冻结预设含原有公民绑定");
 
     let binding = bindings[0]
         .as_array()
@@ -440,9 +398,7 @@ fn genesis_contains_fixed_admin_citizen_identity_binding() {
     );
     assert_eq!(
         binding[1],
-        json!(account_to_genesis_ss58(&AccountId::new(
-            CITIZENCHAIN_GENESIS_ADMINS[0].account_id
-        )))
+        json!(account_to_genesis_ss58(&foundation_genesis_wallet()))
     );
     let frg_cid_number = CHINA_ZF
         .iter()

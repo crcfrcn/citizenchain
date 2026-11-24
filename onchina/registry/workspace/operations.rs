@@ -25,10 +25,5 @@ pub(super) fn operations(capabilities: CapabilitySet) -> Vec<WorkspaceActionItem
             "教育机构登记",
             capabilities.can_view_education && capabilities.can_business_write,
         ),
-        action(
-            "manage_registry_admins".to_string(),
-            "注册局管理员",
-            capabilities.view_city_registry || capabilities.view_federal_registry,
-        ),
     ]
 }

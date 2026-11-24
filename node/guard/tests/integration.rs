@@ -407,6 +407,22 @@ fn normal_import_uses_only_its_verified_execution_result() {
 
 #[test]
 fn complete_state_import_checks_root_rules_and_runtime_before_delegating() {
+    // 保留生产拒绝原因，避免完整状态回归只剩 KnownBad 断言而无法定位规则。
+    struct GuardLogger;
+    impl log::Log for GuardLogger {
+        fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+            metadata.target() == "node-guard" && metadata.level() == log::Level::Error
+        }
+        fn log(&self, record: &log::Record<'_>) {
+            if self.enabled(record.metadata()) {
+                eprintln!("{}", record.args());
+            }
+        }
+        fn flush(&self) {}
+    }
+    static LOGGER: GuardLogger = GuardLogger;
+    let _ = log::set_logger(&LOGGER);
+    log::set_max_level(log::LevelFilter::Error);
     use sc_consensus::{ImportedState, StateAction, StorageChanges};
     use sp_blockchain::HeaderBackend;
     use sp_runtime::traits::Header as _;

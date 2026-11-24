@@ -422,7 +422,7 @@ fn total_frozen_at(
     hash: &str,
     rpc: &impl Fn(&str, Value) -> Result<Value, String>,
 ) -> Result<u128, String> {
-    let prefix = nodeclient::query::value_key("PublicManage", "AccountRegisteredCid");
+    let prefix = nodeclient::query::value_key("PublicEntity", "AccountRegisteredCid");
     let mut start: Option<String> = None;
     let mut total = 0u128;
     loop {
@@ -444,7 +444,7 @@ fn total_frozen_at(
                 .ok_or("冻结金额账户存储键长度无效")?;
             if !key.starts_with(&prefix)
                 || previous.is_some_and(|last| key <= last)
-                || nodeclient::query::map_key("PublicManage", "AccountRegisteredCid", &bytes[48..])
+                || nodeclient::query::map_key("PublicEntity", "AccountRegisteredCid", &bytes[48..])
                     != key
             {
                 return Err("冻结金额账户分页顺序或存储键无效".into());
@@ -472,7 +472,7 @@ fn total_frozen_at(
             let account_bytes = hex_to_bytes(key).ok_or("冻结金额账户存储键无效")?;
             let balance_key = nodeclient::query::map_key("System", "Account", &account_bytes[48..]);
             let progress_key = nodeclient::query::map_key(
-                "CitizenIdentity",
+                "Identity",
                 "CityRegistryProgress",
                 &account.cid_number.encode(),
             );

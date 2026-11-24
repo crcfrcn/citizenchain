@@ -96,37 +96,23 @@ fn load_balance_at_block(
     }
 }
 
-fn collect_admins(
-    cid_number: &str,
-    block_hash: Option<&str>,
+fn collect_roles(
+    cid: &str,
+    at: Option<&str>,
     warnings: &mut Vec<String>,
-) -> Vec<crate::council::AdminInfo> {
-    let admins = match crate::balance::fetch_institution_admins(cid_number) {
-        Ok(items) => items,
-        Err(e) => {
-            warnings.push(format!("查询管理员失败: {e}"));
+) -> Vec<crate::roles::InstitutionRoleInfo> {
+    let Some(at) = at else { return Vec::new() };
+    match crate::storage::fetch_roles_at(cid, at) {
+        Ok(Some(state)) => state.roles,
+        Ok(None) => {
+            warnings.push("机构实体缺失".into());
             Vec::new()
         }
-    };
-
-    admins
-        .into_iter()
-        .map(|admin| {
-            let balance_fen = block_hash
-                .and_then(|hash| {
-                    crate::balance::fetch_balance_at(&admin.account_id, Some(hash)).ok()
-                })
-                .flatten()
-                .map(|value| value.to_string());
-            crate::council::AdminInfo {
-                account_id: admin.account_id,
-                family_name: admin.family_name,
-                given_name: admin.given_name,
-                assignments: admin.assignments,
-                balance_fen,
-            }
-        })
-        .collect()
+        Err(e) => {
+            warnings.push(format!("岗位任职读取失败:{e}"));
+            Vec::new()
+        }
+    }
 }
 
 fn collect_institution_balances(
@@ -185,8 +171,8 @@ fn build_institution_detail_sync(
         .ok_or_else(|| format!("未知的机构 cidNumber: {cid_number}"))?;
     let org_type = entry.org_type();
     let mut context = build_chain_query_context(app)?;
-    let admins = if context.running {
-        collect_admins(
+    let roles = if context.running {
+        collect_roles(
             cid_number,
             context.block_hash.as_deref(),
             &mut context.warnings,
@@ -227,7 +213,7 @@ fn build_institution_detail_sync(
         org_type_label: org_type.label().to_string(),
         main_account_id: entry.main_account_id(),
         balance_fen: balances.balance_fen,
-        admins,
+        roles,
         internal_threshold: internal_threshold(org_type),
         joint_vote_weight: joint_vote_weight(org_type),
         stake_account_id,
@@ -308,18 +294,6 @@ impl InstitutionType {
     }
 }
 
-/// 机构管理员人员记录、全部有效岗位任职及可选链上余额。
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AdminInfo {
-    pub account_id: String,
-    pub family_name: String,
-    pub given_name: String,
-    pub assignments: Vec<crate::admins::InstitutionRoleAssignmentInfo>,
-    /// 链上余额（分），节点未运行或余额查询失败时为 null。
-    pub balance_fen: Option<String>,
-}
-
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstitutionDetail {
@@ -341,8 +315,7 @@ pub struct InstitutionDetail {
     pub main_account_id: String,
     /// 主账户链上余额（分），节点未运行时为 null。
     pub balance_fen: Option<String>,
-    /// 管理员账户列表；每个账户携带其全部有效岗位任职。
-    pub admins: Vec<AdminInfo>,
+    pub roles: Vec<crate::roles::InstitutionRoleInfo>,
     /// 内部投票通过阈值。
     pub internal_threshold: u32,
     /// 联合投票权重。

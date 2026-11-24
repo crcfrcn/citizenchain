@@ -2,7 +2,7 @@
 
 import type { AdminAuth } from './types';
 import { assertPasskey, PASSKEY_ASSERTION_HEADER } from './passkeyClient';
-import { ApiError, adminRequest } from "../workspace/http";
+import { adminRequest } from "../workspace/http";
 
 export const SECURITY_GRANT_HEADER = 'x-cid-security-grant';
 
@@ -39,23 +39,6 @@ export type AdminSecurityGrantOutput = {
   target: string;
   expiresAt: number;
 };
-
-export function formatAdminCreateError(error: unknown, fallback: string): string {
-  if (!(error instanceof ApiError)) {
-    return error instanceof Error ? error.message : fallback;
-  }
-  // 管理员新增失败统一按稳定 error_code 显示,不解析后端 message。
-  if (error.errorCode === 'ONCHINA_ACCOUNT_ID_EXISTS_AS_FEDERAL_REGISTRY_ADMIN') {
-    return '该账户已是联邦注册局管理员，不能新增为市注册局管理员';
-  }
-  if (error.errorCode === 'ONCHINA_ACCOUNT_ID_EXISTS_AS_CITY_REGISTRY_ADMIN') {
-    return '该账户已是市注册局管理员，不能重复新增';
-  }
-  if (error.errorCode === 'ONCHINA_ADMIN_CITY_REGISTRY_CITY_LIMIT_REACHED') {
-    return '本市市注册局管理员已满 30 人，不能继续新增';
-  }
-  return error.message || fallback;
-}
 
 export async function prepareAdminAction(
   auth: AdminAuth,

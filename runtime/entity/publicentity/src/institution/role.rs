@@ -1,11 +1,12 @@
-//! 维护公权机构岗位和任职，按实际钱包的既有岗位授权引用判断权限。
+//! 维护公权机构岗位、人员 CID 任职及业务权限。
 
 extern crate alloc;
 
-use adminbase::InstitutionAdminQuery as _;
+use engingcore::{types::CidNumber, CitizenIdentityReader as _};
+use frame_support::traits::Get;
 use alloc::vec::Vec;
 use entitybase::{
-    BusinessActionId, InstitutionAdminAssignment, InstitutionAssignmentSource,
+    BusinessActionId, InstitutionAssignment, InstitutionAssignmentSource,
     InstitutionAssignmentStatus, InstitutionCapabilityPolicy as _, InstitutionRole,
     InstitutionRoleAuthorizationQuery, InstitutionRoleQuery, InstitutionRoleStatus,
     RoleBusinessPermission, RolePermissionOperation, RoleSubject, ASSIGNMENT_SOURCE_REF_MAX_BYTES,
@@ -28,17 +29,16 @@ pub type RoleCodeOf = BoundedVec<u8, ConstU32<INSTITUTION_ROLE_CODE_MAX_BYTES>>;
 pub type AssignmentSourceRefOf = BoundedVec<u8, ConstU32<ASSIGNMENT_SOURCE_REF_MAX_BYTES>>;
 pub type ModuleTagOf = BoundedVec<u8, ConstU32<BUSINESS_MODULE_TAG_MAX_BYTES>>;
 pub type InstitutionRoleOf<T> = InstitutionRole<CidNumberOf<T>, RoleCodeOf, AccountNameOf<T>>;
-pub type InstitutionRolesOf<T> = BoundedVec<InstitutionRoleOf<T>, <T as Config>::MaxAdmins>;
-pub type InstitutionAdminAssignmentOf<T> = InstitutionAdminAssignment<
+pub type InstitutionRolesOf<T> = BoundedVec<InstitutionRoleOf<T>, <T as Config>::MaxRoleEntries>;
+pub type InstitutionAssignmentOf<T> = InstitutionAssignment<
     CidNumberOf<T>,
-    <T as frame_system::Config>::AccountId,
     RoleCodeOf,
     AssignmentSourceRefOf,
 >;
-pub type InstitutionAdminAssignmentsOf<T> =
-    BoundedVec<InstitutionAdminAssignmentOf<T>, <T as Config>::MaxAdmins>;
+pub type InstitutionAssignmentsOf<T> =
+    BoundedVec<InstitutionAssignmentOf<T>, <T as Config>::MaxRoleEntries>;
 pub type RoleAssignmentsOf<T> =
-    BoundedVec<InstitutionAdminAssignmentOf<T>, <T as Config>::MaxAdmins>;
+    BoundedVec<InstitutionAssignmentOf<T>, <T as Config>::MaxRoleEntries>;
 pub type RolePermissionOf<T> = RoleBusinessPermission<CidNumberOf<T>, RoleCodeOf, ModuleTagOf>;
 pub type RolePermissionsOf<T> =
     BoundedVec<RolePermissionOf<T>, ConstU32<MAX_ROLE_PERMISSIONS_PER_ROLE>>;
@@ -99,7 +99,7 @@ impl<T: Config> Pallet<T> {
 
     pub(crate) fn is_assignment_effective(
         role: &InstitutionRoleOf<T>,
-        assignment: &InstitutionAdminAssignmentOf<T>,
+        assignment: &InstitutionAssignmentOf<T>,
     ) -> bool {
         if assignment.assignment_status != InstitutionAssignmentStatus::Active {
             return false;
@@ -120,10 +120,11 @@ impl<T: Config> Pallet<T> {
     ///
     /// 注册创建只接受 `Registry`，创世构建只接受 `Genesis`；投票中的中间状态
     /// 不得写入 entity，投票引擎只能在最终结果确定后调用任职结果入口。
+    #[frame_support::transactional]
     pub fn store_roles_and_assignments(
         cid_number: &CidNumberOf<T>,
         roles: &InstitutionRolesOf<T>,
-        assignments: &InstitutionAdminAssignmentsOf<T>,
+        assignments: &InstitutionAssignmentsOf<T>,
         expected_source: InstitutionAssignmentSource,
     ) -> DispatchResult {
         ensure!(!roles.is_empty(), Error::<T>::InstitutionRolesEmpty);
@@ -134,6 +135,12 @@ impl<T: Config> Pallet<T> {
             ensure!(role.cid_number == *cid_number, Error::<T>::RoleCidMismatch);
             ensure!(!role.role_code.is_empty(), Error::<T>::InvalidRoleCode);
             ensure!(!role.role_name.is_empty(), Error::<T>::InvalidRoleName);
+            ensure!(
+                (1..=T::MaxRoleEntries::get()).contains(&role.seats)
+                    && (!primitives::institution_constraints::is_legal_representative_role(&role.role_code)
+                        || role.seats == 1),
+                Error::<T>::FixedRoleSeatsMismatch
+            );
             ensure!(
                 !InstitutionRoles::<T>::contains_key(cid_number, &role.role_code),
                 Error::<T>::DuplicateRoleCode
@@ -159,6 +166,7 @@ impl<T: Config> Pallet<T> {
 
         let mut assignment_keys = BTreeSet::new();
         for assignment in assignments.iter() {
+            ensure!(Self::has_person_binding(&assignment.person_cid), Error::<T>::InvalidAssignmentPerson);
             ensure!(
                 assignment.cid_number == *cid_number,
                 Error::<T>::AssignmentCidMismatch
@@ -188,28 +196,21 @@ impl<T: Config> Pallet<T> {
             }
             ensure!(
                 assignment_keys
-                    .insert((assignment.account_id.clone(), assignment.role_code.clone(),)),
+                    .insert((assignment.person_cid.clone(), assignment.role_code.clone(),)),
                 Error::<T>::DuplicateAssignment
             );
         }
 
         for role in roles.iter() {
-            let role_assignments: Vec<InstitutionAdminAssignmentOf<T>> = assignments
+            let role_assignments: Vec<InstitutionAssignmentOf<T>> = assignments
                 .iter()
                 .filter(|assignment| assignment.role_code == role.role_code)
                 .cloned()
                 .collect();
-            if primitives::institution_constraints::is_legal_representative_role(
-                role.role_code.as_slice(),
-            ) {
-                ensure!(
-                    role_assignments.len() <= 1,
-                    Error::<T>::FixedRoleSeatsMismatch
-                );
-            }
+            ensure!(role_assignments.len() <= role.seats as usize, Error::<T>::FixedRoleSeatsMismatch);
             let bounded_assignments: RoleAssignmentsOf<T> = role_assignments
                 .try_into()
-                .map_err(|_| Error::<T>::TooManyInstitutionAdmins)?;
+                .map_err(|_| Error::<T>::TooManyInstitutionAssignments)?;
             InstitutionRoles::<T>::insert(cid_number, &role.role_code, role.clone());
             InstitutionRoleAssignments::<T>::insert(
                 cid_number,
@@ -268,6 +269,7 @@ impl<T: Config> Pallet<T> {
                     && existing.role_code == role_code
                     && existing.role_name == role_name
                     && !existing.term_required
+                    && existing.seats == 1
                     && existing.role_status == InstitutionRoleStatus::Active
                     && InstitutionRoleAssignments::<T>::get(cid_number, &role_code).len() <= 1,
                 Error::<T>::DuplicateRoleCode
@@ -284,6 +286,7 @@ impl<T: Config> Pallet<T> {
                 role_name,
                 term_required: false,
                 role_status: InstitutionRoleStatus::Active,
+                seats: 1,
             },
         );
         InstitutionRoleAssignments::<T>::insert(
@@ -351,7 +354,7 @@ impl<T: Config> Pallet<T> {
     pub fn store_genesis_roles_and_assignments(
         cid_number: &CidNumberOf<T>,
         roles: &InstitutionRolesOf<T>,
-        assignments: &InstitutionAdminAssignmentsOf<T>,
+        assignments: &InstitutionAssignmentsOf<T>,
     ) -> DispatchResult {
         Self::store_roles_and_assignments(
             cid_number,
@@ -389,97 +392,79 @@ impl<T: Config> Pallet<T> {
     }
 }
 
+impl<T: Config> Pallet<T> {
+    /// 任职仅接受本机构类型允许的有效人员 CID。
+    pub(crate) fn has_person_binding(raw: &[u8]) -> bool {
+        let Ok(person_cid) = CidNumber::try_from(raw.to_vec()) else {
+            return false;
+        };
+        Self::person_type_allowed(raw) && T::CitizenIdentityReader::person_account(&person_cid).is_some()
+    }
+
+    fn person_type_allowed(raw: &[u8]) -> bool {
+        primitives::cid::number::parse_cid_number_parts_bytes(raw)
+            .is_ok_and(|parts| parts.institution == *b"CTZN")
+    }
+}
+
 impl<T: Config> InstitutionRoleQuery<T::AccountId> for Pallet<T> {
-    fn is_active_assignment(cid_number: &[u8], admin: &T::AccountId, role_code: &[u8]) -> bool {
-        let Ok(cid_number) = CidNumberOf::<T>::try_from(cid_number.to_vec()) else {
+    fn is_active_assignment(raw_cid: &[u8], who: &T::AccountId, raw_role: &[u8]) -> bool {
+        let Some(person_cid) = T::CitizenIdentityReader::person_cid(who) else {
             return false;
         };
-        let Ok(role_code) = RoleCodeOf::try_from(role_code.to_vec()) else {
-            return false;
-        };
-        let Some(institution) = Institutions::<T>::get(&cid_number) else {
-            return false;
-        };
-        // 把调用者钱包解析为已批准岗位签名授权引用（与个人CID绑定独立）；None = 非该机构管理员。
-        let Some(canonical) = T::InstitutionAdminQuery::resolve_role_authorization(
-            institution.institution_code,
-            cid_number.as_slice(),
-            admin,
-        ) else {
-            return false;
-        };
-        let Some(role) = InstitutionRoles::<T>::get(&cid_number, &role_code) else {
-            return false;
-        };
-        if role.role_status != InstitutionRoleStatus::Active {
+        if !Self::person_type_allowed(&person_cid) {
             return false;
         }
-        InstitutionRoleAssignments::<T>::get(&cid_number, role_code)
-            .into_iter()
-            .any(|assignment| {
-                assignment.account_id == canonical
-                    && Pallet::<T>::is_assignment_effective(&role, &assignment)
-            })
+        let Ok(cid) = CidNumberOf::<T>::try_from(raw_cid.to_vec()) else {
+            return false;
+        };
+        let Ok(role_code) = RoleCodeOf::try_from(raw_role.to_vec()) else {
+            return false;
+        };
+        if !Institutions::<T>::contains_key(&cid) {
+            return false;
+        }
+        let Some(role) = InstitutionRoles::<T>::get(&cid, &role_code) else {
+            return false;
+        };
+        role.role_status == InstitutionRoleStatus::Active
+            && role.cid_number == cid
+            && role.role_code == role_code
+            && InstitutionRoleAssignments::<T>::get(&cid, &role_code)
+                .iter()
+                .any(|assignment| {
+                    assignment.cid_number == cid
+                        && assignment.role_code == role_code
+                        && assignment.person_cid.as_slice() == person_cid.as_slice()
+                        && Self::is_assignment_effective(&role, assignment)
+                })
     }
 
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<T::AccountId> {
-        let Ok(cid_number) = CidNumberOf::<T>::try_from(cid_number.to_vec()) else {
+    fn active_persons_for_role(cid: &[u8], role_code: &[u8]) -> Vec<Vec<u8>> {
+        Self::snapshot_role_persons(cid, role_code)
+    }
+
+    fn active_role_codes(raw_cid: &[u8], who: &T::AccountId) -> Vec<Vec<u8>> {
+        let Ok(cid) = CidNumberOf::<T>::try_from(raw_cid.to_vec()) else {
             return Vec::new();
         };
-        let Ok(role_code) = RoleCodeOf::try_from(role_code.to_vec()) else {
+        let Some(person_cid) = T::CitizenIdentityReader::person_cid(who) else {
             return Vec::new();
         };
-        let Some(institution) = Institutions::<T>::get(&cid_number) else {
-            return Vec::new();
-        };
-        let Some(role) = InstitutionRoles::<T>::get(&cid_number, &role_code) else {
-            return Vec::new();
-        };
-        if role.role_status != InstitutionRoleStatus::Active {
+        if !Self::person_type_allowed(&person_cid) || !Institutions::<T>::contains_key(&cid) {
             return Vec::new();
         }
-        InstitutionRoleAssignments::<T>::get(&cid_number, role_code)
-            .into_iter()
-            .filter(|assignment| {
-                T::InstitutionAdminQuery::has_role_authorization(
-                    institution.institution_code,
-                    cid_number.as_slice(),
-                    &assignment.account_id,
-                ) && Pallet::<T>::is_assignment_effective(&role, assignment)
-            })
-            .map(|assignment| assignment.account_id)
-            .collect()
-    }
-
-    fn active_role_codes(cid_number: &[u8], admin: &T::AccountId) -> Vec<Vec<u8>> {
-        let Ok(cid_number) = CidNumberOf::<T>::try_from(cid_number.to_vec()) else {
-            return Vec::new();
-        };
-        let Some(institution) = Institutions::<T>::get(&cid_number) else {
-            return Vec::new();
-        };
-        let Some(reference) = T::InstitutionAdminQuery::resolve_role_authorization(
-            institution.institution_code,
-            &cid_number,
-            admin,
-        ) else {
-            return Vec::new();
-        };
-        InstitutionRoles::<T>::iter_prefix(&cid_number)
-            .filter(|(_, role)| role.role_status == InstitutionRoleStatus::Active)
-            .filter_map(|(role_code, role)| {
-                let active = InstitutionRoleAssignments::<T>::get(&cid_number, &role_code)
-                    .into_iter()
-                    .any(|assignment| {
-                        assignment.account_id == reference
-                            && T::InstitutionAdminQuery::has_role_authorization(
-                                institution.institution_code,
-                                cid_number.as_slice(),
-                                &reference,
-                            )
-                            && Pallet::<T>::is_assignment_effective(&role, &assignment)
-                    });
-                active.then(|| role_code.into_inner())
+        InstitutionRoles::<T>::iter_prefix(&cid)
+            .filter(|(code, role)| role.role_status == InstitutionRoleStatus::Active
+                && role.cid_number == cid && role.role_code == *code)
+            .filter_map(|(code, role)| {
+                InstitutionRoleAssignments::<T>::get(&cid, &code)
+                    .iter()
+                    .any(|assignment| assignment.cid_number == cid
+                        && assignment.role_code == code
+                        && assignment.person_cid.as_slice() == person_cid.as_slice()
+                        && Self::is_assignment_effective(&role, assignment))
+                    .then(|| code.into_inner())
             })
             .collect()
     }
@@ -527,7 +512,7 @@ impl<T: Config> InstitutionRoleAuthorizationQuery<T::AccountId> for Pallet<T> {
         let Ok(cid_number) = CidNumberOf::<T>::try_from(role_subject.cid_number.clone()) else {
             return false;
         };
-        // 当前钱包资格已并入 is_active_assignment 内的 resolve_role_authorization，不再单独调 is_institution_admin。
+        // 先验证签名钱包当前绑定的人员及任职，再匹配岗位业务权限。
         <Self as InstitutionRoleQuery<T::AccountId>>::is_active_assignment(
             cid_number.as_slice(),
             admin,
@@ -581,9 +566,8 @@ impl<T: Config> InstitutionRoleAuthorizationQuery<T::AccountId> for Pallet<T> {
 }
 
 impl<T: Config> Pallet<T> {
-    /// 建案专用：完整有效任职引用。不能先按现任钱包过滤而静默缩小原分母。
-    /// 钱包或版本缺失由投票引擎整笔拒绝；此查询不改变人员、权限或当前业务门。
-    pub fn snapshot_role_references(raw_cid: &[u8], raw_role: &[u8]) -> Vec<T::AccountId> {
+    /// 建案专用：读取完整有效任职人员，缺绑定由投票引擎整笔拒绝。
+    pub fn snapshot_role_persons(raw_cid: &[u8], raw_role: &[u8]) -> Vec<Vec<u8>> {
         let Ok(cid) = CidNumberOf::<T>::try_from(raw_cid.to_vec()) else {
             return Vec::new();
         };
@@ -605,14 +589,14 @@ impl<T: Config> Pallet<T> {
         let records = InstitutionRoleAssignments::<T>::get(&cid, &code);
         if records
             .iter()
-            .any(|a| a.cid_number != cid || a.role_code != code)
+            .any(|a| a.cid_number != cid || a.role_code != code || !Self::person_type_allowed(&a.person_cid))
         {
             return Vec::new();
         }
         records
             .into_iter()
             .filter(|a| Self::is_assignment_effective(&role, a))
-            .map(|a| a.account_id)
+            .map(|a| a.person_cid.into_inner())
             .collect()
     }
 }

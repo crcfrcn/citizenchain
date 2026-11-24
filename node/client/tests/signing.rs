@@ -110,7 +110,11 @@ fn resolve_ethereum_recipient_with_progress(
 ) -> Result<[u8; 32], String> {
     use crate::signing::resolve_recipient_account_id_with_rpc;
     use serde_json::json;
-    let expected_calls = if matches!(&mapped, Ok(serde_json::Value::Null)) { 4 } else { 3 };
+    let expected_calls = if matches!(&mapped, Ok(serde_json::Value::Null)) {
+        4
+    } else {
+        3
+    };
     let head = format!("0x{}", "12".repeat(32));
     let mut key = sp_crypto_hashing::twox_128(b"Revive").to_vec();
     key.extend(sp_crypto_hashing::twox_128(b"OriginalAccount"));
@@ -139,9 +143,19 @@ fn resolve_ethereum_recipient_with_progress(
                 mapped.clone()
             }
             4 => {
-                assert_eq!((method, params), ("state_getStorage", json!([
-                    format!("0x{}", hex::encode(b":citizenchain:evm-account-mapping:progress:v1")), head
-                ])));
+                assert_eq!(
+                    (method, params),
+                    (
+                        "state_getStorage",
+                        json!([
+                            format!(
+                                "0x{}",
+                                hex::encode(b":citizenchain:evm-account-mapping:progress:v1")
+                            ),
+                            head
+                        ])
+                    )
+                );
                 Ok(progress.clone())
             }
             _ => panic!("收款解析不应提交交易或另读 best 状态"),
@@ -157,8 +171,12 @@ fn resolve_ethereum_recipient_with_progress(
 fn recipient_never_falls_back_to_a_different_account_during_backfill() {
     let address = "0xde709f2102306220921060314715629080e2fb77";
     let error = resolve_ethereum_recipient_with_progress(
-        address, recipient_metadata(), Ok(serde_json::Value::Null), serde_json::json!("0x00"),
-    ).unwrap_err();
+        address,
+        recipient_metadata(),
+        Ok(serde_json::Value::Null),
+        serde_json::json!("0x00"),
+    )
+    .unwrap_err();
     assert!(error.contains("正在更新"));
 }
 
@@ -317,4 +335,33 @@ fn recipient_ethereum_requires_real_revive_mapping_metadata() {
         Ok(Value::Null)
     )
     .is_err());
+}
+
+#[test]
+fn local_message_proofs_support_both_wallet_algorithms_and_reject_substitution() {
+    use crate::signing::{verify_message_signature, SignResponseBody};
+    use sp_core::Pair;
+    let message = b"local role possession proof";
+    let (pair, _) = sp_core::sr25519::Pair::generate();
+    let body = SignResponseBody {
+        signer_public_key: format!("0x{}", hex::encode(pair.public().0)),
+        signature: format!("0x{}", hex::encode(pair.sign(message).0)),
+        pq_public_key: None,
+    };
+    assert!(verify_message_signature(&pair.public().0, message, &body).unwrap());
+    assert!(!verify_message_signature(&pair.public().0, b"changed", &body).unwrap());
+    let child: [u8; 32] = rand::random();
+    let (public, signature) = chain_signing::mldsa::sign_with_public(&child, message).unwrap();
+    let account = chain_signing::mldsa::account_id(&public);
+    let mut body = SignResponseBody {
+        signer_public_key: format!("0x{}", hex::encode(account)),
+        signature: format!("0x{}", hex::encode(signature.0)),
+        pq_public_key: Some(qr_protocol::bytes_to_b64(&public.0)),
+    };
+    assert!(verify_message_signature(&account, message, &body).unwrap());
+    assert!(!verify_message_signature(&account, b"changed", &body).unwrap());
+    let other: [u8; 32] = rand::random();
+    assert!(!verify_message_signature(&other, message, &body).unwrap());
+    body.pq_public_key = None;
+    assert!(verify_message_signature(&account, message, &body).is_err());
 }

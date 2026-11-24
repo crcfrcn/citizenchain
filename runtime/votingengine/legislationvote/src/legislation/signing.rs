@@ -66,19 +66,16 @@ impl<T: Config> Pallet<T> {
         );
         let meta = pallet::LegislationMetas::<T>::get(proposal_id)
             .ok_or(Error::<T>::ProposalMetaMissing)?;
-        ensure!(
-            meta.override_signers.iter().any(|subject| {
-                <engingcore::Pallet<T>>::is_subject_voter_in_snapshot(
-                    proposal_id,
-                    AuthorizationSubject::Institution(subject.clone()),
-                    &who,
-                )
-            }),
-            Error::<T>::NotOverrideSigner
-        );
+        let person_cid = meta.override_signers.iter().find_map(|role| {
+            <engingcore::Pallet<T>>::resolve_snapshot_voter(
+                proposal_id,
+                &AuthorizationSubject::Institution(role.clone()),
+                &who,
+            )
+        }).ok_or(Error::<T>::NotOverrideSigner)?;
         let mut signs = pallet::LegOverrideSigns::<T>::get(proposal_id);
         ensure!(
-            !signs.iter().any(|(s, _)| s == &who),
+            !signs.iter().any(|(s, _)| s == &person_cid),
             Error::<T>::AlreadySigned
         );
         Self::deposit_event(pallet::Event::<T>::LegislationOverrideSigned {
@@ -91,7 +88,7 @@ impl<T: Config> Pallet<T> {
             return <engingcore::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED);
         }
         signs
-            .try_push((who, true))
+            .try_push((person_cid, true))
             .map_err(|_| Error::<T>::AlreadySigned)?;
         let approvals = signs.iter().filter(|(_, a)| *a).count();
         pallet::LegOverrideSigns::<T>::insert(proposal_id, signs);

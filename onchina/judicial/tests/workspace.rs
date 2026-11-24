@@ -32,7 +32,6 @@ fn sections_preserve_order_and_unopened_actions_stay_disabled() {
 fn independent_capability_bits_only_enable_their_own_actions() {
     let sections = judicial_sections(CapabilitySet {
         can_sign_legislation: true,
-        view_own_admins: true,
         ..EMPTY
     });
     assert!(
@@ -43,21 +42,9 @@ fn independent_capability_bits_only_enable_their_own_actions() {
             .unwrap()
             .enabled
     );
-    assert!(
-        !sections[0]
-            .workspace_actions
-            .iter()
-            .find(|action| action.action == "manage_own_admins")
-            .unwrap()
-            .enabled
-    );
-    assert!(
-        sections[1]
-            .workspace_actions
-            .iter()
-            .find(|action| action.action == "view_own_admins")
-            .unwrap()
-            .enabled
-    );
+    assert_eq!(sections[0].workspace_actions.len(), 1);
+    assert_eq!(sections[1].workspace_actions.len(), 1);
+    assert_eq!(sections[1].workspace_actions[0].action, "view_institution_profile");
+    assert!(sections[1].workspace_actions[0].enabled);
     assert!(!sections[2].workspace_actions[0].enabled);
 }

@@ -1,6 +1,6 @@
 // 定义清算行链端点、连通性检查和节点登记响应。
 
-import type { InstitutionAdminInfo } from "../institution/council";
+import type { InstitutionRoleInfo } from "../institution/assignments";
 import type { AccountWithBalance } from "../institution/types";
 
 
@@ -30,13 +30,13 @@ export type ConnectivityTestReport = {
   checks: ConnectivityCheck[];
 };
 
-export type DecryptedAdminInfo = {
+export type ClearingDecryptInfo = {
   signerPublicKey: string;
   cidNumber: string;
   decryptedAtMs: number;
 };
 
-export type DecryptAdminRequestResult = {
+export type ClearingDecryptRequest = {
   requestJson: string;
   requestId: string;
   expectedPayloadHash: string;
@@ -53,7 +53,7 @@ export type DecryptAdminRequestResult = {
  *                                  └─ 不存在 -> 提示去 onchina 控制台创建机构(节点不承接)
  *   institution-detail           机构详情卡片栅格 + 折叠子页入口 + 节点信息内联
  *   other-accounts-list          其他账户列表子页(折叠卡片入口)
- *   admin-list                   管理员列表子页(折叠卡片入口)
+ *   assignments                  岗位任职子页(折叠卡片入口)
  *   declare-node                 多签 Active 但未声明节点 -> 填 RPC + 自测 + 签名声明
  */
 export type ClearingBankView =
@@ -63,4 +63,4 @@ export type ClearingBankView =
   | { kind: 'institution-detail'; cidNumber: string }
   | { kind: 'declare-node'; cidNumber: string; cidFullName: string }
   | { kind: 'other-accounts-list'; cidNumber: string; otherAccounts: AccountWithBalance[] }
-  | { kind: 'admin-list'; cidNumber: string; admins: InstitutionAdminInfo[]; threshold: number; adminsLen: number };
+  | { kind: 'assignments'; cidNumber: string; roles: InstitutionRoleInfo[]; threshold: number };

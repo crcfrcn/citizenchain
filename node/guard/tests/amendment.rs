@@ -104,6 +104,16 @@ fn frozen_chainspec_builds_verified_constitution_reference_without_block_zero_da
         )
         .unwrap();
     let genesis = crate::guard::GenesisState::new(storage.clone(), version).unwrap();
+    assert!(genesis.is_frozen());
+    let current_law = crate::constitution::storage_key::law(CONSTITUTION_LAW_ID);
+    assert!(
+        genesis.read(&current_law).is_none(),
+        "冻结输入不能伪装成迁移后的状态"
+    );
+    assert!(
+        genesis.read_baseline(&current_law).is_some(),
+        "固定原始前缀必须能构造基准"
+    );
     assert!(
         ConstitutionGuard::<CountingImport>::build_reference(Ok(std::sync::Arc::new(genesis)))
             .is_ok()

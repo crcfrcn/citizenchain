@@ -110,7 +110,7 @@ pub mod pallet {
         Blake2_128Concat,
         u128,
         Blake2_128Concat,
-        engingcore::types::InstitutionVoteTicket<T::AccountId>,
+        engingcore::types::InstitutionVoteTicket,
         CitizenSubjectOf<T>,
         OptionQuery,
     >;
@@ -374,7 +374,7 @@ pub mod pallet {
                                 Error::<T>::InvalidVotePlan.into()
                             ));
                         };
-                        let voters = T::InstitutionRoleProvider::active_accounts_for_role(
+                        let voters = T::InstitutionRoleProvider::active_persons_for_role(
                             role.cid_number.as_slice(),
                             role.role_code.as_slice(),
                         );
@@ -495,12 +495,12 @@ pub mod pallet {
                     Error::<T>::VoterNotInSnapshot
                 );
                 // 按该提案冻结的实际钱包去重，版本取自同一不可变快照，不能继承或重置旧票。
-                let voter_account_id =
+                let person_cid =
                     engingcore::Pallet::<T>::resolve_snapshot_voter(proposal_id, &subject, &who)
                         .ok_or(engingcore::Error::<T>::NoPermission)?;
                 let ticket = engingcore::types::InstitutionVoteTicket {
                     role_subject,
-                    voter_account_id,
+                    person_cid,
                 };
                 ensure!(
                     !MutualElectionVotesByTicket::<T>::contains_key(proposal_id, &ticket),

@@ -33,7 +33,7 @@ fn prc_actor_cid() -> engingcore::types::CidNumber {
 }
 
 fn prc_admin<T: Config>(index: usize) -> T::AccountId {
-    decode_account::<T>(CHINA_CB[1].admins[index])
+    frame_benchmarking::account(CHINA_CB[1].cid_number, index as u32, 0)
 }
 
 fn beneficiary_account_id<T: Config>() -> T::AccountId {
@@ -89,7 +89,7 @@ mod benchmarks {
     fn propose_safety_fund_transfer() {
         use frame_support::traits::Get;
         let nrc = &primitives::cid::china::china_cb::CHINA_CB[0];
-        let caller = decode_account::<T>(nrc.admins[0]);
+        let caller = frame_benchmarking::account(nrc.cid_number, 0, 0);
         let cid: engingcore::CidNumber = nrc.cid_number.as_bytes().to_vec().try_into().unwrap();
         let role: engingcore::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
             .to_vec()
@@ -128,7 +128,7 @@ mod benchmarks {
     fn propose_sweep_to_main() {
         // 费用归集协议只允许NRC/PRB；PRC不能作为归集发起机构。
         let entry = &CHINA_CB[0];
-        let caller = decode_account::<T>(entry.admins[0]);
+        let caller = frame_benchmarking::account(entry.cid_number, 0, 0);
         let cid = entry.cid_number.as_bytes().to_vec().try_into().unwrap();
         let fee = decode_account::<T>(entry.fee_account);
         let role: engingcore::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
@@ -155,7 +155,7 @@ mod benchmarks {
     fn terminal_callback() {
         use frame_support::traits::Get;
         let nrc = &primitives::cid::china::china_cb::CHINA_CB[0];
-        let caller = decode_account::<T>(nrc.admins[0]);
+        let caller = frame_benchmarking::account(nrc.cid_number, 0, 0);
         let cid: engingcore::CidNumber = nrc.cid_number.as_bytes().to_vec().try_into().unwrap();
         let role: engingcore::RoleCode = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
             .to_vec()

@@ -5,16 +5,15 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
 extern crate alloc;
-use adminbase::InstitutionAdminQuery;
 use alloc::vec::Vec;
 
 use super::*;
-use crate::configs::is_nrc_admin;
+use crate::configs::is_nrc_member;
 use crate::configs::*;
-use crate::ResolutionDestroy;
-use engingcore::{CitizenIdentityReader, InternalAdminProvider, JointVoteResultCallback};
+use crate::Destroy;
+use engingcore::{CitizenIdentityReader, JointVoteResultCallback};
 use entitybase::InstitutionRoleAuthorizationQuery;
-use frame_support::traits::{Contains, Currency, EnsureOrigin, FindAuthor};
+use frame_support::traits::{Contains, Currency, FindAuthor};
 use frame_support::{assert_noop, assert_ok};
 use primitives::cid::china::china_cb::CHINA_CB;
 use primitives::institution_asset::{InstitutionAsset, InstitutionAssetAction};
@@ -161,7 +160,7 @@ fn sign_cid_occupy(
 }
 
 /// 注册局换绑时，新账户签署完整绑定快照；当前账户不参与本入口签名。
-fn sign_cid_admin_rebind(
+fn sign_cid_registrar_rebind(
     signer_pair: &sr25519::Pair,
     cid_number: &identity::CidNumberBound,
     current_account_id: &AccountId,
@@ -179,7 +178,7 @@ fn sign_cid_admin_rebind(
     });
     sign_citizen_identity_message(
         signer_pair,
-        primitives::sign::OP_SIGN_CID_ADMIN_REBIND,
+        primitives::sign::OP_SIGN_CID_REGISTRAR_REBIND,
         &payload,
     )
 }
@@ -189,25 +188,63 @@ fn cid_authorization_expires_at() -> u64 {
     Timestamp::get().saturating_div(1_000).saturating_add(300)
 }
 
-/// 构造局部授权夹具时同步写入完整钱包数据，不模拟升级前名册。
-fn complete_test_public_wallets(cid: &publicentity::pallet::CidNumberOf<Runtime>) {
-    let roster = publicadmin::AdminAccounts::<Runtime>::get(cid).expect("fixture roster exists");
-    for admin in roster.admins {
-        if !publicadmin::AdminWallets::<Runtime>::contains_key(cid,&admin.account_id) { System::inc_sufficients(&admin.account_id); }
-        publicadmin::AdminWallets::<Runtime>::insert(
-            cid,
-            &admin.account_id,
-            adminbase::InstitutionAdminWalletState {
-                wallet: Some(admin.account_id.clone()),
-                revision: 0,
-            },
-        );
-        publicadmin::WalletRoleBindings::<Runtime>::insert(
-            cid,
-            &admin.account_id,
-            &admin.account_id,
-        );
+/// 仅在测试外部执行环境为钱包准备符合协议的人员身份。
+fn fixture_person(wallet: &AccountId, kind: &str) -> identity::CidNumberBound {
+    if let Some(person_cid) = identity::Pallet::<Runtime>::person_cid(wallet) {
+        return person_cid;
     }
+    let raw = real_cid_number(&alloc::format!("fixture-person-{wallet:?}"), kind, "1");
+    let cid_number = test_cid_number(&raw);
+    identity::AccountIdByCid::<Runtime>::insert(&cid_number, wallet);
+    identity::CidByAccountId::<Runtime>::insert(wallet, &cid_number);
+    identity::BindingRevisionByCid::<Runtime>::insert(&cid_number, 1);
+    identity::CidRegistry::<Runtime>::insert(&cid_number, identity::CidRecord {
+        registrar_cid_number: Default::default(),
+        commitment: [0u8; 32],
+        residence_province_code: Default::default(),
+        residence_city_code: Default::default(),
+        status: identity::CidRecordStatus::Active,
+        registered_at: 1,
+        revoked_at: None,
+    });
+    cid_number
+}
+
+fn fixture_public_role_people(cid: &publicentity::CidNumberOf<Runtime>, role: &[u8], wallets: &[AccountId]) {
+    let role = publicentity::RoleCodeOf::try_from(role.to_vec()).unwrap();
+    let rows: publicentity::institution::role::RoleAssignmentsOf<Runtime> = wallets.iter().map(|wallet| {
+        entitybase::InstitutionAssignment {
+            cid_number: cid.clone(),
+            person_cid: fixture_person(wallet, "CTZN"),
+            role_code: role.clone(),
+            term_start: 0,
+            term_end: 0,
+            assignment_source: entitybase::InstitutionAssignmentSource::Genesis,
+            assignment_source_ref: Default::default(),
+            assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+        }
+    }).collect::<Vec<_>>().try_into().unwrap();
+    publicentity::InstitutionRoleAssignments::<Runtime>::insert(cid, role, rows);
+}
+
+/// 用固定机构账户夹具建立指定岗位的人员身份与任职。
+// 合成钱包按机构 CID 与席位编号生成，岗位权限仍由测试中的真实绑定与任职装配校验。
+fn fixture_seat_wallets(cid: &str) -> Vec<[u8; 32]> {
+    let seats = primitives::governance_skeleton::fixed_institution_by_cid(cid.as_bytes())
+        .expect("测试机构存在固定席位").expected_len;
+    (0..seats)
+        .map(|index| sp_io::hashing::blake2_256(&codec::Encode::encode(&(b"test-seat", cid, index))))
+        .collect()
+}
+
+fn foundation_fixture_wallet() -> [u8; 32] {
+    sp_io::hashing::blake2_256(b"foundation-person-fixture")
+}
+
+fn fixture_fixed_role_wallets(cid: &str, role: &[u8], wallets: &[[u8; 32]]) {
+    let cid = cid.as_bytes().to_vec().try_into().expect("institution CID fits");
+    let wallets: Vec<_> = wallets.iter().copied().map(AccountId::new).collect();
+    fixture_public_role_people(&cid, role, &wallets);
 }
 
 fn setup_frg_citizen_identity_admin(
@@ -235,21 +272,7 @@ fn setup_frg_citizen_identity_admin(
             .to_vec()
             .try_into()
             .expect("account name fits");
-    publicadmin::pallet::AdminAccounts::<Runtime>::insert(
-        cid_number.clone(),
-        adminbase::InstitutionAdmins {
-            institution_code: adminbase::FRG,
-            admins: vec![adminbase::Admin {
-                account_id: registrar.clone(),
-                cid_number: Default::default(),
-                family_name: Default::default(),
-                given_name: Default::default(),
-            }]
-            .try_into()
-            .expect("single registrar admin fits"),
-        },
-    );
-    complete_test_public_wallets(&cid_number);
+    let person_cid = fixture_person(&registrar, "CTZN");
     publicentity::AccountRegisteredCid::<Runtime>::insert(
         main_account.clone(),
         entitybase::RegisteredInstitution {
@@ -281,7 +304,7 @@ fn setup_frg_citizen_identity_admin(
                 .expect("short name fits"),
             town_code: Default::default(),
             legal_representative: None,
-            institution_code: adminbase::FRG,
+            institution_code: primitives::cid::code::FRG,
             created_at: 0,
         },
     );
@@ -304,12 +327,13 @@ fn setup_frg_citizen_identity_admin(
                 .expect("role name fits"),
             term_required: true,
             role_status: entitybase::InstitutionRoleStatus::Active,
+            seats: primitives::count_const::FRG_COMMISSIONER_SEATS,
         },
     );
     let assignments: publicentity::institution::role::RoleAssignmentsOf<Runtime> =
-        vec![entitybase::InstitutionAdminAssignment {
+        vec![entitybase::InstitutionAssignment {
             cid_number: cid_number.clone(),
-            account_id: registrar.clone(),
+            person_cid,
             role_code: role_code.clone(),
             // 测试链时间已设置为 2026-07-02；固定任职从第 1 天起永久有效。
             term_start: 1,
@@ -326,7 +350,7 @@ fn setup_frg_citizen_identity_admin(
         assignments,
     );
     let permission_specs = entitybase::fixed_role_permission_specs(
-        adminbase::FRG,
+        primitives::cid::code::FRG,
         cid_number.as_slice(),
         role_code.as_slice(),
     );
@@ -354,14 +378,6 @@ fn setup_frg_citizen_identity_admin(
         cid_number.clone(),
         role_code.clone(),
         permissions,
-    );
-    assert!(
-        RuntimeInstitutionAdminQuery::is_institution_admin(
-            adminbase::FRG,
-            cid_number.as_slice(),
-            &registrar,
-        ),
-        "FRG 测试管理员必须存在于目标机构 admins"
     );
     assert!(
         <publicentity::Pallet<Runtime> as entitybase::InstitutionRoleQuery<AccountId>>::is_active_assignment(
@@ -496,9 +512,9 @@ fn citizen_identity_signature_verifiers_reject_nonempty_forgery_in_every_feature
             primitives::sign::OP_SIGN_CID_OCCUPY,
             payload,
         );
-        let admin_rebind_signature = sign_citizen_identity_message(
+        let registrar_rebind_signature = sign_citizen_identity_message(
             &signer_pair,
-            primitives::sign::OP_SIGN_CID_ADMIN_REBIND,
+            primitives::sign::OP_SIGN_CID_REGISTRAR_REBIND,
             payload,
         );
 
@@ -518,10 +534,10 @@ fn citizen_identity_signature_verifiers_reject_nonempty_forgery_in_every_feature
             &occupy_signature,
         ));
         assert!(
-            RuntimeCitizenIdentityAuthority::verify_admin_rebind_signature(
+            RuntimeCitizenIdentityAuthority::verify_registrar_rebind_signature(
                 &account_id,
                 payload,
-                &admin_rebind_signature,
+                &registrar_rebind_signature,
             )
         );
 
@@ -541,7 +557,7 @@ fn citizen_identity_signature_verifiers_reject_nonempty_forgery_in_every_feature
             &forged_signature,
         ));
         assert!(
-            !RuntimeCitizenIdentityAuthority::verify_admin_rebind_signature(
+            !RuntimeCitizenIdentityAuthority::verify_registrar_rebind_signature(
                 &account_id,
                 payload,
                 &forged_signature,
@@ -570,6 +586,8 @@ fn citizen_identity_signature_verifiers_reject_nonempty_forgery_in_every_feature
 mod cases;
 
 mod security;
+
+mod migrations;
 
 mod performance;
 
@@ -617,7 +635,7 @@ fn unified_self_rebind_real_signatures_survive_clock_gap_but_not_binding_revisio
         let a = AccountId::new(first.public().0);
         let b = AccountId::new(second.public().0);
         let cid = test_cid_number(&real_cid_number("unified-clock", "CTZN", "CN"));
-        assert_ok!(CitizenIdentity::self_occupy_cid(
+        assert_ok!(Identity::self_occupy_cid(
             RuntimeOrigin::signed(a.clone()),
             cid.clone()
         ));
@@ -635,7 +653,7 @@ fn unified_self_rebind_real_signatures_survive_clock_gap_but_not_binding_revisio
             &codec::Encode::encode(&authorization(a.clone(), b.clone(), 1)),
         );
         Timestamp::set_timestamp(Timestamp::get() + 3_600_000);
-        assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
+        assert_ok!(Identity::self_rebind_cid_account_id(
             RuntimeOrigin::signed(b.clone()),
             cid.clone(),
             1,
@@ -646,7 +664,7 @@ fn unified_self_rebind_real_signatures_survive_clock_gap_but_not_binding_revisio
             primitives::sign::OP_SIGN_CID_REBIND,
             &codec::Encode::encode(&authorization(b.clone(), a.clone(), 2)),
         );
-        assert_ok!(CitizenIdentity::self_rebind_cid_account_id(
+        assert_ok!(Identity::self_rebind_cid_account_id(
             RuntimeOrigin::signed(a.clone()),
             cid.clone(),
             2,
@@ -657,21 +675,8 @@ fn unified_self_rebind_real_signatures_survive_clock_gap_but_not_binding_revisio
             Some(3)
         );
         assert_noop!(
-            CitizenIdentity::self_rebind_cid_account_id(RuntimeOrigin::signed(b), cid, 1, old),
+            Identity::self_rebind_cid_account_id(RuntimeOrigin::signed(b), cid, 1, old),
             identity::Error::<Runtime>::BindingRevisionMismatch
         );
     });
-}
-
-/// 忽略本步明确新增的System sufficient存活引用，保护原nonce、providers、余额等状态。
-fn account_state_without_wallet_refs() -> Vec<(
-    AccountId,
-    frame_system::AccountInfo<Nonce, pallet_balances::AccountData<Balance>>,
-)> {
-    frame_system::Account::<Runtime>::iter()
-        .filter_map(|(wallet, mut info)| {
-            info.sufficients = 0;
-            (info != Default::default()).then_some((wallet, info))
-        })
-        .collect()
 }

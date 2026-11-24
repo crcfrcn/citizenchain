@@ -13,14 +13,10 @@ pub trait WeightInfo {
     /// Conservative bound for actual-wallet roster replacement, old/new address histories,
     /// role signing-reference transfer, System sufficient references, acceptance verification and entity nonce update.
     /// No legacy initialization path exists. This is a safety envelope, not a new benchmark.
-    fn institution_wallet_change(n: u32) -> Weight {
-        Weight::from_parts(50_000_000_000, 803_603)
-            .saturating_add(Weight::from_parts(10_000_000, 0).saturating_mul(u64::from(n)))
-            .saturating_add(RocksDbWeight::get().reads_writes(18, 10))
-    }
+
 
     fn update_institution_info() -> Weight;
-    fn register_institution_admins(n: u32, r: u32, p: u32, a: u32) -> Weight;
+    fn register_institution_roles(n: u32, r: u32, p: u32, a: u32) -> Weight;
     fn add_institution_account() -> Weight;
     fn propose_institution_governance() -> Weight;
     fn governance_names() -> Weight;
@@ -36,8 +32,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `PublicManage::Institutions` (`max_values`: None, `max_size`: Some(773), added: 3248, mode: `MaxEncodedLen`)
 	/// Storage: `PublicAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PublicAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PublicManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PublicManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PublicManage::InstitutionRoleAssignments` (r:1 w:0)
@@ -60,8 +56,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `PublicManage::Institutions` (`max_values`: None, `max_size`: Some(773), added: 3248, mode: `MaxEncodedLen`)
 	/// Storage: `PublicAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PublicAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PublicManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PublicManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PublicManage::InstitutionRoleAssignments` (r:1 w:0)
@@ -71,7 +67,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `PrivateAdmins::AdminAccounts` (r:1 w:1)
 	/// Proof: `PrivateAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
 	/// The range of component `n` is `[1, 1989]`.
-	fn register_institution_admins(n: u32, r: u32, p: u32, a: u32) -> Weight {
+	fn register_institution_roles(n: u32, r: u32, p: u32, a: u32) -> Weight {
         // 保留原实测组合为下限；本次不是全范围回归拟合。M5 Pro、SDK 05e0e9e
         // release omni-bencher + optimized WASM：Operation/1989人办理方名册，
         // n=2..128,r=1..2,p=2..4,a=2，最慢实测28_494_000ns（非验收预算）。
@@ -107,8 +103,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `PublicManage::AccountRegisteredCid` (`max_values`: None, `max_size`: Some(211), added: 2686, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PrivateAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PrivateManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoleAssignments` (r:1 w:0)
@@ -183,8 +179,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `PrivateManage::Institutions` (`max_values`: None, `max_size`: Some(773), added: 3248, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PrivateAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PrivateManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoleAssignments` (r:1 w:0)
@@ -259,8 +255,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `PrivateManage::Institutions` (`max_values`: None, `max_size`: Some(773), added: 3248, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PrivateAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PrivateManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoleAssignments` (r:1 w:0)
@@ -345,8 +341,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PrivateAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PrivateManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoleAssignments` (r:1 w:0)
@@ -456,8 +452,8 @@ impl WeightInfo for () {
 	/// Proof: `PublicManage::Institutions` (`max_values`: None, `max_size`: Some(773), added: 3248, mode: `MaxEncodedLen`)
 	/// Storage: `PublicAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PublicAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PublicManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PublicManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PublicManage::InstitutionRoleAssignments` (r:1 w:0)
@@ -480,8 +476,8 @@ impl WeightInfo for () {
 	/// Proof: `PublicManage::Institutions` (`max_values`: None, `max_size`: Some(773), added: 3248, mode: `MaxEncodedLen`)
 	/// Storage: `PublicAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PublicAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PublicManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PublicManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PublicManage::InstitutionRoleAssignments` (r:1 w:0)
@@ -491,7 +487,7 @@ impl WeightInfo for () {
 	/// Storage: `PrivateAdmins::AdminAccounts` (r:1 w:1)
 	/// Proof: `PrivateAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
 	/// The range of component `n` is `[1, 1989]`.
-	fn register_institution_admins(n: u32, r: u32, p: u32, a: u32) -> Weight {
+	fn register_institution_roles(n: u32, r: u32, p: u32, a: u32) -> Weight {
         // 保留原实测组合为下限；本次不是全范围回归拟合。M5 Pro、SDK 05e0e9e
         // release omni-bencher + optimized WASM：Operation/1989人办理方名册，
         // n=2..128,r=1..2,p=2..4,a=2，最慢实测28_494_000ns（非验收预算）。
@@ -527,8 +523,8 @@ impl WeightInfo for () {
 	/// Proof: `PublicManage::AccountRegisteredCid` (`max_values`: None, `max_size`: Some(211), added: 2686, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PrivateAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PrivateManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoleAssignments` (r:1 w:0)
@@ -603,8 +599,8 @@ impl WeightInfo for () {
 	/// Proof: `PrivateManage::Institutions` (`max_values`: None, `max_size`: Some(773), added: 3248, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PrivateAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PrivateManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoleAssignments` (r:1 w:0)
@@ -679,8 +675,8 @@ impl WeightInfo for () {
 	/// Proof: `PrivateManage::Institutions` (`max_values`: None, `max_size`: Some(773), added: 3248, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PrivateAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PrivateManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoleAssignments` (r:1 w:0)
@@ -765,8 +761,8 @@ impl WeightInfo for () {
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateAdmins::AdminAccounts` (r:1 w:0)
 	/// Proof: `PrivateAdmins::AdminAccounts` (`max_values`: None, `max_size`: Some(646480), added: 648955, mode: `MaxEncodedLen`)
-	/// Storage: `GenesisPallet::Phase` (r:1 w:0)
-	/// Proof: `GenesisPallet::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
+	/// Storage: `Genesis::Phase` (r:1 w:0)
+	/// Proof: `Genesis::Phase` (`max_values`: Some(1), `max_size`: Some(1), added: 496, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoles` (r:1 w:0)
 	/// Proof: `PrivateManage::InstitutionRoles` (`max_values`: None, `max_size`: Some(362), added: 2837, mode: `MaxEncodedLen`)
 	/// Storage: `PrivateManage::InstitutionRoleAssignments` (r:1 w:0)

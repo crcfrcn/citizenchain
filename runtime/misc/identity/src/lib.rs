@@ -467,8 +467,8 @@ pub trait CitizenIdentityAuthority<AccountId, Signature> {
     ) -> bool;
 
     /// 校验注册局代匿名或实名 CID 换绑时，新账户对 [`CidRebindAuthorization`] 的
-    /// 控制证明(op_tag `OP_SIGN_CID_ADMIN_REBIND`)；与占号域分离，防止跨动作重放。
-    fn verify_admin_rebind_signature(
+    /// 控制证明(op_tag `OP_SIGN_CID_REGISTRAR_REBIND`)；与占号域分离，防止跨动作重放。
+    fn verify_registrar_rebind_signature(
         account_id: &AccountId,
         payload: &[u8],
         signature: &Signature,
@@ -540,7 +540,7 @@ impl<AccountId, Signature> CitizenIdentityAuthority<AccountId, Signature> for ()
         false
     }
 
-    fn verify_admin_rebind_signature(
+    fn verify_registrar_rebind_signature(
         _account_id: &AccountId,
         _payload: &[u8],
         _signature: &Signature,
@@ -964,7 +964,7 @@ pub mod pallet {
         /// 自助换绑:当前绑定账户的授权签名无效。
         InvalidRebindSignature,
         /// 注册局代换绑:新账户的控制证明签名无效。
-        InvalidAdminRebindSignature,
+        InvalidRegistrarRebindSignature,
         CidNotFound,
         VotingIdentityNotFound,
         CidAlreadyOccupied,
@@ -1415,16 +1415,16 @@ pub mod pallet {
         ///
         /// 匿名 CID 由任一在册 CREG/FRG 办理；实名 CID 必须由本市 CREG 或对应省 FRG
         /// 依其投票身份居住地作用域办理。新账户对 [`CidRebindAuthorization`] 使用
-        /// `OP_SIGN_CID_ADMIN_REBIND` 签名，证明新账户受控。费用由注册局机构承担。
+        /// `OP_SIGN_CID_REGISTRAR_REBIND` 签名，证明新账户受控。费用由注册局机构承担。
         /// 复用删批量占号释放出的 `call_index(7)`。
         #[pallet::call_index(7)]
-        #[pallet::weight(<T as Config>::WeightInfo::admin_rebind_cid_account_id().saturating_add(<T::OnAccountRegistered as Get<Weight>>::get()))]
+        #[pallet::weight(<T as Config>::WeightInfo::registrar_rebind_cid().saturating_add(<T::OnAccountRegistered as Get<Weight>>::get()))]
         // 8 个参数逐字节镜像 CidRebindAuthorization 签名载荷,属链上编码契约。
         // citizenwallet payload_decoder 逐字段解码并中文展示(两色识别要求
         // expected_binding_revision / expires_at / new_account_signature 三个防重放
         // 字段单独可见),合并成结构体会同时改 SCALE 编码和破坏该展示,故只放宽本函数。
         #[allow(clippy::too_many_arguments)]
-        pub fn admin_rebind_cid_account_id(
+        pub fn registrar_rebind_cid(
             origin: OriginFor<T>,
             actor_cid_number: CidNumberBound,
             actor_role_code: RoleCodeBound,
@@ -1473,7 +1473,7 @@ pub mod pallet {
                 expires_at,
             )
             .encode();
-            Self::ensure_admin_rebind_signature(&new_account_id, &payload, &new_account_signature)?;
+            Self::ensure_registrar_rebind_signature(&new_account_id, &payload, &new_account_signature)?;
             // 新账户任意,但不得已绑另一个 CID(一账户一 CID)。
             if let Some(existing) = CidByAccountId::<T>::get(&new_account_id) {
                 ensure!(
@@ -1882,17 +1882,17 @@ pub mod pallet {
             Ok(())
         }
 
-        /// 校验注册局代换绑时新账户的控制证明签名(op_tag OP_SIGN_CID_ADMIN_REBIND)。
-        fn ensure_admin_rebind_signature(
+        /// 校验注册局代换绑时新账户的控制证明签名(op_tag OP_SIGN_CID_REGISTRAR_REBIND)。
+        fn ensure_registrar_rebind_signature(
             account_id: &T::AccountId,
             payload: &[u8],
             signature: &SignatureOf<T>,
         ) -> DispatchResult {
             ensure!(
-                T::CitizenIdentityAuthority::verify_admin_rebind_signature(
+                T::CitizenIdentityAuthority::verify_registrar_rebind_signature(
                     account_id, payload, signature,
                 ),
-                Error::<T>::InvalidAdminRebindSignature
+                Error::<T>::InvalidRegistrarRebindSignature
             );
             Ok(())
         }
@@ -2526,6 +2526,35 @@ pub mod pallet {
                     TownVotingCount::<T>::get((p.clone(), c.clone(), t.clone()))
                 }
             }
+        }
+
+        /// 从当前绑定钱包查询唯一有效人员 CID，适用于公民 CTZN 和居民 NATP。
+        /// 任一方向的绑定缺失或错配、CID 非法或登记无效时返回 `None`。
+        pub fn person_cid(wallet: &T::AccountId) -> Option<CidNumberBound> {
+            let person_cid = CidByAccountId::<T>::get(wallet)?;
+            (AccountIdByCid::<T>::get(&person_cid).as_ref() == Some(wallet)
+                && Self::is_active_person_cid(&person_cid))
+            .then_some(person_cid)
+        }
+
+        /// 查询有效人员 CID 当前绑定的唯一钱包，校验与 `person_cid` 相同。
+        pub fn person_account(person_cid: &CidNumberBound) -> Option<T::AccountId> {
+            let wallet = AccountIdByCid::<T>::get(person_cid)?;
+            (CidByAccountId::<T>::get(&wallet).as_ref() == Some(person_cid)
+                && Self::is_active_person_cid(person_cid))
+            .then_some(wallet)
+        }
+
+        fn is_active_person_cid(person_cid: &CidNumberBound) -> bool {
+            // 共用解析器允许输入去除首尾空白，存储键必须使用规范 CID 原文。
+            let Ok(text) = core::str::from_utf8(person_cid.as_slice()) else {
+                return false;
+            };
+            text.trim() == text
+                && Self::ensure_valid_self_registrable_cid(person_cid).is_ok()
+                && CidRegistry::<T>::get(person_cid).is_some_and(|record| {
+                    record.status == CidRecordStatus::Active && record.revoked_at.is_none()
+                })
         }
 
         /// 从身份 Storage 构造完整公民主体。

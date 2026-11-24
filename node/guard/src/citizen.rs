@@ -11,9 +11,9 @@ use primitives::citizen_const::CITIZEN_ISSUANCE_NORMAL_REWARD;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
-const CITIZEN_ISSUANCE_PALLET: &[u8] = b"CitizenIssuance";
+const CITIZEN_ISSUANCE_PALLET: &[u8] = b"CitizenIssue";
 
-const CITIZEN_IDENTITY_PALLET: &[u8] = b"CitizenIdentity";
+const CITIZEN_IDENTITY_PALLET: &[u8] = b"Identity";
 
 #[derive(Clone, Copy, Debug, Decode, Encode, Eq, PartialEq)]
 enum CitizenStatus {

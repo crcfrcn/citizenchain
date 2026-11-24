@@ -103,7 +103,7 @@ pub mod pallet {
         Blake2_128Concat,
         u128,
         Blake2_128Concat,
-        InstitutionVoteTicket<T::AccountId>,
+        InstitutionVoteTicket,
         bool,
         OptionQuery,
     >;
@@ -152,7 +152,7 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        /// 联合投票中某机构管理员已投出一票。
+        /// 联合投票中已通过冻结岗位投出一票。
         JointInstitutionTicketVoteCast {
             proposal_id: u128,
             cid_number: CidNumber,
@@ -188,11 +188,11 @@ pub mod pallet {
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
-        /// 联合投票内部投票阶段:NRC/PRC/PRB 管理员按机构投票。
+        /// 联合投票内部阶段由 NRC、PRC 和 PRB 的冻结岗位投票。
         /// 业务实现挂在 [`super::jointinternal`]。
         #[pallet::call_index(0)]
-        #[pallet::weight(<T as Config>::WeightInfo::cast_admin().saturating_add(engingcore::Pallet::<T>::frozen_vote_weight()))]
-        pub fn cast_admin(
+        #[pallet::weight(<T as Config>::WeightInfo::cast_role_vote().saturating_add(engingcore::Pallet::<T>::frozen_vote_weight()))]
+        pub fn cast_role_vote(
             origin: OriginFor<T>,
             proposal_id: u128,
             cid_number: CidNumber,
@@ -332,7 +332,7 @@ impl<T: Config>
 }
 
 impl<T: Config> engingcore::traits::JointCleanupHandler for Pallet<T> {
-    fn cleanup_joint_admin_votes_chunk(
+    fn cleanup_joint_role_votes_chunk(
         proposal_id: u128,
         limit: u32,
     ) -> engingcore::traits::CleanupChunkResult {
@@ -401,7 +401,7 @@ impl<T: Config>
         }
         let limit = limit.max(1);
         let mut removed = 0u32;
-        let result = <Self as engingcore::JointCleanupHandler>::cleanup_joint_admin_votes_chunk(
+        let result = <Self as engingcore::JointCleanupHandler>::cleanup_joint_role_votes_chunk(
             proposal_id,
             limit,
         );

@@ -12,7 +12,6 @@ it('代表表决准备等待一次Passkey，保留请求且失败不重试', asy
     const { prepareInstitutionGovernance } = await import('@gmb/onchina-platform/institutions/governance');
     const { proposeLegislation, castRepresentativeVote } = await import('../proposals/api');
     const governance = { cidNumber: 'fixture-institution', proposerRoleCode: 'REPRESENTATIVE' };
-    const registration = { cidNumber: 'fixture-institution', actorRoleCode: 'REGISTRY-ROLE', admins: [{ accountId: 'fixture-account', familyName: '测', givenName: '试' }] };
     const legislation: import('../proposals/types').ProposeLawInput = {
       lawAction: 'enact', proposerRoleCode: 'REPRESENTATIVE', tier: 1,
       voteType: 2, title: '测试法律', chapters: [], effectiveAt: 1000, lawId: null,

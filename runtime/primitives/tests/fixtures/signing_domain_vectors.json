@@ -70,13 +70,13 @@
     },
     {
       "message_hex": "c8d1bf2d1f5a3c4e36aaa7d40eecaede9831639ce042f070ec0c27dd5342fc0c",
-      "name": "cid_admin_rebind",
+      "name": "cid_registrar_rebind",
       "op_tag": "0x1f",
       "scale_payload_hex": "c0ffee00c0ffee11"
     },
     {
       "message_hex": "466ec54a3b9e92db537733a0ee4c386c8968d8b4d54ac7ae2b18bdb192028c6b",
-      "name": "OP_SIGN_ONCHINA_ADMIN",
+      "name": "OP_SIGN_ONCHINA_CONFIRM",
       "op_tag": "0x20",
       "scale_payload_hex": "0102030405060708"
     },
@@ -97,12 +97,6 @@
       "name": "OP_SIGN_PUBLISH",
       "op_tag": "0x24",
       "scale_payload_hex": "7075626c697368"
-    },
-    {
-      "message_hex": "13377a0b08652a43a2bd6485de40e741baf59e75bec33ce6c97aa6d97c6e803a",
-      "name": "OP_SIGN_INSTITUTION_WALLET",
-      "op_tag": "0x25",
-      "scale_payload_hex": "696e737469747574696f6e2d77616c6c6574"
     }
   ]
 }

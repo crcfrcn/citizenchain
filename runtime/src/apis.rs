@@ -42,7 +42,7 @@ use sp_version::RuntimeVersion;
 
 // Local module imports
 use super::{
-    AccountId, Balance, Block, BlockNumber, Executive, Grandpa, InherentDataExt, LegislationYuan,
+    AccountId, Balance, Block, BlockNumber, Executive, Grandpa, InherentDataExt, Legislation,
     Nonce, Runtime, RuntimeCall, RuntimeGenesisConfig, System, TransactionPayment, VERSION,
 };
 
@@ -285,19 +285,19 @@ pallet_revive::impl_runtime_apis_plus_revive_traits!(Runtime, Revive, Executive,
                 3 => legislation::Tier::Municipal,
                 _ => return Vec::new(),
             };
-            LegislationYuan::list_laws(tier, region)
+            Legislation::list_laws(tier, region)
         }
 
         fn law(law_id: u64) -> Option<Vec<u8>> {
-            LegislationYuan::law(law_id).map(|l| codec::Encode::encode(&l))
+            Legislation::law(law_id).map(|l| codec::Encode::encode(&l))
         }
 
         fn law_version(law_id: u64, version: u32) -> Option<Vec<u8>> {
-            LegislationYuan::law_version(law_id, version).map(|v| codec::Encode::encode(&v))
+            Legislation::law_version(law_id, version).map(|v| codec::Encode::encode(&v))
         }
 
         fn law_version_label(law_id: u64, version: u32) -> Option<Vec<u8>> {
-            LegislationYuan::law_version_label(law_id, version)
+            Legislation::law_version_label(law_id, version)
                 .map(|v| codec::Encode::encode(&v))
         }
     }
@@ -327,14 +327,10 @@ pallet_revive::impl_runtime_apis_plus_revive_traits!(Runtime, Revive, Executive,
         }
     }
 
-    impl primitives::admin_policy::AdminPolicyApi<Block> for Runtime {
+    impl personal::traits::AdminPolicyApi<Block> for Runtime {
         fn personal_multisig_cid_mandated() -> bool {
             // 死规则:个人多签永不强制公民 CID。若未来错误地翻真,节点升级守卫拒绝该候选。
-            adminbase::required_admin_elements(
-                adminbase::AdminAccountKind::PersonalMultisig,
-                false,
-            )
-            .cid
+            false
         }
     }
 

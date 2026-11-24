@@ -59,7 +59,7 @@ impl<I> ConstitutionGuard<I> {
         genesis: Result<Arc<crate::guard::GenesisState>, String>,
     ) -> Result<ImmutableReference, String> {
         let state = genesis?;
-        let read = |key: &[u8]| state.read(key);
+        let read = |key: &[u8]| state.read_baseline(key);
         let reference = ImmutableReference::from_raw_reader(&read)
             .map_err(|error| format!("宪法创世基准无效:{error:?}"))?;
         verify_manifest_from_reader(&read, &reference)
@@ -71,7 +71,7 @@ impl<I> ConstitutionGuard<I> {
                 .ok_or("创世输入缺少宪法Law(0)")?,
         )
         .map_err(|error| format!("创世Law解码失败:{error:?}"))?;
-        let keys = state.keys();
+        let keys = state.baseline_entries().into_keys().collect::<Vec<_>>();
         let versions = declared_constitution_versions(keys.iter(), law.latest_version)
             .map_err(|error| format!("创世宪法版本集合非法:{error:?}"))?;
         for version in versions {

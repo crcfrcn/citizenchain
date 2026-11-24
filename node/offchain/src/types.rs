@@ -15,7 +15,7 @@ pub struct ClearingBankNodeOnChainInfo {
     pub rpc_port: u16,
     /// 链上注册区块高度。
     pub registered_at: u64,
-    /// 注册管理员账户 ID（小写 `0x` + 64 位十六进制）。
+    /// 登记签名账户 ID（小写 `0x` + 64 位十六进制）。
     pub registrar_account_id: String,
 }
 
@@ -37,24 +37,24 @@ pub struct ConnectivityTestReport {
     pub checks: Vec<ConnectivityCheck>,
 }
 
-/// 当前内存中已解密(可用于自动签 batch)的清算行管理员条目。
+/// 当前内存中已解密(可用于自动签 batch)的清算行签名账户条目。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DecryptedAdminInfo {
-    /// 管理员签名公钥（小写 `0x` + 64 位十六进制）。
+pub struct ClearingDecryptInfo {
+    /// 签名账户ID（小写 `0x` + 64 位十六进制）。
     pub signer_public_key: String,
     pub cid_number: String,
     /// 解密时间(毫秒时间戳)。
     pub decrypted_at_ms: u64,
 }
 
-/// 解密管理员密钥的 QR_V1 请求构建结果。
+/// 清算行解密授权的 QR_V1 请求构建结果。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DecryptAdminRequestResult {
+pub struct ClearingDecryptRequest {
     pub request_json: String,
     pub request_id: String,
     pub expected_payload_hash: String,
-    /// challenge payload hex(用于本地验证 sr25519 签名)。
+    /// challenge payload hex(用于验证原始消息签名)。
     pub payload_hex: String,
 }

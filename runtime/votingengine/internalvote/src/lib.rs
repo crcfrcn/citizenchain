@@ -21,13 +21,14 @@ use engingcore::{
         AuthorizationSubject, CidNumber, InstitutionCode, InstitutionVoteTicket, ProposalSubject,
         ProposalSubjectCidNumbers, RoleCode, VotePlanOf, VotingEngineKind,
     },
-    InternalAdminProvider, InternalProposalMutexKind, Proposal, PROPOSAL_KIND_INTERNAL,
+    InternalProposalMutexKind, InternalVoteProvider, Proposal, PROPOSAL_KIND_INTERNAL,
     STAGE_INTERNAL, STATUS_EXECUTED, STATUS_EXECUTION_FAILED, STATUS_PASSED, STATUS_REJECTED,
 };
 
 pub mod weights;
 
 mod cleanup;
+mod personal;
 mod proposal;
 mod threshold;
 mod vote;
@@ -52,7 +53,8 @@ pub enum InternalProposalRole {
     PersonalCreate,
     PersonalClose,
     PersonalAdminChange,
-    InstitutionAdminChange,
+    /// 保留旧机构提案的编码值，仅用于识别历史记录。
+    RetiredInstitutionChange,
 }
 
 /// 调用方声明本次使用个人管理员票，或某个机构岗位票。
@@ -70,7 +72,8 @@ pub enum InternalVoteTicketClaim {
 )]
 pub enum InternalVoteTicket<AccountId> {
     Personal(AccountId),
-    Institution(InstitutionVoteTicket<AccountId>),
+    #[codec(index = 2)]
+    Institution(InstitutionVoteTicket),
 }
 
 #[derive(Encode, Decode, Clone, Copy, Debug, TypeInfo, MaxEncodedLen, PartialEq, Eq)]
@@ -86,7 +89,7 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
 
-    /// 重新创世直接使用最终 proposal_id 键控布局，不保留开发期旧存储迁移。
+    /// 提案编号键控存储版本，在线迁移由 Runtime 统一装配。
     pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
     #[pallet::config]
@@ -102,7 +105,7 @@ pub mod pallet {
     #[pallet::storage_version(STORAGE_VERSION)]
     pub struct Pallet<T>(_);
 
-    /// 内部投票记录：个人多签按账户，机构按 CID + 岗位码 + 账户防重。
+    /// 内部投票记录：个人多签按账户去重，机构按机构 CID、岗位码和人员 CID 去重。
     #[pallet::storage]
     pub type InternalVotesByTicket<T: Config> = StorageDoubleMap<
         _,
@@ -172,7 +175,7 @@ pub mod pallet {
         MissingThresholdSnapshot,
         /// 个人多签全员阈值与管理员快照人数不匹配。
         InvalidThresholdSnapshot,
-        /// 注册多签动态阈值不满足严格过半规则。
+        /// 动态阈值不满足所属主体的范围规则。
         InvalidDynamicThreshold,
         /// 动态阈值配置缺失。
         MissingDynamicThreshold,
@@ -196,30 +199,15 @@ pub mod pallet {
         }
     }
 }
-// 内部判定 helper
-fn is_valid_institution_context(institution_code: InstitutionCode, cid_number: &[u8]) -> bool {
-    !is_personal_code(&institution_code)
-        && is_valid_governance_code(&institution_code)
-        && institution_code_from_cid_number(core::str::from_utf8(cid_number).unwrap_or_default())
-            == Some(institution_code)
-}
+// 机构判定 helper
 
-fn is_personal_admin<T: Config>(personal_account_id: T::AccountId, who: &T::AccountId) -> bool {
-    <T as engingcore::Config>::InternalAdminProvider::is_personal_admin(personal_account_id, who)
-}
-
-fn active_institution_threshold<T: Config>(
-    institution_code: InstitutionCode,
-    cid_number: &CidNumber,
-) -> Option<u32> {
-    <T as engingcore::Config>::InternalAdminProvider::institution_threshold(
-        institution_code,
-        cid_number.as_slice(),
-    )
-}
 // 业务方法
 // trait 实现
 impl<T: Config> engingcore::InternalVoteEngine<T::AccountId> for Pallet<T> {
+    fn validate_personal_threshold(admins_len: u32, threshold: u32) -> DispatchResult {
+        Self::ensure_personal_threshold(admins_len, threshold)
+    }
+
     fn create_institution_proposal_with_data(
         who: T::AccountId,
         institution_code: InstitutionCode,
@@ -229,38 +217,15 @@ impl<T: Config> engingcore::InternalVoteEngine<T::AccountId> for Pallet<T> {
         vote_plan: engingcore::types::VotePlanOf<T::AccountId>,
         data: sp_std::vec::Vec<u8>,
     ) -> Result<u128, DispatchError> {
-        with_transaction(|| {
-            if sp_io::hashing::blake2_256(&data) != vote_plan.business_object_hash {
-                return TransactionOutcome::Rollback(Err(
-                    engingcore::Error::<T>::InvalidVotePlan.into()
-                ));
-            }
-            let proposal_id = match Self::do_create_institution_proposal(
-                who.clone(),
-                institution_code,
-                actor_cid_number,
-                execution_account_id,
-                subject_cid_numbers,
-                &vote_plan,
-            ) {
-                Ok(id) => id,
-                Err(err) => return TransactionOutcome::Rollback(Err(err)),
-            };
-            if let Err(err) =
-                engingcore::Pallet::<T>::bind_vote_plan(proposal_id, vote_plan.clone())
-            {
-                return TransactionOutcome::Rollback(Err(err));
-            }
-            match Self::register_data_and_auto_approve(
-                who,
-                proposal_id,
-                vote_plan.proposal_owner.as_slice(),
-                data,
-            ) {
-                Ok(id) => TransactionOutcome::Commit(Ok(id)),
-                Err(err) => TransactionOutcome::Rollback(Err(err)),
-            }
-        })
+        Self::create_institution(
+            who,
+            institution_code,
+            actor_cid_number,
+            execution_account_id,
+            subject_cid_numbers,
+            vote_plan,
+            data,
+        )
     }
 
     fn create_personal_proposal_with_data(
@@ -269,60 +234,7 @@ impl<T: Config> engingcore::InternalVoteEngine<T::AccountId> for Pallet<T> {
         module_tag: &[u8],
         data: sp_std::vec::Vec<u8>,
     ) -> Result<u128, DispatchError> {
-        with_transaction(|| {
-            let proposal_id =
-                match Self::do_create_personal_proposal(who.clone(), personal_account_id) {
-                    Ok(id) => id,
-                    Err(err) => return TransactionOutcome::Rollback(Err(err)),
-                };
-            match Self::register_data_and_auto_approve(who, proposal_id, module_tag, data) {
-                Ok(id) => TransactionOutcome::Commit(Ok(id)),
-                Err(err) => TransactionOutcome::Rollback(Err(err)),
-            }
-        })
-    }
-
-    fn create_institution_admin_change_proposal_with_data(
-        who: T::AccountId,
-        institution_code: InstitutionCode,
-        actor_cid_number: sp_std::vec::Vec<u8>,
-        vote_plan: engingcore::types::VotePlanOf<T::AccountId>,
-        data: sp_std::vec::Vec<u8>,
-    ) -> Result<u128, DispatchError> {
-        with_transaction(|| {
-            if sp_io::hashing::blake2_256(&data) != vote_plan.business_object_hash {
-                return TransactionOutcome::Rollback(Err(
-                    engingcore::Error::<T>::InvalidVotePlan.into()
-                ));
-            }
-            let proposal_id = match Self::do_create_institution_proposal_with_mutex(
-                who.clone(),
-                institution_code,
-                actor_cid_number,
-                None,
-                sp_std::vec::Vec::new(),
-                InternalProposalMutexKind::AdminSetMutationExclusive,
-                InternalProposalRole::InstitutionAdminChange,
-                &vote_plan,
-            ) {
-                Ok(id) => id,
-                Err(err) => return TransactionOutcome::Rollback(Err(err)),
-            };
-            if let Err(err) =
-                engingcore::Pallet::<T>::bind_vote_plan(proposal_id, vote_plan.clone())
-            {
-                return TransactionOutcome::Rollback(Err(err));
-            }
-            match Self::register_data_and_auto_approve(
-                who,
-                proposal_id,
-                vote_plan.proposal_owner.as_slice(),
-                data,
-            ) {
-                Ok(id) => TransactionOutcome::Commit(Ok(id)),
-                Err(err) => TransactionOutcome::Rollback(Err(err)),
-            }
-        })
+        Self::create_personal(who, personal_account_id, module_tag, data)
     }
 
     fn create_personal_lifecycle_proposal_with_data(
@@ -331,18 +243,7 @@ impl<T: Config> engingcore::InternalVoteEngine<T::AccountId> for Pallet<T> {
         module_tag: &[u8],
         data: sp_std::vec::Vec<u8>,
     ) -> Result<u128, DispatchError> {
-        with_transaction(|| {
-            let proposal_id =
-                match Self::do_create_personal_lifecycle_proposal(who.clone(), personal_account_id)
-                {
-                    Ok(id) => id,
-                    Err(err) => return TransactionOutcome::Rollback(Err(err)),
-                };
-            match Self::register_data_and_auto_approve(who, proposal_id, module_tag, data) {
-                Ok(id) => TransactionOutcome::Commit(Ok(id)),
-                Err(err) => TransactionOutcome::Rollback(Err(err)),
-            }
-        })
+        Self::create_personal_close(who, personal_account_id, module_tag, data)
     }
 
     fn create_personal_account_create_proposal_with_data(
@@ -353,21 +254,14 @@ impl<T: Config> engingcore::InternalVoteEngine<T::AccountId> for Pallet<T> {
         module_tag: &[u8],
         data: sp_std::vec::Vec<u8>,
     ) -> Result<u128, DispatchError> {
-        with_transaction(|| {
-            let proposal_id = match Self::do_create_personal_account_create_proposal(
-                who.clone(),
-                personal_account_id,
-                admins,
-                dynamic_threshold,
-            ) {
-                Ok(id) => id,
-                Err(err) => return TransactionOutcome::Rollback(Err(err)),
-            };
-            match Self::register_data_and_auto_approve(who, proposal_id, module_tag, data) {
-                Ok(id) => TransactionOutcome::Commit(Ok(id)),
-                Err(err) => TransactionOutcome::Rollback(Err(err)),
-            }
-        })
+        Self::create_personal_account(
+            who,
+            personal_account_id,
+            admins,
+            dynamic_threshold,
+            module_tag,
+            data,
+        )
     }
 
     fn create_personal_admin_change_proposal_with_data(
@@ -378,49 +272,32 @@ impl<T: Config> engingcore::InternalVoteEngine<T::AccountId> for Pallet<T> {
         module_tag: &[u8],
         data: sp_std::vec::Vec<u8>,
     ) -> Result<u128, DispatchError> {
-        with_transaction(|| {
-            let proposal_id = match Self::do_create_personal_admin_change_proposal(
-                who.clone(),
-                personal_account_id,
-                new_admins_len,
-                new_threshold,
-            ) {
-                Ok(id) => id,
-                Err(err) => return TransactionOutcome::Rollback(Err(err)),
-            };
-            match Self::register_data_and_auto_approve(who, proposal_id, module_tag, data) {
-                Ok(id) => TransactionOutcome::Commit(Ok(id)),
-                Err(err) => TransactionOutcome::Rollback(Err(err)),
-            }
-        })
+        Self::change_personal_admins(
+            who,
+            personal_account_id,
+            new_admins_len,
+            new_threshold,
+            module_tag,
+            data,
+        )
     }
 
     fn active_institution_threshold(
         institution_code: InstitutionCode,
         cid_number: &[u8],
     ) -> Option<u32> {
-        let cid_number = CidNumber::try_from(cid_number.to_vec()).ok()?;
-        active_institution_threshold::<T>(institution_code, &cid_number)
+        Self::institution_threshold(institution_code, cid_number)
     }
 
     fn active_personal_threshold(personal_account_id: T::AccountId) -> Option<u32> {
-        ActivePersonalThresholds::<T>::get(personal_account_id)
-    }
-
-    fn configured_institution_threshold(
-        _proposal_id: u128,
-        institution_code: InstitutionCode,
-        cid_number: &[u8],
-    ) -> Option<u32> {
-        Self::active_institution_threshold(institution_code, cid_number)
+        Self::personal_threshold(personal_account_id)
     }
 
     fn configured_personal_threshold(
         proposal_id: u128,
         personal_account_id: T::AccountId,
     ) -> Option<u32> {
-        PendingPersonalThresholds::<T>::get(proposal_id)
-            .or_else(|| ActivePersonalThresholds::<T>::get(personal_account_id))
+        Self::configured_threshold(proposal_id, personal_account_id)
     }
 }
 
@@ -435,5 +312,120 @@ impl<T: Config>
         proposal_id: u128,
     ) -> DispatchResult {
         Self::do_finalize_internal_timeout(proposal, proposal_id)
+    }
+}
+
+impl<T: Config> Pallet<T> {
+    /// 统一20.0入口仅分流；目标实现必须再次核对提案真实主体。
+    pub fn do_internal_vote(
+        who: T::AccountId,
+        proposal_id: u128,
+        claim: InternalVoteTicketClaim,
+        approve: bool,
+    ) -> DispatchResult {
+        match claim {
+            InternalVoteTicketClaim::Personal => Self::vote_personal(who, proposal_id, approve),
+            InternalVoteTicketClaim::InstitutionRole(role) => {
+                Self::vote_institution(who, proposal_id, role, approve)
+            }
+        }
+    }
+
+    fn record_internal_vote(
+        who: T::AccountId,
+        proposal_id: u128,
+        ticket: InternalVoteTicket<T::AccountId>,
+        voter_role_code: Option<RoleCode>,
+        approve: bool,
+        eligible_total: u32,
+    ) -> DispatchResult {
+        ensure!(
+            !InternalVotesByTicket::<T>::contains_key(proposal_id, &ticket),
+            engingcore::Error::<T>::AlreadyVoted
+        );
+
+        InternalVotesByTicket::<T>::insert(proposal_id, ticket, approve);
+        let tally = InternalTallies::<T>::mutate(proposal_id, |tally| {
+            if approve {
+                tally.yes = tally.yes.saturating_add(1);
+            } else {
+                tally.no = tally.no.saturating_add(1);
+            }
+            *tally
+        });
+
+        Self::deposit_event(Event::<T>::InternalVoteCast {
+            proposal_id,
+            who,
+            voter_role_code,
+            approve,
+        });
+
+        let threshold = InternalThresholdSnapshot::<T>::get(proposal_id)
+            .ok_or(Error::<T>::MissingThresholdSnapshot)?;
+        if tally.yes >= threshold {
+            <engingcore::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)?;
+        } else {
+            let casted = tally.yes.saturating_add(tally.no);
+            let remaining = eligible_total.saturating_sub(casted);
+            if tally.yes.saturating_add(remaining) < threshold {
+                <engingcore::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)?;
+            }
+        }
+
+        Ok(())
+    }
+    pub fn do_finalize_internal_timeout(
+        proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
+        proposal_id: u128,
+    ) -> DispatchResult {
+        ensure!(
+            proposal.stage == STAGE_INTERNAL,
+            engingcore::Error::<T>::InvalidProposalStage
+        );
+        ensure!(
+            proposal.status == engingcore::STATUS_VOTING,
+            engingcore::Error::<T>::ProposalAlreadyFinalized
+        );
+        ensure!(
+            <frame_system::Pallet<T>>::block_number() > proposal.end,
+            engingcore::Error::<T>::VoteNotExpired
+        );
+        <engingcore::Pallet<T>>::set_status_and_emit(proposal_id, engingcore::STATUS_REJECTED)
+    }
+    pub(crate) fn internal_stage_duration() -> frame_system::pallet_prelude::BlockNumberFor<T> {
+        (VOTING_DURATION_BLOCKS as u64).saturated_into()
+    }
+    fn allocate_and_lock(
+        proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
+        mutex_kind: InternalProposalMutexKind,
+    ) -> Result<u128, DispatchError> {
+        let id = <engingcore::Pallet<T>>::allocate_proposal_id()?;
+        engingcore::limit::try_add_active_proposals::<T>(proposal.subject_keys(), id)?;
+        for subject in proposal.subject_keys() {
+            <engingcore::Pallet<T>>::acquire_internal_proposal_mutex(id, subject, mutex_kind)?;
+        }
+        Ok(id)
+    }
+    fn finish_proposal_create(
+        id: u128,
+        proposal: Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
+        end: frame_system::pallet_prelude::BlockNumberFor<T>,
+        threshold: u32,
+        role: InternalProposalRole,
+    ) -> TransactionOutcome<Result<u128, DispatchError>> {
+        InternalThresholdSnapshot::<T>::insert(id, threshold);
+        InternalProposalRoles::<T>::insert(id, role);
+        Proposals::<T>::insert(id, proposal);
+        if let Err(err) = <engingcore::Pallet<T>>::schedule_proposal_expiry(id, end) {
+            return TransactionOutcome::Rollback(Err(err));
+        }
+        <engingcore::Pallet<T>>::emit_proposal_created(
+            id,
+            PROPOSAL_KIND_INTERNAL,
+            STAGE_INTERNAL,
+            end,
+        );
+        TransactionOutcome::Commit(Ok(id))
     }
 }

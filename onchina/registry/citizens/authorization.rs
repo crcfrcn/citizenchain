@@ -15,7 +15,7 @@ use onchina::{
         read_finalized_citizen_identity, FinalizedCidStatus, FinalizedCitizenIdentity,
     },
     chain_runtime::identity_from_binding_parts,
-    institutions::fetch_authorized_public_roles_at,
+    institutions::fetch_authorized_roles_at,
     AppState,
 };
 
@@ -45,7 +45,7 @@ impl CitizenOperation {
                 Self::UpgradeCandidateIdentity => {
                     business_action::ACTION_UPGRADE_CANDIDATE_IDENTITY
                 }
-                Self::RebindWallet => business_action::ACTION_ADMIN_REBIND_CID_ACCOUNT_ID,
+                Self::RebindWallet => business_action::ACTION_REGISTRAR_REBIND_CID,
                 Self::RevokeIdentity => business_action::ACTION_REVOKE_CID,
             },
         }
@@ -90,24 +90,21 @@ pub(crate) async fn resolve_operation_role_at(
     let identity =
         identity_from_binding_parts(&ctx.institution_code, Some(&ctx.institution_cid_number))
             .map_err(chain_read_error)?;
-    let roles = fetch_authorized_public_roles_at(
-        &identity,
-        &ctx.account_id,
-        &operation.action(),
-        block_hash,
-    )
-    .await
-    .map_err(chain_read_error)?
-    .into_iter()
-    .filter(|assignment| {
-        role_in_scope(
-            identity.cid_number.as_bytes(),
-            assignment.role_code.as_bytes(),
-            scope,
-        )
-    })
-    .map(|assignment| assignment.role_code)
-    .collect::<Vec<_>>();
+    let roles =
+        fetch_authorized_roles_at(&identity, &ctx.account_id, &operation.action(), block_hash)
+            .await
+            .map_err(chain_read_error)?
+            .into_iter()
+            .filter(|assignment| {
+                assignment.role_code == ctx.role_code
+                    && role_in_scope(
+                        identity.cid_number.as_bytes(),
+                        assignment.role_code.as_bytes(),
+                        scope,
+                    )
+            })
+            .map(|assignment| assignment.role_code)
+            .collect::<Vec<_>>();
     choose_role(&roles, frozen)
 }
 

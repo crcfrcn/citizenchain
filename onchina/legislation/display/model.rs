@@ -11,10 +11,10 @@ pub(crate) struct SeatView {
     /// 完整票据身份，仅供前端稳定 key 使用。
     pub(crate) ticket_id: String,
     pub(crate) role_code: String,
-    /// 议员账户(0x 小写 hex)。
-    #[serde(rename = "account_id")]
-    pub(crate) account_id: String,
-    /// 管理员姓名不在链上保存，保留空值仅供既有席位 DTO 布局使用。
+    /// 人员当前有效绑定账户；没有绑定时保留冻结人员CID和票据。
+    pub(crate) account_id: Option<String>,
+    pub(crate) person_cid: String,
+    /// 姓名只取同块identity可用资料；缺失时留空，不推造历史姓名。
     pub(crate) name: String,
     /// 机构岗位名称(链上 entity 任职关系)。
     #[serde(rename = "title")]
@@ -49,7 +49,7 @@ pub(crate) struct DisplayBoard {
     pub(crate) cid_short_name: Option<String>,
     /// 辖区文案(省·市;国家级为「全国」)。
     pub(crate) scope_label: String,
-    /// 议员名册规模(链上 Active 管理员总数)。
+    /// 本机构议员岗位的有效人员任职数。
     pub(crate) roster_total: u32,
     /// 活跃立法提案看板(仅 kind=立法;无活跃提案时为空)。
     pub(crate) active_proposals: Vec<ActiveProposalView>,

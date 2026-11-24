@@ -534,7 +534,7 @@ where
         module.register_method("reward_bindAccount", move |params, _, _| {
             let reward_account_id: String = params.one()?;
             let reward_account_id = parse_account_id(&reward_account_id)?;
-            let call = runtime::RuntimeCall::FullnodeIssuance(
+            let call = runtime::RuntimeCall::FullnodeIssue(
                 fullnodeissue::pallet::Call::bind_reward_account { reward_account_id },
             );
             let _submission =
@@ -553,7 +553,7 @@ where
         module.register_method("reward_rebindAccount", move |params, _, _| {
             let new_reward_account_id: String = params.one()?;
             let new_reward_account_id = parse_account_id(&new_reward_account_id)?;
-            let call = runtime::RuntimeCall::FullnodeIssuance(
+            let call = runtime::RuntimeCall::FullnodeIssue(
                 fullnodeissue::pallet::Call::rebind_reward_account {
                     new_reward_account_id,
                 },
@@ -565,7 +565,7 @@ where
     }
 
     // transaction_submitMinerTransfer(to_ss58_address, amount_fen, remark, token) -> tx_hash
-    // 由 node 端使用本机 powr 矿工密钥签名并提交 OnchainTransaction::transfer_with_remark。
+    // 由 node 端使用本机 powr 矿工密钥签名并提交 Onchain::transfer_with_remark。
     {
         let client = client.clone();
         let pool = pool.clone();
@@ -606,13 +606,11 @@ where
                 .try_into()
                 .map_err(|_| ErrorObject::owned(-1, "转账备注长度超过链上限制", None::<()>))?;
 
-            let call = runtime::RuntimeCall::OnchainTransaction(
-                onchain::pallet::Call::transfer_with_remark {
-                    beneficiary_account_id: destination_account_id,
-                    amount: amount_fen,
-                    remark,
-                },
-            );
+            let call = runtime::RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
+                beneficiary_account_id: destination_account_id,
+                amount: amount_fen,
+                remark,
+            });
             let (tx_hash, _) =
                 submit_powr_signed_tx(&client, &pool, &keystore, &miner_signing, call)?;
             Ok::<String, jsonrpsee::types::ErrorObjectOwned>(tx_hash)
@@ -656,9 +654,9 @@ where
 
             let mut total_fee: u128 = 0;
             for record in &events {
-                if let runtime::RuntimeEvent::OnchainTransaction(
-                    onchain::pallet::Event::FeePaid { fee, .. },
-                ) = &record.event
+                if let runtime::RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid {
+                    fee, ..
+                }) = &record.event
                 {
                     // FeePaid.fee 就是完整链上交易费或投票费。
                     total_fee = total_fee.saturating_add(*fee);

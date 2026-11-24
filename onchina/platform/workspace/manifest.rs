@@ -48,38 +48,11 @@ fn workspace_title(
         .unwrap_or_else(|| format!("{institution_code}{fallback}"))
 }
 
-pub fn own_institution_sections(capabilities: CapabilitySet) -> Vec<WorkspaceSection> {
+pub fn own_institution_sections(_capabilities: CapabilitySet) -> Vec<WorkspaceSection> {
     vec![
-        section(
-            WorkspaceSectionKind::Operations,
-            "操作",
-            vec![action(
-                "manage_own_admins".to_string(),
-                "机构管理员钱包治理",
-                capabilities.view_own_admins, // 前端共用本人双签及岗位治理入口，写权仍由链端校验。
-            )],
-        ),
-        section(
-            WorkspaceSectionKind::Display,
-            "显示",
-            vec![
-                action("view_institution_profile".to_string(), "本机构信息", true),
-                action(
-                    "view_own_admins".to_string(),
-                    "本机构管理员",
-                    capabilities.view_own_admins,
-                ),
-            ],
-        ),
-        section(
-            WorkspaceSectionKind::Records,
-            "记录",
-            vec![action(
-                "view_operation_records".to_string(),
-                "操作记录",
-                false,
-            )],
-        ),
+        section(WorkspaceSectionKind::Operations, "操作", Vec::new()),
+        section(WorkspaceSectionKind::Display, "显示", vec![action("view_institution_profile".to_string(), "本机构信息", true)]),
+        section(WorkspaceSectionKind::Records, "记录", vec![action("view_operation_records".to_string(), "操作记录", false)]),
     ]
 }
 

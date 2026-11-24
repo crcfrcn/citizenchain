@@ -4,7 +4,7 @@ import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
 import { TransferProposalDialog, type TransferProposalStep } from "../multisig/TransferProposalDialog";
-import type { AdminSignerMatch } from "../institution/council";
+import type { RoleSigner } from "../institution/council";
 import { grandpaKeyChangeApi as api } from "./api";
 import type { GrandpaChangeKind, GrandpaKeyChangeRequest, GrandpaKeyChangeStatus } from "./types";
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -12,7 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 type Props = {
   actorCidNumber: string;
   institutionName: string;
-  adminSigners: AdminSignerMatch[];
+  roleSigners: RoleSigner[];
   onBack: () => void;
   onSuccess: () => void;
 };
@@ -24,14 +24,14 @@ function kindLabel(kind: GrandpaChangeKind | null): string {
 export function GrandpaKeyChangePage({
   actorCidNumber,
   institutionName,
-  adminSigners,
+  roleSigners,
   onBack,
   onSuccess,
 }: Props) {
   // 正常轮换与紧急恢复共用一次管理员二维码签名流程，差异只由链端操作类型决定。
   const [changeKind, setChangeKind] = useState<GrandpaChangeKind>('routine_rotation');
   const [selectedSignerAccountId, setSelectedSignerAccountId] = useState(
-    adminSigners.length === 1 ? adminSigners[0].accountId : '',
+    roleSigners.length === 1 ? roleSigners[0].accountId : '',
   );
   const [unlockPassword, setUnlockPassword] = useState('');
   const [step, setStep] = useState<TransferProposalStep>('form');
@@ -182,10 +182,10 @@ export function GrandpaKeyChangePage({
                   id="grandpa-change-signer"
                   value={selectedSignerAccountId}
                   onChange={(event) => setSelectedSignerAccountId(event.target.value)}
-                  disabled={adminSigners.length <= 1 || building}
+                  disabled={roleSigners.length <= 1 || building}
                 >
-                  {adminSigners.length !== 1 && <option value="">请选择…</option>}
-                  {adminSigners.map((admin) => (
+                  {roleSigners.length !== 1 && <option value="">请选择…</option>}
+                  {roleSigners.map((admin) => (
                     <option key={admin.accountId} value={admin.accountId}>
                       {accountIdToSs58(admin.accountId)}
                     </option>

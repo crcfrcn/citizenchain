@@ -84,7 +84,7 @@ pub enum SquarePostCategory {
 #[derive(
     Clone, Encode, Decode, DecodeWithMemTracking, Eq, PartialEq, Debug, TypeInfo, MaxEncodedLen,
 )]
-pub struct SquarePost<AccountId, BlockNumber, PostId, CidNumber, StorageReceiptId> {
+pub struct Square<AccountId, BlockNumber, PostId, CidNumber, StorageReceiptId> {
     pub post_id: PostId,
     /// 帖子唯一用户归属；CID 换绑不得改变历史帖子归属。
     pub cid_number: CidNumber,
@@ -151,7 +151,7 @@ pub mod pallet {
     pub type PostIdOf<T> = BoundedVec<u8, <T as Config>::MaxSquarePostIdLen>;
     pub type CidNumberOf<T> = BoundedVec<u8, <T as Config>::MaxSquareCidNumberLen>;
     pub type StorageReceiptIdOf<T> = BoundedVec<u8, <T as Config>::MaxSquareStorageReceiptIdLen>;
-    pub type SquarePostOf<T> = SquarePost<
+    pub type SquarePostOf<T> = Square<
         <T as frame_system::Config>::AccountId,
         BlockNumberFor<T>,
         PostIdOf<T>,
@@ -174,7 +174,7 @@ pub mod pallet {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// 公民身份与当前签名/收付款账户的唯一读取入口。
-        type CitizenIdentity: SquarePostCitizenIdentityProvider<Self::AccountId>;
+        type Identity: SquarePostCitizenIdentityProvider<Self::AccountId>;
 
         /// 公民币扣款/收款货币。
         type Currency: Currency<Self::AccountId>;
@@ -532,7 +532,7 @@ pub mod pallet {
             );
 
             let cid_number = Self::active_cid_number_for_account(&signer_account_id)?;
-            let post_category = if T::CitizenIdentity::is_campaign_eligible(
+            let post_category = if T::Identity::is_campaign_eligible(
                 cid_number.as_slice(),
                 &signer_account_id,
             ) {
@@ -554,7 +554,7 @@ pub mod pallet {
                 .ok_or(Error::<T>::PlatformMembershipRequired)?;
 
             let created_block = frame_system::Pallet::<T>::block_number();
-            let square_post = SquarePost {
+            let square_post = Square {
                 post_id: post_id.clone(),
                 cid_number: cid_number.clone(),
                 signer_account_id: signer_account_id.clone(),
@@ -669,7 +669,7 @@ pub mod pallet {
         pub(crate) fn active_cid_number_for_account(
             account_id: &T::AccountId,
         ) -> Result<CidNumberOf<T>, Error<T>> {
-            let cid_number = T::CitizenIdentity::active_cid_number(account_id)
+            let cid_number = T::Identity::active_cid_number(account_id)
                 .ok_or(Error::<T>::CitizenIdentityUnavailable)?;
             CidNumberOf::<T>::try_from(cid_number).map_err(|_| Error::<T>::FieldTooLong)
         }
@@ -677,7 +677,7 @@ pub mod pallet {
         pub(crate) fn current_account_id_for_cid(
             cid_number: &CidNumberOf<T>,
         ) -> Result<T::AccountId, Error<T>> {
-            T::CitizenIdentity::current_account_id(cid_number.as_slice())
+            T::Identity::current_account_id(cid_number.as_slice())
                 .ok_or(Error::<T>::CitizenIdentityUnavailable)
         }
     }

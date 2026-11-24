@@ -63,10 +63,10 @@ fn square_subscription_metadata_uses_canonical_prices() {
         .as_array()
         .expect("pallets")
         .iter()
-        .find(|pallet| pallet["name"] == "SquarePost")
-        .expect("SquarePost");
+        .find(|pallet| pallet["name"] == "Square")
+        .expect("Square");
     assert_eq!(pallet["index"], 34);
-    assert_eq!(pallet["storage"]["prefix"], "SquarePost");
+    assert_eq!(pallet["storage"]["prefix"], "Square");
     let entry = pallet["storage"]["entries"]
         .as_array()
         .expect("storage entries")
@@ -102,11 +102,89 @@ fn square_subscription_metadata_uses_canonical_prices() {
     let event = resolve(&pallet["event"]["ty"]);
     let reconsented = event["def"]["variant"]["variants"]
         .as_array()
-        .expect("SquarePost events")
+        .expect("Square events")
         .iter()
         .find(|event| event["name"] == "SubscriptionReconsented")
         .expect("SubscriptionReconsented");
     assert_eq!(reconsented["fields"][2]["name"], "price_fen");
+}
+
+#[test]
+fn first_party_metadata_keeps_registered_indices_and_signed_calls() {
+    use scale_info::{TypeDef, TypeInfo};
+
+    let mut actual: Vec<_> = Runtime::metadata_ir().pallets.iter()
+        .map(|pallet| (pallet.index, pallet.name)).collect();
+    actual.sort_unstable();
+    assert_eq!(actual, [
+        (0, "System"), (1, "Timestamp"), (2, "Balances"), (3, "TransactionPayment"),
+        (4, "Onchain"), (5, "PrbBankIssue"), (6, "FullnodeIssue"), (7, "Personal"),
+        (8, "ResolutionIssue"), (9, "VotingEngine"), (10, "Identity"), (11, "CitizenIssue"),
+        (12, "Upgrade"), (13, "Destroy"), (14, "Grandpa"), (15, "GrandpaKey"),
+        (16, "Difficulty"), (17, "Multisig"), (18, "Genesis"), (19, "Offchain"),
+        (20, "InternalVote"), (21, "JointVote"), (22, "ElectionVote"), (23, "OnchainIssue"),
+        (24, "Assets"), (25, "Legislation"), (26, "LegislationVote"), (30, "PublicEntity"),
+        (31, "PrivateEntity"), (32, "Election"), (33, "Address"), (34, "Square"),
+        (35, "Revive"), (36, "Mldsa"),
+    ]);
+
+    let metadata = Runtime::metadata_ir();
+    for (_, name) in crate::migrations::renamed_pallets() {
+        let pallet = metadata.pallets.iter().find(|pallet| pallet.name == name).unwrap();
+        if let Some(storage) = &pallet.storage {
+            assert_eq!(storage.prefix, name);
+        }
+    }
+
+    for (definition, name, index) in [
+        (identity::Call::<Runtime>::type_info(), "registrar_rebind_cid", 7),
+        (jointvote::Call::<Runtime>::type_info(), "cast_role_vote", 0),
+    ] {
+        let TypeDef::Variant(calls) = definition.type_def else { panic!("调用必须是枚举") };
+        assert_eq!(calls.variants.iter().find(|call| call.name == name).unwrap().index, index);
+    }
+}
+
+#[test]
+fn grandpa_key_metadata_keeps_pallet_15_and_call_coordinates() {
+    use scale_info::{TypeDef, TypeInfo};
+
+    let metadata = Runtime::metadata_ir();
+    let pallet = metadata.pallets.iter().find(|pallet| pallet.index == 15).unwrap();
+    assert_eq!(pallet.name, "GrandpaKey");
+    assert_eq!(pallet.storage.as_ref().unwrap().prefix, "GrandpaKey");
+    let TypeDef::Variant(calls) = grandpakey::Call::<Runtime>::type_info().type_def else {
+        panic!("换钥调用需要枚举元数据");
+    };
+    let actual: Vec<_> = calls.variants.iter().map(|call| (call.index, call.name)).collect();
+    assert_eq!(actual, [
+        (0, "propose_emergency_grandpa_key_recovery"),
+        (1, "schedule_grandpa_key_rotation"),
+    ]);
+}
+
+#[test]
+fn entity_metadata_preserves_pallet_and_call_indices() {
+    use scale_info::{TypeDef, TypeInfo};
+
+    let metadata = Runtime::metadata_ir();
+    for (name, index) in [("PublicEntity", 30), ("PrivateEntity", 31)] {
+        let pallet = metadata.pallets.iter().find(|pallet| pallet.name == name).unwrap();
+        assert_eq!(pallet.index, index);
+        assert_eq!(pallet.storage.as_ref().unwrap().prefix, name);
+    }
+    assert!(metadata.pallets.iter().all(|pallet| ![27, 28, 29].contains(&pallet.index)));
+    for call in [
+        publicentity::Call::<Runtime>::type_info(),
+        privateentity::Call::<Runtime>::type_info(),
+    ] {
+        let TypeDef::Variant(def) = call.type_def else { panic!("机构调用必须是枚举") };
+        let mut indices: Vec<_> = def.variants.iter().map(|variant| variant.index).collect();
+        indices.sort_unstable();
+        assert_eq!(indices, [1, 6, 7, 8, 9]);
+        assert_eq!(def.variants.iter().find(|variant| variant.index == 9).unwrap().name,
+            "register_institution_roles");
+    }
 }
 
 #[test]
@@ -115,7 +193,7 @@ fn citizen_election_reserves_index_32_without_business_entries() {
     let pallet = metadata
         .pallets
         .iter()
-        .find(|pallet| pallet.name == "CitizenElection")
+        .find(|pallet| pallet.name == "Election")
         .expect("公民选举占位模块必须注册到 Runtime");
 
     assert_eq!(pallet.index, 32);
@@ -133,12 +211,19 @@ fn fsc_genesis_governance_enables_fcsf_multisig_transfer() {
         BusinessActionId, InstitutionRoleAuthorizationQuery, RolePermissionOperation, RoleSubject,
     };
     use primitives::account_derive::AccountKind;
-    use primitives::cid::china::china_zf::{CHINA_ZF, FSC_GENESIS_ADMIN_ACCOUNT};
+    use primitives::cid::china::{
+        china_zf::CHINA_ZF, citizenchain::LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER,
+    };
     use primitives::cid::code::{institution_code_from_cid_number, FSC};
     use primitives::institution_asset::{InstitutionAsset, InstitutionAssetAction};
     use primitives::institution_constraints::{ROLE_CODE_DIRECTOR, ROLE_CODE_LEGAL_REPRESENTATIVE};
 
-    new_test_ext().execute_with(|| {
+    let person_cid = test_cid_number(LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER.as_bytes());
+    let chengwei = AccountId::new(foundation_fixture_wallet());
+    let mut cfg = RuntimeGenesisConfig::default();
+    cfg.identity.initial_cid_bindings = vec![(person_cid.clone(), chengwei.clone(),
+        test_cid_number(primitives::governance_skeleton::federal_registry_institution().cid_number.as_bytes()))];
+    sp_io::TestExternalities::new(cfg.build_storage().unwrap()).execute_with(|| {
         let fsc = CHINA_ZF
             .iter()
             .find(|n| institution_code_from_cid_number(n.cid_number) == Some(FSC))
@@ -149,7 +234,6 @@ fn fsc_genesis_governance_enables_fcsf_multisig_transfer() {
             .to_vec()
             .try_into()
             .expect("FSC CID fits");
-        let chengwei = AccountId::new(FSC_GENESIS_ADMIN_ACCOUNT);
 
         // 1) 两岗任职:LR + 局长均由程伟创世任职(Active)。
         for role in [ROLE_CODE_LEGAL_REPRESENTATIVE, ROLE_CODE_DIRECTOR] {
@@ -158,7 +242,7 @@ fn fsc_genesis_governance_enables_fcsf_multisig_transfer() {
             let assignments =
                 publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code);
             assert!(
-                assignments.iter().any(|a| a.account_id == chengwei
+                assignments.iter().any(|a| a.person_cid == person_cid
                     && a.assignment_status == publicentity::InstitutionAssignmentStatus::Active),
                 "FSC 岗位应由程伟创世任职"
             );
@@ -175,8 +259,8 @@ fn fsc_genesis_governance_enables_fcsf_multisig_transfer() {
         assert_eq!(
             info.legal_representative
                 .expect("FSC 法定代表人已任命")
-                .account_id,
-            chengwei
+                .person_cid,
+            person_cid
         );
 
         // 4) 守卫:FCSF 只放行多签转账,拒其余动作。
@@ -205,13 +289,13 @@ fn fsc_genesis_governance_enables_fcsf_multisig_transfer() {
                 cid_number: fsc.cid_number.as_bytes().to_vec(),
                 role_code: role.to_vec(),
             };
-            assert!(PublicManage::is_authorized(
+            assert!(PublicEntity::is_authorized(
                 &chengwei,
                 &subject,
                 &action,
                 RolePermissionOperation::Propose
             ));
-            assert!(PublicManage::is_authorized(
+            assert!(PublicEntity::is_authorized(
                 &chengwei,
                 &subject,
                 &action,
@@ -234,6 +318,7 @@ fn protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_rol
             .to_vec()
             .try_into()
             .expect("NRC CID fits");
+        fixture_public_role_people(&cid_number, primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER, &fixture_seat_wallets(nrc.cid_number).iter().copied().map(AccountId::new).collect::<Vec<_>>());
         let proposal_id = 9001;
         let dynamic_code = entitybase::generate_dynamic_role_code(
             publicentity::MODULE_TAG,
@@ -241,14 +326,14 @@ fn protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_rol
             0,
             proposal_id,
         );
-        assert_ok!(PublicManage::apply_institution_governance_result(
+        assert_ok!(PublicEntity::apply_institution_governance_result(
             entitybase::InstitutionGovernanceResult {
                 institution_code: primitives::cid::code::NRC,
                 cid_number: cid_number.to_vec(),
                 proposal_id,
                 role_mutations: vec![InstitutionRoleMutation::Create {
                     role_name: "审计工作人员".as_bytes().to_vec(),
-                    term_required: false,
+                    term_required: false, seats: 1989,
                     permissions: vec![entitybase::RolePermissionSpec {
                         business_action_id: entitybase::BusinessActionId {
                             module_tag: publicentity::MODULE_TAG.to_vec(),
@@ -257,7 +342,7 @@ fn protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_rol
                         operation: RolePermissionOperation::Propose,
                     }],
                     assignments: vec![entitybase::InstitutionAssignmentTarget {
-                        account_id: AccountId::new(nrc.admins[0]),
+                        person_cid: fixture_person(&AccountId::new(fixture_seat_wallets(nrc.cid_number)[0]), "CTZN").to_vec(),
                         term_start: 0,
                         term_end: 0,
                         assignment_source:
@@ -295,6 +380,34 @@ fn protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_rol
             .to_vec()
             .try_into()
             .expect("foundation CID fits");
+        let foundation_wallet = AccountId::new(
+            foundation_fixture_wallet(),
+        );
+        let foundation_person = fixture_person(&foundation_wallet, "CTZN");
+        for role in primitives::cid::china::citizenchain::CITIZENCHAIN_FIXED_ROLES {
+            if primitives::institution_constraints::is_legal_representative_role(role.role_code) {
+                continue;
+            }
+            let role_code = privateentity::RoleCodeOf::try_from(role.role_code.to_vec()).unwrap();
+            let assignments: privateentity::institution::role::RoleAssignmentsOf<Runtime> =
+                vec![entitybase::InstitutionAssignment {
+                    cid_number: foundation_cid.clone(),
+                    person_cid: foundation_person.clone(),
+                    role_code: role_code.clone(),
+                    term_start: 0,
+                    term_end: 0,
+                    assignment_source: entitybase::InstitutionAssignmentSource::Genesis,
+                    assignment_source_ref: Default::default(),
+                    assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+                }]
+                .try_into()
+                .unwrap();
+            privateentity::InstitutionRoleAssignments::<Runtime>::insert(
+                &foundation_cid,
+                &role_code,
+                assignments,
+            );
+        }
         let foundation_proposal_id = 9002;
         let foundation_dynamic_code = entitybase::generate_dynamic_role_code(
             privateentity::MODULE_TAG,
@@ -302,14 +415,14 @@ fn protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_rol
             0,
             foundation_proposal_id,
         );
-        assert_ok!(PrivateManage::apply_institution_governance_result(
+        assert_ok!(PrivateEntity::apply_institution_governance_result(
             entitybase::InstitutionGovernanceResult {
                 institution_code: *b"SFGY",
                 cid_number: foundation_cid.to_vec(),
                 proposal_id: foundation_proposal_id,
                 role_mutations: vec![InstitutionRoleMutation::Create {
                     role_name: "安全工作人员".as_bytes().to_vec(),
-                    term_required: false,
+                    term_required: false, seats: 1989,
                     permissions: vec![entitybase::RolePermissionSpec {
                         business_action_id: entitybase::BusinessActionId {
                             module_tag: privateentity::MODULE_TAG.to_vec(),
@@ -318,10 +431,7 @@ fn protected_genesis_institution_can_add_dynamic_role_without_mutating_fixed_rol
                         operation: RolePermissionOperation::Vote,
                     }],
                     assignments: vec![entitybase::InstitutionAssignmentTarget {
-                        account_id: AccountId::new(
-                            primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ADMINS[0]
-                                .account_id,
-                        ),
+                        person_cid: foundation_person.to_vec(),
                         term_start: 0,
                         term_end: 0,
                         assignment_source:
@@ -352,10 +462,15 @@ fn institution_transfer_route_uses_exact_fee_account() {
     use primitives::cid::china::china_cb::CHINA_CB;
 
     new_test_ext().execute_with(|| {
+        fixture_fixed_role_wallets(
+            CHINA_CB[0].cid_number,
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+            &fixture_seat_wallets(CHINA_CB[0].cid_number),
+        );
         let institution = AccountId::new(CHINA_CB[0].main_account);
         let fee_account = AccountId::new(CHINA_CB[0].fee_account);
         let beneficiary_account_id = AccountId::new([99u8; 32]);
-        let call = RuntimeCall::MultisigTransfer(multisig::pallet::Call::propose_transfer {
+        let call = RuntimeCall::Multisig(multisig::pallet::Call::propose_transfer {
             actor_cid_number: Some(
                 CHINA_CB[0]
                     .cid_number
@@ -375,7 +490,7 @@ fn institution_transfer_route_uses_exact_fee_account() {
             amount: 10000,
             remark: BoundedVec::default(),
         });
-        let signer = AccountId::new(CHINA_CB[0].admins[0]);
+        let signer = AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[0]);
         let route = <RuntimeFeeRouter as CallFeeRoute<AccountId, RuntimeCall, Balance>>::fee_route(
             &signer, &call,
         );
@@ -396,6 +511,11 @@ fn nrc_he_fund_transfer_debits_he_and_pays_execution_fee_from_nrc_fee_account() 
     use primitives::cid::china::china_cb::NRC_HE_ACCOUNT;
 
     new_test_ext().execute_with(|| {
+        fixture_fixed_role_wallets(
+            CHINA_CB[0].cid_number,
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+            &fixture_seat_wallets(CHINA_CB[0].cid_number),
+        );
         let nrc = &CHINA_CB[0];
         let cid: engingcore::types::CidNumber = nrc
             .cid_number
@@ -424,8 +544,8 @@ fn nrc_he_fund_transfer_debits_he_and_pays_execution_fee_from_nrc_fee_account() 
             Some(he.clone())
         );
 
-        assert_ok!(MultisigTransfer::propose_transfer(
-            RuntimeOrigin::signed(AccountId::new(nrc.admins[0])),
+        assert_ok!(Multisig::propose_transfer(
+            RuntimeOrigin::signed(AccountId::new(fixture_seat_wallets(nrc.cid_number)[0])),
             Some(cid),
             Some(role.clone()),
             he.clone(),
@@ -435,7 +555,7 @@ fn nrc_he_fund_transfer_debits_he_and_pays_execution_fee_from_nrc_fee_account() 
         ));
         let pid = VotingEngine::next_proposal_id() - 1;
         assert_eq!(Balances::free_balance(&he), he_before);
-        for admin in &nrc.admins[1..primitives::count_const::NRC_INTERNAL_THRESHOLD as usize] {
+        for admin in &fixture_seat_wallets(nrc.cid_number)[1..primitives::count_const::NRC_INTERNAL_THRESHOLD as usize] {
             assert_ok!(InternalVote::cast(
                 RuntimeOrigin::signed(AccountId::new(*admin)),
                 pid,
@@ -463,6 +583,116 @@ fn nrc_he_fund_transfer_debits_he_and_pays_execution_fee_from_nrc_fee_account() 
     });
 }
 
+/// 使用真实 ML-DSA 交易验证机构代付、零余额拒绝及账户回收后的防重放。
+#[test]
+fn native_signed_transactions_require_balance_and_keep_nonce_after_reap() {
+    use codec::{DecodeAll, Encode};
+    use frame_support::{storage::with_transaction_unchecked, traits::fungible::Mutate};
+    use pallet_revive::evm::runtime::EthExtra;
+    use sp_runtime::{
+        traits::{Header as _, TransactionExtension},
+        transaction_validity::{InvalidTransaction, TransactionValidityError},
+        TransactionOutcome,
+    };
+
+    new_test_ext().execute_with(|| {
+        let child = [0x3b; 32];
+        let public = mldsa::public_key(&child);
+        let wallet = AccountId::new(mldsa::account_id(&public));
+        let person = test_cid_number(&real_cid_number("runtime-nonce", "CTZN", "1"));
+        assert_ok!(Identity::self_occupy_cid(
+            RuntimeOrigin::signed(wallet.clone()), person.clone()
+        ));
+        assert_eq!(Identity::person_account(&person), Some(wallet.clone()));
+        assert_eq!(System::sufficients(&wallet), 0);
+        assert!(!frame_system::Account::<Runtime>::contains_key(&wallet));
+
+        let nrc = &CHINA_CB[0];
+        let institution = test_cid_number(nrc.cid_number.as_bytes());
+        let code = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER;
+        let mut members: Vec<_> = fixture_seat_wallets(nrc.cid_number).iter().copied().map(AccountId::new).collect();
+        members[0] = wallet.clone();
+        fixture_public_role_people(&institution, code, &members);
+        let main = AccountId::new(nrc.main_account);
+        let fee = AccountId::new(nrc.fee_account);
+        let _ = Balances::deposit_creating(&main, 20_000);
+        let sponsor = RuntimeCall::Multisig(multisig::Call::propose_transfer {
+            actor_cid_number: Some(institution),
+            proposer_role_code: Some(code.to_vec().try_into().unwrap()),
+            funding_account_id: main.clone(),
+            beneficiary_account_id: AccountId::new([99; 32]),
+            amount: 1_000,
+            remark: Default::default(),
+        });
+        let header = Header::new(
+            2, Default::default(), Default::default(), Default::default(), Default::default(),
+        );
+        Executive::initialize_block(&header);
+        let sign = |call: RuntimeCall, nonce, registered| {
+            let mut checks: TxExtension = EthExtraImpl::get_eth_extension(nonce, 0);
+            (checks.11).0 = Default::default();
+            let implicit = TransactionExtension::<RuntimeCall>::implicit(&checks).unwrap();
+            let review = (call.clone(), checks.clone(), implicit).encode();
+            let encoded = mldsa::sign_transaction(
+                &child, &review, registered, &checks.encode(), &call.encode(),
+            ).unwrap();
+            UncheckedExtrinsic::decode_all(&mut encoded.as_slice()).unwrap()
+        };
+        let apply = |tx| with_transaction_unchecked(|| {
+            let result = Executive::apply_extrinsic(tx);
+            if result.is_ok() {
+                TransactionOutcome::Commit(result)
+            } else {
+                TransactionOutcome::Rollback(result)
+            }
+        });
+
+        let tx = sign(sponsor, 0, false);
+        let remark = RuntimeCall::System(frame_system::Call::remark { remark: b"nonce".to_vec() });
+        let payment_error = TransactionValidityError::Invalid(InvalidTransaction::Payment);
+        let fee_before = Balances::set_balance(&fee, 2_000);
+        assert_eq!(Balances::free_balance(&wallet), 0);
+        assert_eq!(apply(tx.clone()), Err(payment_error));
+        assert_eq!(Balances::free_balance(&fee), fee_before);
+
+        // 模拟旧机构已写入的引用，证明零余额限制独立于 CheckNonce 的账户存在检查。
+        System::inc_sufficients(&wallet);
+        assert!(frame_system::CheckNonce::<Runtime>::validate_nonce_for_account(&wallet, 0).is_ok());
+        assert_eq!(apply(tx.clone()), Err(payment_error));
+        assert_eq!(apply(sign(remark.clone(), 0, false)), Err(payment_error));
+        assert_eq!(Balances::free_balance(&fee), fee_before);
+        System::dec_sufficients(&wallet);
+
+        Balances::set_balance(&wallet, EXISTENTIAL_DEPOSIT);
+        Balances::set_balance(&fee, 0);
+        assert_eq!(apply(tx.clone()), Err(payment_error));
+        assert_eq!(System::account_nonce(&wallet), 0);
+        assert!(mldsa::PqPublicKey::<Runtime>::get(&wallet).is_none());
+
+        let fee_before = Balances::set_balance(&fee, 2_000);
+        let main_before = Balances::free_balance(&main);
+        assert!(matches!(apply(tx.clone()), Ok(Ok(_))));
+        assert!(Balances::free_balance(&fee) < fee_before);
+        assert_eq!(Balances::free_balance(&main), main_before);
+        assert_eq!(Balances::free_balance(&wallet), EXISTENTIAL_DEPOSIT);
+        assert_eq!(System::account_nonce(&wallet), 1);
+        assert_eq!(mldsa::PqPublicKey::<Runtime>::get(&wallet), Some(public));
+
+        Balances::set_balance(&wallet, 0);
+        assert!(!frame_system::Account::<Runtime>::contains_key(&wallet));
+        assert_eq!(Identity::person_account(&person), Some(wallet.clone()));
+        assert_eq!(apply(tx.clone()), Err(payment_error));
+        let _ = Balances::deposit_creating(&wallet, EXISTENTIAL_DEPOSIT);
+        assert_eq!(System::account_nonce(&wallet), 1);
+        assert_eq!(
+            apply(tx),
+            Err(TransactionValidityError::Invalid(InvalidTransaction::Stale))
+        );
+        assert!(matches!(apply(sign(remark, 1, true)), Ok(Ok(_))));
+        assert_eq!(System::account_nonce(&wallet), 2);
+    });
+}
+
 #[test]
 fn institution_operation_debits_only_exact_fee_account_without_signer_fallback() {
     use frame_support::dispatch::GetDispatchInfo;
@@ -472,16 +702,21 @@ fn institution_operation_debits_only_exact_fee_account_without_signer_fallback()
     type RuntimeCharge = <Runtime as pallet_transaction_payment::Config>::OnChargeTransaction;
 
     new_test_ext().execute_with(|| {
+        fixture_fixed_role_wallets(
+            CHINA_CB[0].cid_number,
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+            &fixture_seat_wallets(CHINA_CB[0].cid_number),
+        );
         let actor_cid_number: publicentity::CidNumberOf<Runtime> = CHINA_CB[0]
             .cid_number
             .as_bytes()
             .to_vec()
             .try_into()
             .expect("NRC CID fits");
-        let signer = AccountId::new(CHINA_CB[0].admins[0]);
+        let signer = AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[0]);
         let fee_account = AccountId::new(CHINA_CB[0].fee_account);
         let funding_account_id = AccountId::new(CHINA_CB[0].main_account);
-        let call = RuntimeCall::MultisigTransfer(multisig::pallet::Call::propose_transfer {
+        let call = RuntimeCall::Multisig(multisig::pallet::Call::propose_transfer {
             actor_cid_number: Some(actor_cid_number.clone()),
             proposer_role_code: Some(
                 primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
@@ -686,6 +921,11 @@ fn joint_vote_callback_routes_to_resolution_issuance_and_executes() {
 #[test]
 fn resolution_destro_internal_vote_flow_executes_destroy_and_reduces_issuance() {
     new_test_ext().execute_with(|| {
+        fixture_fixed_role_wallets(
+            CHINA_CB[0].cid_number,
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+            &fixture_seat_wallets(CHINA_CB[0].cid_number),
+        );
         let nrc_institution_account = AccountId::new(CHINA_CB[0].main_account);
         let nrc_account = AccountId::new(CHINA_CB[0].main_account);
         let nrc_fee_account = AccountId::new(CHINA_CB[0].fee_account);
@@ -697,8 +937,8 @@ fn resolution_destro_internal_vote_flow_executes_destroy_and_reduces_issuance() 
         let fee_before = Balances::free_balance(&nrc_fee_account);
         let issuance_before = Balances::total_issuance();
 
-        assert_ok!(ResolutionDestroy::propose_destroy(
-            RuntimeOrigin::signed(AccountId::new(CHINA_CB[0].admins[0])),
+        assert_ok!(Destroy::propose_destroy(
+            RuntimeOrigin::signed(AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[0])),
             CHINA_CB[0]
                 .cid_number
                 .as_bytes()
@@ -718,7 +958,7 @@ fn resolution_destro_internal_vote_flow_executes_destroy_and_reduces_issuance() 
         // 提案人 admins[0] 在 propose_destroy 时已自动计一票,从 admins[1] 起补足到阈值 13。
         for i in 1..13 {
             assert_ok!(InternalVote::cast(
-                RuntimeOrigin::signed(AccountId::new(CHINA_CB[0].admins[i])),
+                RuntimeOrigin::signed(AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[i])),
                 pid,
                 internalvote::InternalVoteTicketClaim::InstitutionRole(
                     primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
@@ -759,6 +999,11 @@ fn resolution_destro_internal_vote_flow_executes_destroy_and_reduces_issuance() 
 #[test]
 fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
     new_test_ext().execute_with(|| {
+        fixture_fixed_role_wallets(
+            CHINA_CB[0].cid_number,
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+            &fixture_seat_wallets(CHINA_CB[0].cid_number),
+        );
         use onchain::CallFeeRoute;
 
         let who = AccountId::new([1u8; 32]);
@@ -789,7 +1034,7 @@ fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
             )
             .expect("remark should fit");
         let transfer_with_remark_call =
-            RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+            RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
                 beneficiary_account_id: recipient_account_id,
                 amount: 456,
                 remark,
@@ -826,7 +1071,7 @@ fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
 
         let miner = AccountId::new([7u8; 32]);
         let fullnode_call =
-            RuntimeCall::FullnodeIssuance(fullnodeissue::pallet::Call::bind_reward_account {
+            RuntimeCall::FullnodeIssue(fullnodeissue::pallet::Call::bind_reward_account {
                 reward_account_id: AccountId::new([8u8; 32]),
             });
         let fullnode_kind =
@@ -842,10 +1087,10 @@ fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
             }
         );
 
-        let nrc_admin = AccountId::new(CHINA_CB[0].admins[0]);
+        let nrc_admin = AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[0]);
         let nrc_institution_account = AccountId::new(CHINA_CB[0].main_account);
         let resolution_destro_call =
-            RuntimeCall::ResolutionDestroy(destroy::pallet::Call::propose_destroy {
+            RuntimeCall::Destroy(destroy::pallet::Call::propose_destroy {
                 actor_cid_number: CHINA_CB[0]
                     .cid_number
                     .as_bytes()
@@ -879,7 +1124,7 @@ fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
         assert_eq!(unauthorized, primitives::fee_policy::FeeRoute::Reject);
 
         let issuance_placeholder =
-            RuntimeCall::OnchainIssuance(onchainissue::pallet::Call::propose_mint {
+            RuntimeCall::OnchainIssue(onchainissue::pallet::Call::propose_mint {
                 actor_cid_number: CHINA_CB[0]
                     .cid_number
                     .as_bytes()
@@ -905,9 +1150,14 @@ fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
         );
 
         let clearing_bank = &primitives::cid::china::china_ch::CHINA_CH[0];
-        let clearing_admin = AccountId::new(clearing_bank.admins[0]);
+        fixture_fixed_role_wallets(
+            clearing_bank.cid_number,
+            primitives::governance_skeleton::ROLE_CODE_DIRECTOR,
+            &fixture_seat_wallets(clearing_bank.cid_number),
+        );
+        let clearing_admin = AccountId::new(fixture_seat_wallets(clearing_bank.cid_number)[0]);
         let offchain_call =
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::submit_offchain_batch {
+            RuntimeCall::Offchain(offchain::pallet::Call::submit_offchain_batch {
                 actor_cid_number: clearing_bank
                     .cid_number
                     .as_bytes()
@@ -949,9 +1199,101 @@ fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
     });
 }
 
+/// 联合提案的对方机构人员不能从发起机构的费用账户支付重试费用。
+#[test]
+fn institution_retry_fee_requires_current_frozen_role_of_paying_institution() {
+    use onchain::CallFeeRoute;
+    use primitives::fee_policy::FeeRoute;
+
+    new_test_ext().execute_with(|| {
+        let nrc = &CHINA_CB[0];
+        let prb = &primitives::cid::china::china_ch::CHINA_CH[0];
+        let committee = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER;
+        let director = primitives::governance_skeleton::ROLE_CODE_DIRECTOR;
+        fixture_fixed_role_wallets(nrc.cid_number, committee, &fixture_seat_wallets(nrc.cid_number)[..2]);
+        fixture_fixed_role_wallets(prb.cid_number, director, &fixture_seat_wallets(prb.cid_number)[..1]);
+        let nrc_cid = test_cid_number(nrc.cid_number.as_bytes());
+        let prb_cid = test_cid_number(prb.cid_number.as_bytes());
+        let nrc_role = engingcore::RoleSubject {
+            cid_number: nrc_cid.clone(),
+            role_code: committee.to_vec().try_into().unwrap(),
+        };
+        let prb_role = engingcore::RoleSubject {
+            cid_number: prb_cid,
+            role_code: director.to_vec().try_into().unwrap(),
+        };
+        let nrc_wallet = AccountId::new(fixture_seat_wallets(nrc.cid_number)[0]);
+        let prb_wallet = AccountId::new(fixture_seat_wallets(prb.cid_number)[0]);
+        let nrc_subject = engingcore::AuthorizationSubject::Institution(nrc_role.clone());
+        let prb_subject = engingcore::AuthorizationSubject::Institution(prb_role);
+        let proposal_id = 41;
+        let plan = engingcore::VotePlanOf::<AccountId>::try_new(
+            engingcore::BusinessActionId {
+                module_tag: b"fee-test".to_vec().try_into().unwrap(),
+                action_code: 0,
+            },
+            b"fee-test".to_vec().try_into().unwrap(),
+            nrc_subject.clone(),
+            vec![nrc_subject.clone(), prb_subject.clone()],
+            engingcore::VotingEngineKind::Joint,
+            [0u8; 32],
+        )
+        .unwrap();
+        engingcore::ProposalVotePlans::<Runtime>::insert(proposal_id, plan);
+        engingcore::Proposals::<Runtime>::insert(
+            proposal_id,
+            engingcore::Proposal {
+                kind: engingcore::PROPOSAL_KIND_JOINT,
+                stage: engingcore::STAGE_INTERNAL,
+                status: engingcore::STATUS_VOTING,
+                internal_code: Some(primitives::cid::code::NRC),
+                actor_cid_number: Some(nrc_cid.clone()),
+                execution_account_id: None,
+                subject_cid_numbers: Default::default(),
+                start: 1,
+                end: 2,
+            },
+        );
+        assert_ok!(VotingEngine::snapshot_role_voters(
+            proposal_id,
+            nrc_subject,
+            vec![fixture_person(&nrc_wallet, "CTZN").to_vec()],
+        ));
+        assert_ok!(VotingEngine::snapshot_role_voters(
+            proposal_id,
+            prb_subject,
+            vec![fixture_person(&prb_wallet, "CTZN").to_vec()],
+        ));
+        let call = RuntimeCall::VotingEngine(engingcore::Call::retry_passed_proposal {
+            proposal_id,
+        });
+        let route = |wallet: &AccountId| {
+            <RuntimeFeeRouter as CallFeeRoute<AccountId, RuntimeCall, Balance>>::fee_route(
+                wallet, &call,
+            )
+        };
+        assert_eq!(route(&prb_wallet), FeeRoute::Reject);
+        assert_eq!(route(&AccountId::new(fixture_seat_wallets(nrc.cid_number)[1])), FeeRoute::Reject);
+        assert_eq!(
+            route(&nrc_wallet),
+            FeeRoute::Onchain {
+                transaction_amount: 0,
+                payer_account_id: AccountId::new(nrc.fee_account),
+            },
+        );
+        publicentity::InstitutionRoleAssignments::<Runtime>::remove(&nrc_cid, nrc_role.role_code);
+        assert_eq!(route(&nrc_wallet), FeeRoute::Reject);
+    });
+}
+
 #[test]
 fn runtime_fee_router_treats_proposals_as_operations_not_votes() {
     new_test_ext().execute_with(|| {
+        fixture_fixed_role_wallets(
+            CHINA_CB[0].cid_number,
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+            &fixture_seat_wallets(CHINA_CB[0].cid_number),
+        );
         use onchain::CallFeeRoute;
 
         let (p1, _) = sr25519::Pair::generate();
@@ -961,25 +1303,24 @@ fn runtime_fee_router_treats_proposals_as_operations_not_votes() {
         let admin2: AccountId = MultiSigner::from(p2.public()).into_account();
 
         let beneficiary_account_id = AccountId::new([78u8; 32]);
-        let admins: personalentity::pallet::AdminsOf<Runtime> = vec![who.clone(), admin2.clone()]
+        let admins: personal::pallet::AdminsOf<Runtime> = vec![who.clone(), admin2.clone()]
             .into_iter()
-            .map(|account_id| adminbase::Admin {
+            .map(|account_id| personal::Admin {
                 account_id,
-                cid_number: Default::default(),
-                family_name: adminbase::FamilyName::truncate_from("管理".as_bytes().to_vec()),
-                given_name: adminbase::GivenName::truncate_from("员".as_bytes().to_vec()),
+                family_name: personal::FamilyName::truncate_from("管理".as_bytes().to_vec()),
+                given_name: personal::GivenName::truncate_from("员".as_bytes().to_vec()),
             })
             .collect::<Vec<_>>()
             .try_into()
             .expect("admins should fit");
         // 创建提案是普通操作，只有后续 cast 才是固定 1 元投票。
-        let account_name: personalentity::pallet::AccountNameOf<Runtime> = b"runtime-test-personal"
+        let account_name: personal::pallet::AccountNameOf<Runtime> = b"runtime-test-personal"
             .to_vec()
             .try_into()
             .expect("account_name should fit");
 
         let create_call =
-            RuntimeCall::PersonalManage(personalentity::pallet::Call::propose_create {
+            RuntimeCall::Personal(personal::pallet::Call::propose_create {
                 account_name,
                 admins: admins.clone(),
                 regular_threshold: 2,
@@ -998,8 +1339,8 @@ fn runtime_fee_router_treats_proposals_as_operations_not_votes() {
             }
         );
 
-        let nrc_admin = AccountId::new(CHINA_CB[0].admins[0]);
-        let close_call = RuntimeCall::PublicManage(
+        let nrc_admin = AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[0]);
+        let close_call = RuntimeCall::PublicEntity(
             publicentity::pallet::Call::propose_close_public_institution {
                 actor_cid_number: CHINA_CB[0]
                     .cid_number
@@ -1031,7 +1372,7 @@ fn runtime_fee_router_treats_proposals_as_operations_not_votes() {
         let institution =
             AccountId::new(primitives::cid::china::china_cb::CHINA_CB[0].main_account);
         let transfer_call =
-            RuntimeCall::MultisigTransfer(multisig::pallet::Call::propose_transfer {
+            RuntimeCall::Multisig(multisig::pallet::Call::propose_transfer {
                 actor_cid_number: Some(
                     CHINA_CB[0]
                         .cid_number
@@ -1158,7 +1499,7 @@ fn runtime_call_filter_blocks_disabled_and_low_level_calls() {
     )
     .expect("remark should fit");
     let allowed_onchain_transfer =
-        RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+        RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
             beneficiary_account_id: AccountId::new([7u8; 32]),
             amount: 1,
             remark,
@@ -1166,7 +1507,7 @@ fn runtime_call_filter_blocks_disabled_and_low_level_calls() {
     assert!(RuntimeCallFilter::contains(&allowed_onchain_transfer));
 
     let disabled_issuance =
-        RuntimeCall::OnchainIssuance(onchainissue::pallet::Call::propose_mint {
+        RuntimeCall::OnchainIssue(onchainissue::pallet::Call::propose_mint {
             actor_cid_number: CHINA_CB[0]
                 .cid_number
                 .as_bytes()
@@ -1207,32 +1548,32 @@ fn runtime_call_filter_blocks_every_offchain_transaction_call() {
         .try_into()
         .expect("test RPC domain fits");
 
-    // OffchainTransaction 当前整体禁用；调用索引 30-34、40-41、50-52
+    // Offchain 当前整体禁用；调用索引 30-34、40-41、50-52
     // 必须全部经过同一 fail-closed 分支，不能只锁住批次提交入口。
     let disabled_calls = [
         (
             "bind_clearing_bank",
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::bind_clearing_bank {
+            RuntimeCall::Offchain(offchain::pallet::Call::bind_clearing_bank {
                 bank_cid: actor_cid_number.clone(),
             }),
         ),
         (
             "deposit",
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::deposit { amount: 1 }),
+            RuntimeCall::Offchain(offchain::pallet::Call::deposit { amount: 1 }),
         ),
         (
             "withdraw",
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::withdraw { amount: 1 }),
+            RuntimeCall::Offchain(offchain::pallet::Call::withdraw { amount: 1 }),
         ),
         (
             "switch_bank",
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::switch_bank {
+            RuntimeCall::Offchain(offchain::pallet::Call::switch_bank {
                 new_bank_cid: actor_cid_number.clone(),
             }),
         ),
         (
             "submit_offchain_batch",
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::submit_offchain_batch {
+            RuntimeCall::Offchain(offchain::pallet::Call::submit_offchain_batch {
                 actor_cid_number: actor_cid_number.clone(),
                 actor_role_code: actor_role_code.clone(),
                 institution_account_id: AccountId::new(clearing_bank.main_account),
@@ -1243,7 +1584,7 @@ fn runtime_call_filter_blocks_every_offchain_transaction_call() {
         ),
         (
             "propose_l2_fee_rate",
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::propose_l2_fee_rate {
+            RuntimeCall::Offchain(offchain::pallet::Call::propose_l2_fee_rate {
                 actor_cid_number: actor_cid_number.clone(),
                 actor_role_code: actor_role_code.clone(),
                 institution_account_id: AccountId::new(clearing_bank.main_account),
@@ -1252,13 +1593,13 @@ fn runtime_call_filter_blocks_every_offchain_transaction_call() {
         ),
         (
             "set_max_l2_fee_rate",
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::set_max_l2_fee_rate {
+            RuntimeCall::Offchain(offchain::pallet::Call::set_max_l2_fee_rate {
                 new_max: 1,
             }),
         ),
         (
             "register_clearing_bank",
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::register_clearing_bank {
+            RuntimeCall::Offchain(offchain::pallet::Call::register_clearing_bank {
                 actor_cid_number: actor_cid_number.clone(),
                 actor_role_code: actor_role_code.clone(),
                 peer_id,
@@ -1268,7 +1609,7 @@ fn runtime_call_filter_blocks_every_offchain_transaction_call() {
         ),
         (
             "update_clearing_bank_endpoint",
-            RuntimeCall::OffchainTransaction(
+            RuntimeCall::Offchain(
                 offchain::pallet::Call::update_clearing_bank_endpoint {
                     actor_cid_number: actor_cid_number.clone(),
                     actor_role_code: actor_role_code.clone(),
@@ -1279,7 +1620,7 @@ fn runtime_call_filter_blocks_every_offchain_transaction_call() {
         ),
         (
             "unregister_clearing_bank",
-            RuntimeCall::OffchainTransaction(offchain::pallet::Call::unregister_clearing_bank {
+            RuntimeCall::Offchain(offchain::pallet::Call::unregister_clearing_bank {
                 actor_cid_number,
                 actor_role_code,
             }),
@@ -1289,7 +1630,7 @@ fn runtime_call_filter_blocks_every_offchain_transaction_call() {
     for (call_name, call) in disabled_calls {
         assert!(
             !RuntimeCallFilter::contains(&call),
-            "OffchainTransaction::{call_name} 在业务未启用时必须被 RuntimeCallFilter 拒绝"
+            "Offchain::{call_name} 在业务未启用时必须被 RuntimeCallFilter 拒绝"
         );
     }
 }
@@ -1327,7 +1668,7 @@ fn joint_vote_callback_missing_proposal_and_runtime_upgrade_route() {
 
         // 测试中直接写入 engingcore 存储；生产路径必须走 create_*_with_data 原子入口。
         let proposal_id = 7u128;
-        let proposer = AccountId::new(CHINA_CB[0].admins[0]);
+        let proposer = AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[0]);
         let reason: upgrade::pallet::ReasonOf<Runtime> =
             b"upgrade".to_vec().try_into().expect("reason");
         let code: upgrade::pallet::CodeOf<Runtime> = vec![1u8, 2, 3].try_into().expect("code");
@@ -1442,7 +1783,7 @@ fn runtime_citizen_identity_frg_province_admin_registers_voting_identity() {
                 .expect("cid number should fit");
         let expires_at = cid_authorization_expires_at();
         // 占号先行:身份写入前置(占即绑用户钱包账户 + 用户占号签名)。
-        assert_ok!(CitizenIdentity::occupy_cid(
+        assert_ok!(Identity::occupy_cid(
             RuntimeOrigin::signed(registrar.clone()),
             actor_cid_number.clone(),
             actor_role_code.clone(),
@@ -1465,7 +1806,7 @@ fn runtime_citizen_identity_frg_province_admin_registers_voting_identity() {
                 &payload,
             );
 
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(registrar),
             actor_cid_number,
             actor_role_code,
@@ -1479,7 +1820,7 @@ fn runtime_citizen_identity_frg_province_admin_registers_voting_identity() {
             &citizen_cid_number
         ));
         assert_eq!(
-            CitizenIdentity::citizen_subject(&account_id),
+            Identity::citizen_subject(&account_id),
             Some(identity::CitizenSubject {
                 cid_number: citizen_cid_number,
                 account_id,
@@ -1512,7 +1853,7 @@ fn runtime_citizen_identity_frg_admin_cannot_register_other_province() {
             );
 
         assert_noop!(
-            CitizenIdentity::register_voting_identity(
+            Identity::register_voting_identity(
                 RuntimeOrigin::signed(registrar),
                 actor_cid_number,
                 actor_role_code,
@@ -1540,7 +1881,7 @@ fn runtime_citizen_identity_reader_reads_voting_and_candidate_identity() {
                 .expect("cid number should fit");
         let expires_at = cid_authorization_expires_at();
         // 占号先行:身份写入前置(占即绑用户钱包账户 + 用户占号签名)。
-        assert_ok!(CitizenIdentity::occupy_cid(
+        assert_ok!(Identity::occupy_cid(
             RuntimeOrigin::signed(registrar.clone()),
             actor_cid_number.clone(),
             actor_role_code.clone(),
@@ -1573,7 +1914,7 @@ fn runtime_citizen_identity_reader_reads_voting_and_candidate_identity() {
                 &candidate,
             );
 
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(registrar),
             actor_cid_number,
             actor_role_code,
@@ -1618,7 +1959,7 @@ fn runtime_registrar_rebind_preserves_candidate_cid_and_enforces_residence_scope
                 .expect("cid number should fit");
         let expires_at = cid_authorization_expires_at();
 
-        assert_ok!(CitizenIdentity::occupy_cid(
+        assert_ok!(Identity::occupy_cid(
             RuntimeOrigin::signed(registrar.clone()),
             actor_cid_number.clone(),
             hu_role_code.clone(),
@@ -1655,7 +1996,7 @@ fn runtime_registrar_rebind_preserves_candidate_cid_and_enforces_residence_scope
                 &candidate.voting.cid_number.clone(),
                 &candidate,
             );
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(registrar.clone()),
             actor_cid_number.clone(),
             hu_role_code.clone(),
@@ -1670,7 +2011,7 @@ fn runtime_registrar_rebind_preserves_candidate_cid_and_enforces_residence_scope
         let candidate_identity_before =
             identity::CandidateIdentityByCid::<Runtime>::get(&citizen_cid_number)
                 .expect("candidate identity exists");
-        let new_account_signature = sign_cid_admin_rebind(
+        let new_account_signature = sign_cid_registrar_rebind(
             &new_pair,
             &citizen_cid_number,
             &current_account_id,
@@ -1684,7 +2025,7 @@ fn runtime_registrar_rebind_preserves_candidate_cid_and_enforces_residence_scope
             setup_frg_citizen_identity_admin(b"GD");
         assert_eq!(other_registrar, registrar);
         assert_noop!(
-            CitizenIdentity::admin_rebind_cid_account_id(
+            Identity::registrar_rebind_cid(
                 RuntimeOrigin::signed(other_registrar),
                 other_actor_cid_number,
                 gd_role_code,
@@ -1702,7 +2043,7 @@ fn runtime_registrar_rebind_preserves_candidate_cid_and_enforces_residence_scope
         );
 
         // 对应省 FRG 直接办理换绑；不创建换绑投票，也不要求当前账户签名。
-        assert_ok!(CitizenIdentity::admin_rebind_cid_account_id(
+        assert_ok!(Identity::registrar_rebind_cid(
             RuntimeOrigin::signed(registrar),
             actor_cid_number,
             hu_role_code,
@@ -1781,12 +2122,12 @@ fn runtime_square_post_normal_publish_requires_and_records_active_cid() {
             .clone()
             .try_into()
             .expect("cid number should fit");
-        assert_ok!(CitizenIdentity::self_occupy_cid(
+        assert_ok!(Identity::self_occupy_cid(
             RuntimeOrigin::signed(signer_account_id.clone()),
             bounded_cid_number.clone(),
         ));
         set_runtime_square_platform_membership(bounded_cid_number.clone(), 1_893_456_000_000);
-        assert_ok!(SquarePost::publish_post(
+        assert_ok!(Square::publish_post(
             RuntimeOrigin::signed(signer_account_id.clone()),
             b"sqp_runtime_normal".to_vec(),
             square::SquarePostType::Document,
@@ -1825,7 +2166,7 @@ fn runtime_square_post_derives_normal_category_for_voting_only_citizen() {
             .try_into()
             .expect("cid number should fit");
         let expires_at = cid_authorization_expires_at();
-        assert_ok!(CitizenIdentity::occupy_cid(
+        assert_ok!(Identity::occupy_cid(
             RuntimeOrigin::signed(registrar.clone()),
             actor_cid_number.clone(),
             actor_role_code.clone(),
@@ -1843,7 +2184,7 @@ fn runtime_square_post_derives_normal_category_for_voting_only_citizen() {
         );
         let (identity_version, authorization_expires_at, signature) =
             sign_citizen_identity_authorization(&signer_pair, &voting.cid_number.clone(), &voting);
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(registrar),
             actor_cid_number,
             actor_role_code,
@@ -1853,7 +2194,7 @@ fn runtime_square_post_derives_normal_category_for_voting_only_citizen() {
             signature,
         ));
         set_runtime_square_platform_membership(citizen_cid_number.clone(), 1_893_456_000_000);
-        assert_ok!(SquarePost::publish_post(
+        assert_ok!(Square::publish_post(
             RuntimeOrigin::signed(account_id),
             b"sqp_runtime_voting".to_vec(),
             square::SquarePostType::Article,
@@ -1886,7 +2227,7 @@ fn runtime_square_post_campaign_records_chain_cid_for_verified_account_id() {
             .expect("cid number should fit");
         let expires_at = cid_authorization_expires_at();
 
-        assert_ok!(CitizenIdentity::occupy_cid(
+        assert_ok!(Identity::occupy_cid(
             RuntimeOrigin::signed(registrar.clone()),
             actor_cid_number.clone(),
             actor_role_code.clone(),
@@ -1919,7 +2260,7 @@ fn runtime_square_post_campaign_records_chain_cid_for_verified_account_id() {
                 &candidate,
             );
 
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(registrar),
             actor_cid_number,
             actor_role_code,
@@ -1929,7 +2270,7 @@ fn runtime_square_post_campaign_records_chain_cid_for_verified_account_id() {
             signature,
         ));
         set_runtime_square_platform_membership(citizen_cid_number.clone(), 1_893_456_000_000);
-        assert_ok!(SquarePost::publish_post(
+        assert_ok!(Square::publish_post(
             RuntimeOrigin::signed(account_id.clone()),
             b"sqp_runtime_campaign_ok".to_vec(),
             square::SquarePostType::Video,
@@ -1961,7 +2302,7 @@ fn runtime_square_post_fee_kind_uses_onchain_minimum_fee() {
         use onchain::CallFeeRoute;
 
         let who = AccountId::new([44u8; 32]);
-        let call = RuntimeCall::SquarePost(square::pallet::Call::publish_post {
+        let call = RuntimeCall::Square(square::pallet::Call::publish_post {
             post_id: b"sqp_fee_kind".to_vec(),
             post_type: square::SquarePostType::Document,
             content_hash: [6u8; 32],
@@ -1989,32 +2330,22 @@ fn runtime_square_post_fee_kind_uses_onchain_minimum_fee() {
 }
 
 #[test]
-fn ensure_nrc_admin_and_runtime_admin_directory_paths() {
+fn nrc_member_authorization_requires_current_person_binding_and_assignment() {
     new_test_ext().execute_with(|| {
-        let nrc_cid: publicentity::pallet::CidNumberOf<Runtime> = CHINA_CB[0]
-            .cid_number
-            .as_bytes()
-            .to_vec()
-            .try_into()
-            .expect("NRC CID fits");
-        let nrc_admin = AccountId::new(CHINA_CB[0].admins[0]);
-        let outsider = AccountId::new([99u8; 32]);
-
-        let ok_origin = RuntimeOrigin::signed(nrc_admin.clone());
-        assert!(<EnsureNrcAdmin as EnsureOrigin<RuntimeOrigin>>::try_origin(ok_origin).is_ok());
-        let bad_origin = RuntimeOrigin::signed(outsider.clone());
-        assert!(<EnsureNrcAdmin as EnsureOrigin<RuntimeOrigin>>::try_origin(bad_origin).is_err());
-
-        publicadmin::pallet::AdminAccounts::<Runtime>::remove(&nrc_cid);
-        assert!(!is_nrc_admin(&nrc_admin));
-        assert!(!is_nrc_admin(&outsider));
-        assert!(!RuntimeInternalAdminProvider::is_institution_admin(
-            engingcore::types::NRC,
-            nrc_cid.as_slice(),
-            &nrc_admin
-        ));
+        let nrc = &CHINA_CB[0];
+        let cid = test_cid_number(nrc.cid_number.as_bytes());
+        let wallet = AccountId::new(fixture_seat_wallets(nrc.cid_number)[0]);
+        let outsider = AccountId::new([101; 32]);
+        let role = primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER;
+        assert!(!is_nrc_member(&wallet));
+        fixture_public_role_people(&cid, role, &[wallet.clone()]);
+        assert!(is_nrc_member(&wallet));
+        assert!(!is_nrc_member(&outsider));
+        identity::CidByAccountId::<Runtime>::remove(&wallet);
+        assert!(!is_nrc_member(&wallet));
     });
 }
+
 
 // 机构自定义账户关闭已改为「机构在册管理员直接冷签 propose_close(不含凭证)」,由 pallet 在
 // origin 处以 `is_institution_admin` 鉴权;该授权属性的回归覆盖在 publicentity/privateentity
@@ -2030,7 +2361,7 @@ fn onchain_issuance_rejects_admin_without_an_authorized_business_role() {
             .to_vec()
             .try_into()
             .expect("NRC CID fits runtime bound");
-        let admin = AccountId::new(nrc.admins[0]);
+        let admin = AccountId::new(fixture_seat_wallets(nrc.cid_number)[0]);
         let main_account = AccountId::new(nrc.main_account);
         // 通用资产发行不是 NRC 委员固定权限；即使账户属于 NRC 且执行账户匹配，
         // 也必须先存在业务模块允许的岗位权限，不能退化为“管理员即可发行”。
@@ -2041,7 +2372,7 @@ fn onchain_issuance_rejects_admin_without_an_authorized_business_role() {
                 .expect("committee role fits");
 
         assert_noop!(
-            OnchainIssuance::propose_issue(
+            OnchainIssue::propose_issue(
                 RuntimeOrigin::signed(admin.clone()),
                 actor_cid_number.clone(),
                 committee_role.clone(),
@@ -2060,7 +2391,7 @@ fn onchain_issuance_rejects_admin_without_an_authorized_business_role() {
         );
 
         assert_noop!(
-            OnchainIssuance::propose_issue(
+            OnchainIssue::propose_issue(
                 RuntimeOrigin::signed(admin),
                 actor_cid_number,
                 committee_role,
@@ -2095,7 +2426,7 @@ fn onchain_issuance_rejects_non_admin_and_non_nrc_monitor_actor() {
                 .try_into()
                 .expect("committee role fits");
         assert_noop!(
-            OnchainIssuance::propose_mint(
+            OnchainIssue::propose_mint(
                 RuntimeOrigin::signed(AccountId::new([250u8; 32])),
                 nrc_cid,
                 committee_role,
@@ -2114,8 +2445,8 @@ fn onchain_issuance_rejects_non_admin_and_non_nrc_monitor_actor() {
             .try_into()
             .expect("PRC CID fits runtime bound");
         assert_noop!(
-            OnchainIssuance::propose_monitor_freeze(
-                RuntimeOrigin::signed(AccountId::new(prc.admins[0])),
+            OnchainIssue::propose_monitor_freeze(
+                RuntimeOrigin::signed(AccountId::new(fixture_seat_wallets(prc.cid_number)[0])),
                 prc_cid,
                 primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER
                     .to_vec()
@@ -2146,7 +2477,7 @@ fn city_registry_main_account_can_receive_before_qualifying_and_spend_afterwards
         let action = InstitutionAssetAction::MultisigTransferExecute;
 
         let before = Balances::free_balance(&main);
-        assert_ok!(OnchainTransaction::transfer_with_remark(
+        assert_ok!(Onchain::transfer_with_remark(
             RuntimeOrigin::signed(payer.clone()),
             main.clone(),
             amount,
@@ -2155,7 +2486,7 @@ fn city_registry_main_account_can_receive_before_qualifying_and_spend_afterwards
         assert_eq!(Balances::free_balance(&main), before + amount);
         assert!(RuntimeInstitutionAsset::can_spend(&fee, action));
         assert_noop!(
-            MultisigTransfer::propose_transfer(
+            Multisig::propose_transfer(
                 RuntimeOrigin::signed(payer.clone()),
                 Some(cid.clone()),
                 None,
@@ -2405,25 +2736,10 @@ fn genesis_public_institutions_full_mint_counts() {
         }
         assert_eq!(new_national_count, 12);
 
-        // NJD 创世管理员在位(常量特例保留)。
-        let njd = primitives::cid::china::china_sf::CHINA_SF
-            .iter()
-            .find(|n| {
-                primitives::cid::code::institution_code_from_cid_number(n.cid_number)
-                    == Some(primitives::cid::code::NJD)
-            })
-            .expect("NJD in china_sf");
-        let njd_cid: publicentity::pallet::CidNumberOf<Runtime> = njd
-            .cid_number
-            .as_bytes()
-            .to_vec()
-            .try_into()
-            .expect("NJD CID fits");
-        assert!(publicadmin::AdminAccounts::<Runtime>::get(njd_cid).is_some());
     });
 }
 
-/// 公民链基金会以非营利私权法人创世写入；一名管理员可同时任三个固定岗位。
+/// 公民链基金会按非营利私权法人写入创世，一名人员可以同时任三个固定岗位。
 #[test]
 fn genesis_citizenchain_foundation_is_complete_and_protected() {
     new_test_ext().execute_with(|| {
@@ -2454,62 +2770,15 @@ fn genesis_citizenchain_foundation_is_complete_and_protected() {
             info.cid_short_name.as_slice(),
             foundation.cid_short_name.as_bytes()
         );
-        let legal_representative = info
-            .legal_representative
-            .expect("foundation legal representative exists");
-        assert_eq!(legal_representative.family_name.as_slice(), "程".as_bytes());
-        assert_eq!(legal_representative.given_name.as_slice(), "伟".as_bytes());
-        assert_eq!(
-            legal_representative.cid_number.as_slice(),
-            "CN220-CTZN2-198805200-2026".as_bytes()
-        );
-        assert_eq!(
-            legal_representative.account_id,
-            AccountId::new(
-                primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ADMINS[0].account_id,
-            )
-        );
-
-        let admin_cid: adminbase::AdminCidNumber = foundation
-            .cid_number
-            .as_bytes()
-            .to_vec()
-            .try_into()
-            .expect("admin CID fits");
-        let admins = privateadmin::AdminAccounts::<Runtime>::get(admin_cid)
-            .expect("foundation admins exist");
-        assert_eq!(admins.institution_code, *b"SFGY");
-        assert_eq!(admins.admins.len(), 1);
-        assert_eq!(
-            admins.admins[0].cid_number.as_slice(),
-            "CN220-CTZN2-198805200-2026".as_bytes()
-        );
-        assert_eq!(admins.admins[0].family_name.as_slice(), "程".as_bytes());
-        assert_eq!(admins.admins[0].given_name.as_slice(), "伟".as_bytes());
-
-        for (index, fixed_role) in primitives::cid::china::citizenchain::CITIZENCHAIN_FIXED_ROLES
-            .iter()
-            .enumerate()
-        {
-            let role_code: privateentity::RoleCodeOf = fixed_role
-                .role_code
-                .to_vec()
-                .try_into()
-                .expect("fixed role code fits");
-            let role = privateentity::InstitutionRoles::<Runtime>::get(&cid, &role_code)
-                .expect("fixed foundation role exists");
+        // 默认测试播种未提供已核验人员，岗位仍必须完整，不能按历史钱包填补。
+        assert!(info.legal_representative.is_none());
+        for fixed_role in primitives::cid::china::citizenchain::CITIZENCHAIN_FIXED_ROLES {
+            let role_code: privateentity::RoleCodeOf = fixed_role.role_code.to_vec().try_into().unwrap();
+            let role = privateentity::InstitutionRoles::<Runtime>::get(&cid, &role_code).expect("基金会固定岗位");
             assert_eq!(role.role_name.as_slice(), fixed_role.role_name);
+            assert_eq!(role.seats, fixed_role.seats);
             assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
-            let assignments =
-                privateentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code);
-            assert_eq!(assignments.len(), 1);
-            assert_eq!(
-                assignments[0].account_id,
-                AccountId::new(
-                    primitives::cid::china::citizenchain::CITIZENCHAIN_GENESIS_ASSIGNMENTS[index]
-                        .account_id,
-                )
-            );
+            assert!(privateentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code).is_empty());
             let permissions =
                 privateentity::InstitutionRolePermissions::<Runtime>::get(&cid, &role_code);
             let expected = entitybase::fixed_role_permission_specs(
@@ -2572,7 +2841,6 @@ fn genesis_national_singletons_exist_and_member_bodies_are_unconstituted() {
                     .map(|info| info.account_id),
                 Some(AccountId::new(singleton.main_account))
             );
-            assert!(publicadmin::AdminAccounts::<Runtime>::get(&cid).is_none());
             assert!(publicentity::InstitutionGovernanceThresholds::<Runtime>::get(&cid).is_none());
         }
 
@@ -2594,17 +2862,15 @@ fn genesis_national_singletons_exist_and_member_bodies_are_unconstituted() {
                 publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code)
                     .is_empty()
             );
-            assert!(publicadmin::AdminAccounts::<Runtime>::get(cid).is_none());
         }
     });
 }
 
-/// 参议会必须先独立登记 admins，治理结果只能把既有管理员任命到法定岗位。
+/// 参议会首轮组成和后续改选都必须满足法定成员人数区间。
 #[test]
 fn national_member_body_first_composition_and_permanent_range_are_enforced() {
     new_test_ext().execute_with(|| {
         let spec = primitives::institution_constraints::member_composition_specs()[0];
-        let main = AccountId::new(spec.institution.main_account);
         let cid_number: publicentity::pallet::CidNumberOf<Runtime> = spec
             .institution
             .cid_number
@@ -2631,7 +2897,7 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
                 assignments: accounts
                     .into_iter()
                     .map(|account_id| entitybase::InstitutionAssignmentTarget {
-                        account_id,
+                        person_cid: fixture_person(&account_id, "CTZN").to_vec(),
                         term_start: 0,
                         term_end: 0,
                         assignment_source: entitybase::InstitutionAssignmentSource::PopularElection,
@@ -2645,25 +2911,6 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
         };
 
         let established_admins = members(spec.min_members);
-        publicadmin::AdminAccounts::<Runtime>::insert(
-            cid_number.clone(),
-            adminbase::InstitutionAdmins {
-                institution_code: spec.institution.code,
-                admins: established_admins
-                    .iter()
-                    .cloned()
-                    .map(|account_id| adminbase::Admin {
-                        account_id,
-                        cid_number: Default::default(),
-                        family_name: Default::default(),
-                        given_name: Default::default(),
-                    })
-                    .collect::<Vec<_>>()
-                    .try_into()
-                    .expect("member body admins fit"),
-            },
-        );
-        complete_test_public_wallets(&cid_number);
         let member_role_code: publicentity::RoleCodeOf = spec
             .role_code
             .to_vec()
@@ -2680,15 +2927,14 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
                     .to_vec()
                     .try_into()
                     .expect("member role name fits"),
-                term_required: false,
+                term_required: false, seats: spec.max_members,
                 role_status: entitybase::InstitutionRoleStatus::Active,
             },
         );
 
+        let incomplete = result(members(spec.min_members - 1));
         assert_noop!(
-            publicentity::Pallet::<Runtime>::apply_institution_governance_result(result(members(
-                spec.min_members - 1,
-            ))),
+            publicentity::Pallet::<Runtime>::apply_institution_governance_result(incomplete),
             publicentity::Error::<Runtime>::RequiredMemberCountOutOfRange
         );
         assert_ok!(
@@ -2696,9 +2942,6 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
                 established_admins.clone(),
             ))
         );
-        let account = publicadmin::AdminAccounts::<Runtime>::get(&cid_number)
-            .expect("admins remain independently registered");
-        assert_eq!(account.admins.len() as u32, spec.min_members);
         publicentity::InstitutionGovernanceThresholds::<Runtime>::insert(
             &cid_number,
             spec.min_members / 2 + 1,
@@ -2736,25 +2979,14 @@ fn national_member_body_first_composition_and_permanent_range_are_enforced() {
             internalvote::InternalThresholdSnapshot::<Runtime>::get(proposal_id),
             Some(spec.min_members / 2 + 1)
         );
-        use entitybase::InstitutionMultisigQuery;
-        assert_eq!(
-            publicentity::Pallet::<Runtime>::lookup_admin_config(&main)
-                .expect("composed singleton exposes current institution configuration")
-                .threshold,
-            spec.min_members / 2 + 1
-        );
 
+        let incomplete = result(members(spec.min_members - 1));
         assert_noop!(
-            publicentity::Pallet::<Runtime>::apply_institution_governance_result(result(members(
-                spec.min_members - 1,
-            ))),
+            publicentity::Pallet::<Runtime>::apply_institution_governance_result(incomplete),
             publicentity::Error::<Runtime>::RequiredMemberCountOutOfRange
         );
         assert_eq!(
-            publicadmin::AdminAccounts::<Runtime>::get(cid_number)
-                .expect("failed change rolls back")
-                .admins
-                .len() as u32,
+            publicentity::InstitutionRoleAssignments::<Runtime>::get(cid_number, member_role_code).len() as u32,
             spec.min_members
         );
     });
@@ -2770,11 +3002,10 @@ fn institution_governance_can_clear_legal_representative_atomically() {
                 .expect("CHINA_CB CID must contain institution code");
         let cid: publicentity::CidNumberOf<Runtime> =
             cid_number.clone().try_into().expect("CID fits");
-        let representative_account_id = publicadmin::AdminAccounts::<Runtime>::get(&cid)
-            .expect("NRC genesis admins exist")
-            .admins[0]
-            .account_id
-            .clone();
+        let representative_account_id = AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[0]);
+        let person_cid = fixture_person(&representative_account_id, "CTZN");
+        fixture_public_role_people(&cid, primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+            &fixture_seat_wallets(CHINA_CB[0].cid_number).iter().copied().map(AccountId::new).collect::<Vec<_>>());
         let result =
             |legal_representative_change, assignments| entitybase::InstitutionGovernanceResult {
                 institution_code,
@@ -2790,7 +3021,7 @@ fn institution_governance_can_clear_legal_representative_atomically() {
                 result_source_ref: b"legal-representative-governance".to_vec(),
             };
         let representative_assignment = entitybase::InstitutionAssignmentTarget {
-            account_id: representative_account_id.clone(),
+            person_cid: fixture_person(&representative_account_id.clone(), "CTZN").to_vec(),
             term_start: 0,
             term_end: 0,
             assignment_source: entitybase::InstitutionAssignmentSource::InstitutionGovernance,
@@ -2803,8 +3034,7 @@ fn institution_governance_can_clear_legal_representative_atomically() {
                 Some(entitybase::InstitutionLegalRepresentativeChange::Set {
                     family_name: "法定".as_bytes().to_vec(),
                     given_name: "代表人".as_bytes().to_vec(),
-                    cid_number: b"CITIZEN-LR-001".to_vec(),
-                    account_id: representative_account_id.clone(),
+                    person_cid: person_cid.to_vec(),
                 },),
                 vec![representative_assignment],
             ))
@@ -2815,8 +3045,8 @@ fn institution_governance_can_clear_legal_representative_atomically() {
             .legal_representative
             .expect("legal representative should be stored");
         assert_eq!(
-            stored_representative.account_id,
-            representative_account_id.clone()
+            stored_representative.person_cid,
+            person_cid
         );
 
         assert_ok!(
@@ -2829,13 +3059,9 @@ fn institution_governance_can_clear_legal_representative_atomically() {
             .expect("genesis institution still exists");
         assert!(cleared.legal_representative.is_none());
 
-        let second_account = publicadmin::AdminAccounts::<Runtime>::get(&cid)
-            .expect("NRC genesis admins remain")
-            .admins[1]
-            .account_id
-            .clone();
+        let second_account = AccountId::new(fixture_seat_wallets(CHINA_CB[0].cid_number)[1]);
         let second_assignment = entitybase::InstitutionAssignmentTarget {
-            account_id: second_account,
+            person_cid: fixture_person(&second_account, "CTZN").to_vec(),
             term_start: 0,
             term_end: 0,
             assignment_source: entitybase::InstitutionAssignmentSource::InstitutionGovernance,
@@ -2847,16 +3073,11 @@ fn institution_governance_can_clear_legal_representative_atomically() {
                 Some(entitybase::InstitutionLegalRepresentativeChange::Set {
                     family_name: "重复法定".as_bytes().to_vec(),
                     given_name: "代表人".as_bytes().to_vec(),
-                    cid_number: b"CITIZEN-LR-002".to_vec(),
-                    account_id: representative_account_id,
+                    person_cid: person_cid.to_vec(),
                 },),
                 vec![
                     entitybase::InstitutionAssignmentTarget {
-                        account_id: publicadmin::AdminAccounts::<Runtime>::get(&cid)
-                            .expect("NRC genesis admins remain")
-                            .admins[0]
-                            .account_id
-                            .clone(),
+                        person_cid: person_cid.to_vec(),
                         term_start: 0,
                         term_end: 0,
                         assignment_source:
@@ -2872,7 +3093,7 @@ fn institution_governance_can_clear_legal_representative_atomically() {
     });
 }
 
-/// 立法院、监察院、总统府必须先独立登记 admins，岗位任职不得反向生成管理员。
+/// 立法院、监察院及总统府可按既有治理规则完成首次岗位配置。
 #[test]
 fn national_singletons_without_member_ranges_can_be_composed_once() {
     new_test_ext().execute_with(|| {
@@ -2894,32 +3115,13 @@ fn national_singletons_without_member_ranges_can_be_composed_once() {
                 .try_into()
                 .expect("singleton CID fits");
             let admins = vec![AccountId::new([91u8; 32]), AccountId::new([92u8; 32])];
-            publicadmin::AdminAccounts::<Runtime>::insert(
-                cid_number.clone(),
-                adminbase::InstitutionAdmins {
-                    institution_code: singleton.code,
-                    admins: admins
-                        .iter()
-                        .cloned()
-                        .map(|account_id| adminbase::Admin {
-                            account_id,
-                            cid_number: Default::default(),
-                            family_name: Default::default(),
-                            given_name: Default::default(),
-                        })
-                        .collect::<Vec<_>>()
-                        .try_into()
-                        .expect("singleton admins fit"),
-                },
-            );
-            complete_test_public_wallets(&cid_number);
             let result = entitybase::InstitutionGovernanceResult {
                 institution_code: singleton.code,
                 cid_number: singleton.cid_number.as_bytes().to_vec(),
                 proposal_id: 100,
                 role_mutations: vec![entitybase::InstitutionRoleMutation::Create {
                     role_name: "运行期成员".as_bytes().to_vec(),
-                    term_required: false,
+                    term_required: false, seats: 1989,
                     permissions: vec![entitybase::RolePermissionSpec {
                         business_action_id: entitybase::BusinessActionId {
                             module_tag: publicentity::MODULE_TAG.to_vec(),
@@ -2931,7 +3133,7 @@ fn national_singletons_without_member_ranges_can_be_composed_once() {
                         .iter()
                         .cloned()
                         .map(|account_id| entitybase::InstitutionAssignmentTarget {
-                            account_id,
+                            person_cid: fixture_person(&account_id, "CTZN").to_vec(),
                             term_start: 0,
                             term_end: 0,
                             assignment_source:
@@ -2949,284 +3151,35 @@ fn national_singletons_without_member_ranges_can_be_composed_once() {
             assert_ok!(
                 publicentity::Pallet::<Runtime>::apply_institution_governance_result(result)
             );
-            let account = publicadmin::AdminAccounts::<Runtime>::get(&cid_number)
-                .expect("admins remain independently registered");
-            assert_eq!(
-                account
-                    .admins
-                    .iter()
-                    .map(|admin| admin.account_id.clone())
-                    .collect::<Vec<_>>(),
-                admins
-            );
+            assert_eq!(publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid_number)
+                .map(|(_, rows)| rows.len()).sum::<usize>(), admins.len());
             publicentity::InstitutionGovernanceThresholds::<Runtime>::insert(&cid_number, 2);
         }
     });
 }
 
-/// 89 个受保护创世机构的岗位、席位和任职必须由 genesis 构建直接写入 entity/admins。
+/// 创世规格保存固定岗位定义、法定人数和空缺；未登记的历史钱包不生成任职。
 #[test]
 fn genesis_fixed_institution_roles_and_assignments_are_complete() {
+    use primitives::{cid::code::FRG, governance_skeleton::*};
     new_test_ext().execute_with(|| {
-        let role_code = |raw: &[u8]| -> publicentity::RoleCodeOf {
-            raw.to_vec().try_into().expect("fixed role code fits")
-        };
-        let cid = |raw: &str| -> publicentity::pallet::CidNumberOf<Runtime> {
-            raw.as_bytes().to_vec().try_into().expect("fixed cid fits")
-        };
-
-        // 法定代表人不是创世必填项。固定机构创世时该字段必须保持为空，
-        // 不得从管理员首位、机构主账户或其它账户推导占位值。
-        for institution in primitives::governance_skeleton::fixed_institutions() {
-            let info = publicentity::Institutions::<Runtime>::get(cid(institution.cid_number))
-                .expect("fixed genesis institution exists");
-            assert!(info.legal_representative.is_none());
+        let institutions = fixed_institutions();
+        assert_eq!(institutions.len(), 89);
+        for institution in institutions {
+            let cid = test_cid_number(institution.cid_number.as_bytes());
+            let lr = publicentity::RoleCodeOf::try_from(b"LR".to_vec()).unwrap();
+            assert_eq!(publicentity::InstitutionRoles::<Runtime>::get(&cid, lr).unwrap().seats, 1);
+            let expected = if institution.code == FRG {
+                frg_province_groups().into_iter().map(|(province,seats)| (province_commissioner_role_code(province), seats)).collect::<Vec<_>>()
+            } else {
+                fixed_role_specs(institution.code).into_iter().map(|role| (role.role_code.to_vec(), role.seats)).collect()
+            };
+            for (code, seats) in expected {
+                let role_code = publicentity::RoleCodeOf::try_from(code).unwrap();
+                assert_eq!(publicentity::InstitutionRoles::<Runtime>::get(&cid, &role_code).unwrap().seats, seats);
+                assert!(publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role_code).is_empty());
+            }
         }
-
-        // 国家储委会、省储委会统一为“委员”。
-        for node in primitives::cid::china::china_cb::CHINA_CB.iter() {
-            let cid_number = cid(node.cid_number);
-            let code = role_code(primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER);
-            let role = publicentity::InstitutionRoles::<Runtime>::get(&cid_number, &code)
-                .expect("committee role exists");
-            assert_eq!(role.cid_number, cid_number);
-            assert_eq!(role.role_name.as_slice(), "委员".as_bytes());
-            assert!(!role.term_required);
-            assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
-            let assignments =
-                publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid_number, &code);
-            assert_eq!(assignments.len(), node.admins.len());
-            assert_eq!(
-                assignments
-                    .iter()
-                    .map(|assignment| assignment.account_id.clone())
-                    .collect::<Vec<_>>(),
-                node.admins
-                    .iter()
-                    .copied()
-                    .map(AccountId::new)
-                    .collect::<Vec<_>>()
-            );
-            assert!(assignments.iter().all(|assignment| {
-                assignment.assignment_source == entitybase::InstitutionAssignmentSource::Genesis
-                    && assignment.assignment_source_ref.is_empty()
-                    && assignment.assignment_status
-                        == entitybase::InstitutionAssignmentStatus::Active
-                    && assignment.term_start == 0
-                    && assignment.term_end == 0
-                    && assignment.cid_number == cid_number
-                    && assignment.role_code == code
-            }));
-
-            let account_id = publicadmin::AdminAccounts::<Runtime>::get(&cid_number)
-                .expect("committee admin account exists");
-            assert_eq!(
-                account_id.institution_code,
-                primitives::cid::code::institution_code_from_cid_number(node.cid_number)
-                    .expect("committee code")
-            );
-            assert_eq!(
-                account_id
-                    .admins
-                    .into_inner()
-                    .into_iter()
-                    .map(|admin| admin.account_id)
-                    .collect::<Vec<_>>(),
-                node.admins
-                    .iter()
-                    .copied()
-                    .map(AccountId::new)
-                    .collect::<Vec<_>>()
-            );
-        }
-
-        // 省储行为“董事”。
-        for node in primitives::cid::china::china_ch::CHINA_CH.iter() {
-            let cid_number = cid(node.cid_number);
-            let code = role_code(primitives::governance_skeleton::ROLE_CODE_DIRECTOR);
-            let role = publicentity::InstitutionRoles::<Runtime>::get(&cid_number, &code)
-                .expect("director role exists");
-            assert_eq!(role.role_name.as_slice(), "董事".as_bytes());
-            assert!(!role.term_required);
-            assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
-            let assignments =
-                publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid_number, &code);
-            assert_eq!(assignments.len(), node.admins.len());
-            assert_eq!(
-                assignments
-                    .iter()
-                    .map(|assignment| assignment.account_id.clone())
-                    .collect::<Vec<_>>(),
-                node.admins
-                    .iter()
-                    .copied()
-                    .map(AccountId::new)
-                    .collect::<Vec<_>>()
-            );
-            assert!(assignments.iter().all(|assignment| {
-                assignment.assignment_source == entitybase::InstitutionAssignmentSource::Genesis
-                    && assignment.assignment_source_ref.is_empty()
-                    && assignment.assignment_status
-                        == entitybase::InstitutionAssignmentStatus::Active
-                    && assignment.term_start == 0
-                    && assignment.term_end == 0
-                    && assignment.cid_number == cid_number
-                    && assignment.role_code == code
-            }));
-            let account_id = publicadmin::AdminAccounts::<Runtime>::get(&cid_number)
-                .expect("director admin account exists");
-            assert_eq!(
-                account_id
-                    .admins
-                    .into_inner()
-                    .into_iter()
-                    .map(|admin| admin.account_id)
-                    .collect::<Vec<_>>(),
-                node.admins
-                    .iter()
-                    .copied()
-                    .map(AccountId::new)
-                    .collect::<Vec<_>>()
-            );
-        }
-
-        // 国家司法院固定 7 护宪、1 首席、2 次席、5 大法官。
-        let njd = primitives::cid::china::china_sf::CHINA_SF
-            .iter()
-            .find(|node| {
-                primitives::cid::code::institution_code_from_cid_number(node.cid_number)
-                    == Some(primitives::cid::code::NJD)
-            })
-            .expect("NJD genesis node exists");
-        let njd_cid = cid(njd.cid_number);
-        for (raw_code, seats) in [
-            (
-                primitives::governance_skeleton::ROLE_CODE_CONSTITUTION_GUARD,
-                7usize,
-            ),
-            (primitives::governance_skeleton::ROLE_CODE_CHIEF_JUSTICE, 1),
-            (
-                primitives::governance_skeleton::ROLE_CODE_DEPUTY_CHIEF_JUSTICE,
-                2,
-            ),
-            (primitives::governance_skeleton::ROLE_CODE_JUSTICE, 5),
-        ] {
-            let code = role_code(raw_code);
-            let spec =
-                primitives::governance_skeleton::fixed_role_specs(primitives::cid::code::NJD)
-                    .into_iter()
-                    .find(|spec| spec.role_code == raw_code)
-                    .expect("NJD role spec exists");
-            let role = publicentity::InstitutionRoles::<Runtime>::get(&njd_cid, &code)
-                .expect("NJD role exists");
-            assert_eq!(role.role_name.as_slice(), spec.role_name);
-            assert!(!role.term_required);
-            assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
-            let assignments =
-                publicentity::InstitutionRoleAssignments::<Runtime>::get(&njd_cid, &code);
-            assert_eq!(assignments.len(), seats);
-            assert!(assignments.iter().all(|assignment| {
-                assignment.assignment_source == entitybase::InstitutionAssignmentSource::Genesis
-                    && assignment.assignment_source_ref.is_empty()
-                    && assignment.assignment_status
-                        == entitybase::InstitutionAssignmentStatus::Active
-                    && assignment.term_start == 0
-                    && assignment.term_end == 0
-                    && assignment.cid_number == njd_cid
-                    && assignment.role_code == code
-            }));
-        }
-        let njd_accounts = [
-            primitives::governance_skeleton::ROLE_CODE_CONSTITUTION_GUARD,
-            primitives::governance_skeleton::ROLE_CODE_CHIEF_JUSTICE,
-            primitives::governance_skeleton::ROLE_CODE_DEPUTY_CHIEF_JUSTICE,
-            primitives::governance_skeleton::ROLE_CODE_JUSTICE,
-        ]
-        .into_iter()
-        .flat_map(|raw_code| {
-            publicentity::InstitutionRoleAssignments::<Runtime>::get(&njd_cid, role_code(raw_code))
-                .into_iter()
-                .map(|assignment| assignment.account_id)
-        })
-        .collect::<Vec<_>>();
-        assert_eq!(
-            njd_accounts,
-            primitives::cid::china::china_sf::NATIONAL_JUDICIAL_YUAN_ADMINS
-                .iter()
-                .copied()
-                .map(AccountId::new)
-                .collect::<Vec<_>>()
-        );
-
-        // 联邦注册局是一个机构、43 个省专员岗位，每岗位固定 5 人。
-        let frg = primitives::cid::china::china_zf::CHINA_ZF
-            .iter()
-            .find(|node| {
-                primitives::cid::code::institution_code_from_cid_number(node.cid_number)
-                    == Some(primitives::cid::code::FRG)
-            })
-            .expect("FRG genesis node exists");
-        let frg_cid = cid(frg.cid_number);
-        let mut frg_assignments = 0usize;
-        for (province_index, province) in primitives::cid::code::PROVINCE_CODE_INFOS
-            .iter()
-            .enumerate()
-        {
-            let code = role_code(
-                &primitives::governance_skeleton::province_commissioner_role_code(
-                    province.province_code,
-                ),
-            );
-            let role = publicentity::InstitutionRoles::<Runtime>::get(&frg_cid, &code)
-                .expect("FRG province commissioner role exists");
-            assert_eq!(
-                role.role_name.as_slice(),
-                primitives::governance_skeleton::province_commissioner_role_name(
-                    province.province_name,
-                )
-            );
-            assert!(!role.term_required);
-            assert_eq!(role.role_status, entitybase::InstitutionRoleStatus::Active);
-            let assignments =
-                publicentity::InstitutionRoleAssignments::<Runtime>::get(&frg_cid, &code);
-            assert_eq!(
-                assignments.len(),
-                primitives::count_const::FRG_PROVINCE_GROUP_ADMIN_COUNT as usize
-            );
-            let group_size = primitives::count_const::FRG_PROVINCE_GROUP_ADMIN_COUNT as usize;
-            let start = province_index * group_size;
-            let expected = primitives::cid::china::china_zf::FEDERAL_REGISTRY_ADMINS
-                [start..start + group_size]
-                .iter()
-                .copied()
-                .map(AccountId::new)
-                .collect::<Vec<_>>();
-            assert_eq!(
-                assignments
-                    .iter()
-                    .map(|assignment| assignment.account_id.clone())
-                    .collect::<Vec<_>>(),
-                expected
-            );
-            assert!(assignments.iter().all(|assignment| {
-                assignment.assignment_source == entitybase::InstitutionAssignmentSource::Genesis
-                    && assignment.assignment_source_ref.is_empty()
-                    && assignment.assignment_status
-                        == entitybase::InstitutionAssignmentStatus::Active
-                    && assignment.term_start == 0
-                    && assignment.term_end == 0
-                    && assignment.cid_number == frg_cid
-                    && assignment.role_code == code
-            }));
-            frg_assignments += assignments.len();
-        }
-        assert_eq!(
-            frg_assignments,
-            primitives::cid::china::china_zf::FEDERAL_REGISTRY_ADMINS.len()
-        );
-        let frg_admin_account =
-            publicadmin::AdminAccounts::<Runtime>::get(&frg_cid).expect("FRG admin account exists");
-        assert_eq!(frg_admin_account.admins.len(), frg_assignments);
     });
 }
 
@@ -3458,6 +3411,11 @@ fn runtime_prc_sweep_accepts_exactly_111_fen_left_and_rejects_less() {
     for (amount, executes) in [(10, true), (11, false)] {
         new_test_ext().execute_with(|| {
             let prc = &CHINA_CB[1];
+            fixture_fixed_role_wallets(
+                prc.cid_number,
+                primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+                &fixture_seat_wallets(prc.cid_number),
+            );
             let cid: engingcore::types::CidNumber = prc
                 .cid_number
                 .as_bytes()
@@ -3479,15 +3437,15 @@ fn runtime_prc_sweep_accepts_exactly_111_fen_left_and_rejects_less() {
                 initial_fee,
             ));
             let main_before = Balances::free_balance(&main);
-            assert_ok!(MultisigTransfer::propose_sweep_to_main(
-                RuntimeOrigin::signed(AccountId::new(prc.admins[0])),
+            assert_ok!(Multisig::propose_sweep_to_main(
+                RuntimeOrigin::signed(AccountId::new(fixture_seat_wallets(prc.cid_number)[0])),
                 cid,
                 role.clone(),
                 fee_account.clone(),
                 amount,
             ));
             let pid = VotingEngine::next_proposal_id() - 1;
-            for admin in &prc.admins[1..primitives::count_const::PRC_INTERNAL_THRESHOLD as usize] {
+            for admin in &fixture_seat_wallets(prc.cid_number)[1..primitives::count_const::PRC_INTERNAL_THRESHOLD as usize] {
                 assert_ok!(InternalVote::cast(
                     RuntimeOrigin::signed(AccountId::new(*admin)),
                     pid,
@@ -3529,17 +3487,19 @@ fn runtime_governance_result_router_enforces_fixed_role_seats() {
             .to_vec()
             .try_into()
             .expect("NJD cid fits");
-        let njd_admins = publicadmin::AdminAccounts::<Runtime>::get(&njd_cid_number)
-            .expect("NJD genesis admins exist")
-            .admins
-            .into_iter()
-            .map(|admin| admin.account_id)
-            .collect::<Vec<_>>();
+        let njd_admins = fixture_seat_wallets(njd.cid_number).into_iter().map(AccountId::new).collect::<Vec<_>>();
+        let mut offset = 0;
+        for role in primitives::governance_skeleton::fixed_role_specs(primitives::cid::code::NJD) {
+            if role.role_code == b"LR" { continue; }
+            let end = offset + role.seats as usize;
+            fixture_public_role_people(&njd_cid_number, role.role_code, &njd_admins[offset..end]);
+            offset = end;
+        }
         let result = |accounts: Vec<AccountId>| {
             let assignments = accounts
                 .into_iter()
                 .map(|account_id| entitybase::InstitutionAssignmentTarget {
-                    account_id,
+                    person_cid: fixture_person(&account_id, "CTZN").to_vec(),
                     term_start: 0,
                     term_end: 0,
                     assignment_source:
@@ -3572,14 +3532,14 @@ fn runtime_governance_result_router_enforces_fixed_role_seats() {
             role_name: "修改固定岗位".as_bytes().to_vec(),
         }];
         assert_noop!(
-            <RuntimeInstitutionGovernanceResultHandler as entitybase::InstitutionGovernanceResultHandler<AccountId>>::apply_institution_governance_result(
+            <RuntimeInstitutionGovernanceResultHandler as entitybase::InstitutionGovernanceResultHandler>::apply_institution_governance_result(
                 role_change
             ),
             publicentity::Error::<Runtime>::FixedRoleDefinitionImmutable
         );
 
         assert_noop!(
-            <RuntimeInstitutionGovernanceResultHandler as entitybase::InstitutionGovernanceResultHandler<AccountId>>::apply_institution_governance_result(
+            <RuntimeInstitutionGovernanceResultHandler as entitybase::InstitutionGovernanceResultHandler>::apply_institution_governance_result(
                 result(vec![njd_admins[0].clone()])
             ),
             publicentity::Error::<Runtime>::FixedRoleSeatsMismatch
@@ -3592,7 +3552,7 @@ fn runtime_governance_result_router_enforces_fixed_role_seats() {
             .collect::<Vec<_>>();
         replacement.rotate_left(1);
         assert_ok!(
-            <RuntimeInstitutionGovernanceResultHandler as entitybase::InstitutionGovernanceResultHandler<AccountId>>::apply_institution_governance_result(
+            <RuntimeInstitutionGovernanceResultHandler as entitybase::InstitutionGovernanceResultHandler>::apply_institution_governance_result(
                 result(replacement.clone())
             )
         );
@@ -3608,7 +3568,7 @@ fn runtime_governance_result_router_enforces_fixed_role_seats() {
         assert_eq!(
             stored
                 .into_iter()
-                .map(|assignment| assignment.account_id)
+                .map(|assignment| identity::Pallet::<Runtime>::person_account(&assignment.person_cid).unwrap())
                 .collect::<Vec<_>>(),
             replacement
         );
@@ -3748,7 +3708,7 @@ fn square_subscription_calldata_matches_owner_fixture_and_real_runtime_index() {
     let pallet = metadata
         .pallets
         .iter()
-        .find(|p| p.name == "SquarePost")
+        .find(|p| p.name == "Square")
         .expect("实际SquarePost模块");
     assert_eq!(
         fixture["pallet_index"].as_u64(),
@@ -3760,7 +3720,7 @@ fn square_subscription_calldata_matches_owner_fixture_and_real_runtime_index() {
         .iter()
         .find(|v| v["name"] == "calldata_subscribe_platform_spark")
         .expect("完整调用固定字节");
-    let call = RuntimeCall::SquarePost(square::Call::subscribe {
+    let call = RuntimeCall::Square(square::Call::subscribe {
         issuer: square::IssuerKey::Platform,
         plan: square::SubscriptionPlan::Platform {
             membership_level: square::MembershipLevel::Spark,
@@ -3834,11 +3794,6 @@ fn address_benchmark_authority_initializes_missing_runtime_state() {
         System::set_block_number(1);
         let actor = RuntimeAddressAuthority::benchmark_authority(3)
             .expect("空的基准状态必须经原初始化入口准备真实岗位");
-        assert!(<PublicAdmins as adminbase::InstitutionAdminQuery<AccountId,
-        >>::institution_admins_exist(
-            primitives::cid::code::FRG,
-            actor.actor_cid_number.as_slice(),
-        ));
         assert!(RuntimeAddressAuthority::can_update_address(
             &actor.caller,
             actor.actor_cid_number.as_slice(),
@@ -3898,7 +3853,7 @@ fn creg_capability_requires_one_existing_public_entity() {
 }
 
 #[test]
-fn creg_business_still_requires_roster_permission_effective_assignment_and_local_scope() {
+fn creg_business_requires_binding_permission_effective_assignment_and_local_scope() {
     use address::AddressUpdateAuthority;
     use entitybase::{
         business_action::*, RoleBusinessPermission, RolePermissionOperation, RoleSubject,
@@ -3912,20 +3867,14 @@ fn creg_business_still_requires_roster_permission_effective_assignment_and_local
         let allowed = || RuntimeCitizenIdentityAuthority::can_manage_voting_identity(
             &who, &cid, &role, b"NX", b"013", identity::CitizenIdentityLevel::Voting, ACTION_REGISTER_VOTING_IDENTITY);
         assert!(!allowed());
-        let admins: publicadmin::AdminsOf<Runtime> = vec![adminbase::Admin {
-            account_id: who.clone(), cid_number: Default::default(),
-            family_name: "测".as_bytes().to_vec().try_into().unwrap(),
-            given_name: "试".as_bytes().to_vec().try_into().unwrap(),
-        }].try_into().unwrap();
-        publicadmin::AdminAccounts::<Runtime>::insert(&cid, adminbase::InstitutionAdmins { institution_code: *b"CREG", admins });
-        complete_test_public_wallets(&cid);
-        assert!(!allowed(), "只有管理员名册不授予业务权限");
+        let person_cid = fixture_person(&who, "CTZN");
+        assert!(!allowed(), "只有人员绑定不授予机构权限");
         publicentity::InstitutionRoles::<Runtime>::insert(&cid, &role, entitybase::InstitutionRole {
             cid_number: cid.clone(), role_code: role.clone(), role_name: "测试动态岗位".as_bytes().to_vec().try_into().unwrap(),
-            term_required: true, role_status: entitybase::InstitutionRoleStatus::Active,
+            term_required: true, seats: 1989, role_status: entitybase::InstitutionRoleStatus::Active,
         });
-        let assignments: publicentity::institution::role::RoleAssignmentsOf<Runtime> = vec![entitybase::InstitutionAdminAssignment {
-            cid_number: cid.clone(), account_id: who.clone(), role_code: role.clone(),
+        let assignments: publicentity::institution::role::RoleAssignmentsOf<Runtime> = vec![entitybase::InstitutionAssignment {
+            cid_number: cid.clone(), person_cid: fixture_person(&who.clone(), "CTZN"), role_code: role.clone(),
             term_start: 1, term_end: u32::MAX, assignment_source: entitybase::InstitutionAssignmentSource::InstitutionGovernance,
             assignment_source_ref: vec![18].try_into().unwrap(), assignment_status: entitybase::InstitutionAssignmentStatus::Active,
         }].try_into().unwrap();
@@ -3934,7 +3883,7 @@ fn creg_business_still_requires_roster_permission_effective_assignment_and_local
         let permissions: publicentity::RolePermissionsOf<Runtime> = [
             (MODULE_CITIZEN_IDENTITY, ACTION_REGISTER_VOTING_IDENTITY),
             (MODULE_CITIZEN_IDENTITY, ACTION_OCCUPY_CID),
-            (MODULE_CITIZEN_IDENTITY, ACTION_ADMIN_REBIND_CID_ACCOUNT_ID),
+            (MODULE_CITIZEN_IDENTITY, ACTION_REGISTRAR_REBIND_CID),
             (MODULE_CITIZEN_IDENTITY, ACTION_REVOKE_CID),
             (MODULE_ADDRESS_REGISTRY, ACTION_SET_ADDRESS),
             (MODULE_INSTITUTION_REGISTRATION, ACTION_REGISTER_INSTITUTION),
@@ -3950,7 +3899,7 @@ fn creg_business_still_requires_roster_permission_effective_assignment_and_local
             assert!(!RuntimeAddressAuthority::can_update_address(&who, &cid, &role, province, city, ACTION_SET_ADDRESS));
         }
         assert!(!RuntimeCitizenIdentityAuthority::can_manage_voting_identity(&who, &cid, &role, b"NX", b"013", identity::CitizenIdentityLevel::Candidate, ACTION_UPGRADE_CANDIDATE_IDENTITY));
-        for action in [ACTION_OCCUPY_CID, ACTION_ADMIN_REBIND_CID_ACCOUNT_ID, ACTION_REVOKE_CID] {
+        for action in [ACTION_OCCUPY_CID, ACTION_REGISTRAR_REBIND_CID, ACTION_REVOKE_CID] {
             assert!(RuntimeCitizenIdentityAuthority::can_manage_anonymous_cid(&who, &cid, &role, action));
         }
         assert!(RuntimeAddressAuthority::can_update_address(&who, &cid, &role, b"NX", b"013", ACTION_SET_ADDRESS));
@@ -3965,296 +3914,59 @@ fn creg_business_still_requires_roster_permission_effective_assignment_and_local
         publicentity::InstitutionRoles::<Runtime>::mutate(&cid, &role, |stored| stored.as_mut().unwrap().role_status = entitybase::InstitutionRoleStatus::Inactive);
         assert!(!allowed(), "停用岗位不得继续办理");
         publicentity::InstitutionRoles::<Runtime>::mutate(&cid, &role, |stored| stored.as_mut().unwrap().role_status = entitybase::InstitutionRoleStatus::Active);
-        publicadmin::AdminAccounts::<Runtime>::remove(&cid);
-        assert!(!allowed(), "从名册移除后原任职不得继续授权");
+        identity::CidRegistry::<Runtime>::remove(person_cid);
+        assert!(!allowed(), "人员登记失效后原钱包不得继续授权");
     });
 }
 
 
 #[test]
-fn unified_registration_runtime_initializes_creg_and_preserves_frg_scope_and_fee_payer() {
-    use codec::Encode;
-    use entitybase::InstitutionMultisigQuery;
-    use entitybase::{
-        business_action::*, InstitutionGovernanceAction, InstitutionRoleMutation,
-        RolePermissionOperation,
-    };
-    use identity::CitizenIdentityAuthority;
-    use onchain::CallFeeRoute;
+fn frg_registration_initializes_creg_people_and_capacity() {
+    use entitybase::{business_action::ACTION_INSTITUTION_GOVERNANCE, InstitutionRoleMutation, InstitutionRoleRegistration, RolePermissionOperation};
     new_test_ext().execute_with(|| {
+        let (_, signer, actor, role) = setup_frg_citizen_identity_admin(b"NX");
         let target = test_cid_number(b"NX013-CREGN-937676656-2026");
-        let frg = primitives::governance_skeleton::federal_registry_institution();
-        let actor = test_cid_number(frg.cid_number.as_bytes());
-        let role: publicentity::RoleCodeOf =
-            primitives::governance_skeleton::province_commissioner_role_code(*b"NX")
-                .try_into()
-                .unwrap();
-        let signer = publicentity::InstitutionRoleAssignments::<Runtime>::get(&actor, &role)[0]
-            .account_id
-            .clone();
-        let people = [AccountId::new([91; 32]), AccountId::new([92; 32])];
-        let seeded:Vec<adminbase::Admin<AccountId>>=people
-                .iter()
-                .map(|account| adminbase::Admin {
-                    account_id: account.clone(),
-                    cid_number: Default::default(),
-                    family_name: "测".as_bytes().to_vec().try_into().unwrap(),
-                    given_name: "试".as_bytes().to_vec().try_into().unwrap(),
-                })
-                .collect();
-        let action = InstitutionGovernanceAction::MutateRolesAndAssignments {
+        let actions = |people: Vec<entitybase::InstitutionAssignmentTarget>| InstitutionRoleRegistration {
             role_mutations: vec![InstitutionRoleMutation::Create {
-                role_name: "测试动态岗位".as_bytes().to_vec(),
+                role_name: "登记岗位".as_bytes().to_vec(),
                 term_required: false,
-                permissions: [
-                    (
-                        publicentity::MODULE_TAG,
-                        ACTION_INSTITUTION_GOVERNANCE,
-                        RolePermissionOperation::Propose,
-                    ),
-                    (
-                        publicentity::MODULE_TAG,
-                        ACTION_INSTITUTION_GOVERNANCE,
-                        RolePermissionOperation::Vote,
-                    ),
-                    (
-                        MODULE_CITIZEN_IDENTITY,
-                        ACTION_REGISTER_VOTING_IDENTITY,
-                        RolePermissionOperation::Propose,
-                    ),
-                ]
-                .into_iter()
-                .map(
-                    |(module, action_code, operation)| entitybase::RolePermissionSpec {
+                seats: 2,
+                permissions: [RolePermissionOperation::Propose, RolePermissionOperation::Vote]
+                    .into_iter().map(|operation| entitybase::RolePermissionSpec {
                         business_action_id: entitybase::BusinessActionId {
-                            module_tag: module.to_vec(),
-                            action_code,
-                        },
-                        operation,
-                    },
-                )
-                .collect(),
-                assignments: people
-                    .iter()
-                    .map(|account| entitybase::InstitutionAssignmentTarget {
-                        account_id: account.clone(),
-                        term_start: 0,
-                        term_end: 0,
-                        assignment_source: entitybase::InstitutionAssignmentSource::Registry,
-                        assignment_source_ref: Vec::new(),
-                        assignment_status: entitybase::InstitutionAssignmentStatus::Active,
-                    })
-                    .collect(),
+                            module_tag: publicentity::MODULE_TAG.to_vec(),
+                            action_code: ACTION_INSTITUTION_GOVERNANCE,
+                        }, operation,
+                    }).collect(),
+                assignments: people,
             }],
-            assignment_changes: Vec::new(),
-            legal_representative_change: None,
+            assignment_changes: vec![],
         };
-        assert_ok!(PublicManage::register_institution_admins(
-            RuntimeOrigin::signed(signer.clone()),
-            target.clone(),
-            InstitutionGovernanceAction::RegisterAdminWalletChanges {
-                added: seeded.clone(),
-                removed: vec![],
-                replaced: vec![]
-            },
-            actor.to_vec(),
-            role.to_vec(),
-            PublicManage::registration_state_hash(&target).unwrap(),
-            None
-        ));
-        let expected = PublicManage::registration_state_hash(&target).unwrap();
-        let call = RuntimeCall::PublicManage(publicentity::Call::register_institution_admins {
-            cid_number: target.clone(),
-            action: action.clone(),
-            actor_cid_number: actor.to_vec(),
-            actor_role_code: role.to_vec(),
-            expected_state_hash: expected,
-            initial_threshold: Some(2),
-        });
-        assert_eq!(
-            call.encode(),
-            (
-                30u8,
-                9u8,
-                target.clone(),
-                action.clone(),
-                actor.to_vec(),
-                role.to_vec(),
-                expected,
-                Some(2u32)
-            )
-                .encode()
+        let people = [AccountId::new([91; 32]), AccountId::new([92; 32])];
+        let targets = people.iter().map(|wallet| entitybase::InstitutionAssignmentTarget {
+            person_cid: fixture_person(wallet, "CTZN").to_vec(),
+            term_start: 0, term_end: 0,
+            assignment_source: entitybase::InstitutionAssignmentSource::Registry,
+            assignment_source_ref: vec![],
+            assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+        }).collect::<Vec<_>>();
+        let state = PublicEntity::registration_state_hash(&target).unwrap();
+        let send = |targets| PublicEntity::register_institution_roles(
+            RuntimeOrigin::signed(signer.clone()), target.clone(), actions(targets),
+            actor.to_vec(), role.to_vec(), state, Some(2),
         );
-        let private_target = test_cid_number(
-            primitives::cid::china::citizenchain::CITIZENCHAIN_FOUNDATION
-                .cid_number
-                .as_bytes(),
-        );
-        let private_call =
-            RuntimeCall::PrivateManage(privateentity::Call::register_institution_admins {
-                cid_number: private_target.clone(),
-                action: action.clone(),
-                actor_cid_number: actor.to_vec(),
-                actor_role_code: role.to_vec(),
-                expected_state_hash: expected,
-                initial_threshold: Some(2),
-            });
-        assert_eq!(
-            private_call.encode(),
-            (
-                31u8,
-                9u8,
-                private_target,
-                action.clone(),
-                actor.to_vec(),
-                role.to_vec(),
-                expected,
-                Some(2u32)
-            )
-                .encode()
-        );
-        let normal_limit = RuntimeBlockWeights::get()
-            .get(frame_support::dispatch::DispatchClass::Normal)
-            .max_extrinsic
-            .unwrap();
-        assert!(
-            PublicManage::registration_weight(&target, &action).all_lte(normal_limit),
-            "普通首次登记必须可进入正常区块预算"
-        );
-        let fee_account = RuntimeInstitutionQuery::lookup_institution_account(
-            &actor,
-            primitives::account_derive::RESERVED_NAME_FEE,
-        )
-        .unwrap();
-        assert_eq!(
-            RuntimeFeeRouter::fee_route(&signer, &call),
-            primitives::fee_policy::FeeRoute::Onchain {
-                transaction_amount: 0,
-                payer_account_id: fee_account
-            }
-        );
-        let other_role: publicentity::RoleCodeOf =
-            primitives::governance_skeleton::province_commissioner_role_code(*b"GZ")
-                .try_into()
-                .unwrap();
-        let other_signer =
-            publicentity::InstitutionRoleAssignments::<Runtime>::get(&actor, &other_role)[0]
-                .account_id
-                .clone();
-        assert_noop!(
-            PublicManage::register_institution_admins(
-                RuntimeOrigin::signed(other_signer),
-                target.clone(),
-                action.clone(),
-                actor.to_vec(),
-                other_role.to_vec(),
-                expected,
-                Some(2)
-            ),
-            publicentity::Error::<Runtime>::RegistryAuthorityDenied
-        );
-        assert_ok!(PublicManage::register_institution_admins(
-            RuntimeOrigin::signed(signer.clone()),
-            target.clone(),
-            action.clone(),
-            actor.to_vec(),
-            role.to_vec(),
-            expected,
-            Some(2)
-        ));
+        assert_noop!(send(vec![targets[0].clone(), targets[0].clone()]), publicentity::Error::<Runtime>::DuplicateAssignment);
+        assert_ok!(send(targets.clone()));
+        assert_eq!(publicentity::InstitutionGovernanceThresholds::<Runtime>::get(&target), Some(2));
         let created = publicentity::InstitutionRoles::<Runtime>::iter_prefix(&target)
-            .find(|(_, item)| item.role_name.as_slice() == "测试动态岗位".as_bytes())
-            .unwrap()
-            .0;
-        assert!(RuntimeCitizenIdentityAuthority::can_manage_voting_identity(
-            &people[0],
-            &target,
-            &created,
-            b"NX",
-            b"013",
-            identity::CitizenIdentityLevel::Voting,
-            ACTION_REGISTER_VOTING_IDENTITY
-        ));
-        assert!(
-            !RuntimeCitizenIdentityAuthority::can_manage_voting_identity(
-                &people[0],
-                &target,
-                &created,
-                b"GZ",
-                b"013",
-                identity::CitizenIdentityLevel::Voting,
-                ACTION_REGISTER_VOTING_IDENTITY
-            )
-        );
-        // 上级注册局不能借通用任职登记改任受保护基金会创世岗位。
-        let foundation = test_cid_number(
-            primitives::cid::china::citizenchain::CITIZENCHAIN_FOUNDATION
-                .cid_number
-                .as_bytes(),
-        );
-        let mut foundation_admins = privateadmin::AdminAccounts::<Runtime>::get(&foundation)
-            .unwrap()
-            .admins
-            .to_vec();
-        let outsider = AccountId::new([93; 32]);
-        foundation_admins.push(adminbase::Admin {
-            account_id: outsider.clone(),
-            cid_number: Default::default(),
-            family_name: b"F".to_vec().try_into().unwrap(),
-            given_name: b"G".to_vec().try_into().unwrap(),
-        });
-        let protected = InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-            admins: foundation_admins,
-            role_mutations: Vec::new(),
-            assignment_changes: vec![entitybase::InstitutionRoleAssignmentChange {
-                role_code: primitives::cid::china::citizenchain::ROLE_CODE_GENESIS_PRODUCT_MANAGER
-                    .to_vec(),
-                assignments: vec![entitybase::InstitutionAssignmentTarget {
-                    account_id: outsider,
-                    term_start: 0,
-                    term_end: 0,
-                    assignment_source: entitybase::InstitutionAssignmentSource::Registry,
-                    assignment_source_ref: Vec::new(),
-                    assignment_status: entitybase::InstitutionAssignmentStatus::Active,
-                }],
-            }],
-            legal_representative_change: None,
-        };
-        let gz_role: publicentity::RoleCodeOf =
-            primitives::governance_skeleton::province_commissioner_role_code(*b"GZ")
-                .try_into()
-                .unwrap();
-        let gz_actor = publicentity::InstitutionRoleAssignments::<Runtime>::get(&actor, &gz_role)
-            [0]
-        .account_id
-        .clone();
-        let expected_foundation = PrivateManage::registration_state_hash(&foundation).unwrap();
-        assert_noop!(
-            PrivateManage::register_institution_admins(
-                RuntimeOrigin::signed(gz_actor),
-                foundation,
-                protected,
-                actor.to_vec(),
-                gz_role.to_vec(),
-                expected_foundation,
-                None
-            ),
-            privateentity::Error::<Runtime>::InvalidRegistrationAction
-        );
-        assert_noop!(
-            PublicManage::register_institution_admins(
-                RuntimeOrigin::signed(signer),
-                target,
-                action,
-                actor.to_vec(),
-                role.to_vec(),
-                expected,
-                Some(2)
-            ),
-            publicentity::Error::<Runtime>::StaleRegistrationState
-        );
+            .find(|(_, role)| role.role_name.as_slice() == "登记岗位".as_bytes()).unwrap();
+        assert_eq!(created.1.seats, 2);
+        let assigned = publicentity::InstitutionRoleAssignments::<Runtime>::get(&target, created.0);
+        assert_eq!(assigned.len(), 2);
+        assert!(assigned.iter().zip(targets).all(|(actual, planned)| actual.person_cid.as_slice() == planned.person_cid.as_slice()));
     });
 }
+
 
 
 #[test]
@@ -4331,15 +4043,15 @@ fn evm_account_creation_weights_cover_fee_rewards_and_background_payouts() {
         primitives::cid::china::china_ch::CHINA_CH.len()
     );
     budget!(
-        personalentity::Config,
-        personalentity::weights::WeightInfo,
-        personalentity::weights::SubstrateWeight<Runtime>,
+        personal::Config,
+        personal::weights::WeightInfo,
+        personal::weights::SubstrateWeight<Runtime>,
         propose_close,
         4
     );
     assert_eq!(
-        <<Runtime as personalentity::Config>::WeightInfo as personalentity::weights::WeightInfo>::propose_create(3),
-        <personalentity::weights::SubstrateWeight<Runtime> as personalentity::weights::WeightInfo>::propose_create(3)
+        <<Runtime as personal::Config>::WeightInfo as personal::weights::WeightInfo>::propose_create(3),
+        <personal::weights::SubstrateWeight<Runtime> as personal::weights::WeightInfo>::propose_create(3)
             .saturating_add(mapping.saturating_mul(4)),
     );
     for (method, actual, original) in [
@@ -4441,7 +4153,20 @@ fn proposal_id_upgrade_preserves_existing_proposal_and_migrates_constitution_enc
         let display = engingcore::ProposalDisplayId::<Runtime>::get(0u128).unwrap();
         assert_eq!((display.year, display.seq_in_year), (2026u32, 0u64));
         assert_eq!(engingcore::Proposals::<Runtime>::get(0u128).unwrap().status, engingcore::STATUS_EXECUTED);
-        assert_eq!(internalvote::InternalVotesByTicket::<Runtime>::iter_prefix(0u128).count(), 15);
+        let raw_count = |pallet: &[u8], item: &[u8]| {
+            let mut prefix = frame_support::storage::storage_prefix(pallet, item).to_vec();
+            prefix.extend(sp_io::hashing::blake2_128(&0u128.encode()));
+            prefix.extend(0u128.encode());
+            let mut key = prefix.clone();
+            let mut count = 0;
+            while let Some(next) = sp_io::storage::next_key(&key) {
+                if !next.starts_with(&prefix) { break; }
+                count += 1;
+                key = next;
+            }
+            count
+        };
+        assert_eq!(raw_count(b"InternalVote", b"InternalVotesByTicket"), 15);
         let tally = internalvote::InternalTallies::<Runtime>::get(0u128);
         assert_eq!((tally.yes, tally.no), (13, 2));
         assert_eq!(internalvote::InternalThresholdSnapshot::<Runtime>::get(0u128), Some(13));
@@ -4454,9 +4179,8 @@ fn proposal_id_upgrade_preserves_existing_proposal_and_migrates_constitution_enc
         assert!(engingcore::ProposalsByCid::<Runtime>::contains_key(&cid, 0u128));
         let owner: frame_support::BoundedVec<u8, <Runtime as engingcore::Config>::MaxModuleTagLen> = b"multisig".to_vec().try_into().unwrap();
         assert!(engingcore::ProposalsByOwner::<Runtime>::contains_key(&owner, 0u128));
-        let voters = engingcore::VoterSnapshot::<Runtime>::iter_prefix(0u128).collect::<Vec<_>>();
-        assert_eq!(voters.len(), 1);
-        assert_eq!(voters[0].1.len(), 19);
+        assert_eq!(raw_count(b"VotingEngine", b"VoterSnapshot"), 1);
+        assert_eq!(engingcore::RoleVoters::<Runtime>::iter_prefix(0u128).count(), 0);
         assert_eq!(engingcore::InstitutionTicketCountSnapshot::<Runtime>::iter_prefix(0u128).next().unwrap().1, 19);
 
         let migrated_law = sp_io::storage::get(&law_key).unwrap();
@@ -4523,7 +4247,7 @@ fn ordinary_transfer_remark_fee_keeps_multisig_creation_fee_unchanged() {
                         primitives::fee_policy::FLAT_FEE
                     };
                 let call =
-                    RuntimeCall::OnchainTransaction(onchain::pallet::Call::transfer_with_remark {
+                    RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
                         beneficiary_account_id: AccountId::new([0x62; 32]),
                         amount,
                         remark: remark.clone().try_into().unwrap(),
@@ -4539,7 +4263,7 @@ fn ordinary_transfer_remark_fee_keeps_multisig_creation_fee_unchanged() {
                     Some((who.clone(), expected))
                 );
                 let multisig =
-                    RuntimeCall::MultisigTransfer(multisig::pallet::Call::propose_transfer {
+                    RuntimeCall::Multisig(multisig::pallet::Call::propose_transfer {
                         actor_cid_number: None,
                         proposer_role_code: None,
                         funding_account_id: who.clone(),
@@ -4574,1079 +4298,8 @@ fn multisig_execution_charger_uses_existing_payer_and_shared_remark_fee() {
             assert_eq!(Charger::charge(&payer, 50_000, has_remark).unwrap(), expected);
             assert_eq!(Balances::free_balance(&payer), 10_000 - expected);
             assert_eq!(System::events().iter().filter(|event| matches!(&event.event,
-                RuntimeEvent::OnchainTransaction(onchain::pallet::Event::FeePaid { account_id, fee })
+                RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid { account_id, fee })
                     if account_id == &payer && *fee == expected)).count(), 1);
         });
     }
-}
-
-
-#[test]
-fn institution_wallet_governance_keeps_frg_votes_within_original_province_group() {
-    use adminbase::InstitutionAdminWalletQuery;
-    use codec::Encode;
-    use frame_support::traits::Hooks;
-    new_test_ext().execute_with(|| {
-        let institution=primitives::governance_skeleton::federal_registry_institution();
-        let cid: publicentity::pallet::CidNumberOf<Runtime>=institution.cid_number.as_bytes().to_vec().try_into().unwrap();
-        let role: publicentity::RoleCodeOf=primitives::governance_skeleton::province_commissioner_role_code(*b"GD").try_into().unwrap();
-        let other_role: publicentity::RoleCodeOf=primitives::governance_skeleton::province_commissioner_role_code(*b"HU").try_into().unwrap();
-        let group=publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid,&role).iter().map(|a|a.account_id.clone()).collect::<Vec<_>>();
-        let other=publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid,&other_role)[0].account_id.clone();
-        assert_eq!(group.len(),5);
-        let pair=sr25519::Pair::from_seed(&[93;32]);
-        let change=adminbase::InstitutionAdminWalletChange {admin_account:group[1].clone(),expected_wallet:group[1].clone(),new_wallet:AccountId::new(pair.public().0),expected_revision:0,
-        };
-        let expires_at=1_782_950_400+86400;
-        let payload=adminbase::InstitutionWalletAcceptance{genesis_hash:System::block_hash(0),cid_number:cid.to_vec().try_into().unwrap(),change:change.clone(),mode:adminbase::InstitutionWalletChangeMode::Governance,expires_at,
-        }.encode();
-        let proof=pair.sign(&primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET,&payload,
-            )).0.to_vec().try_into().unwrap();
-        let action=entitybase::InstitutionGovernanceAction::RotateAdminWallet{change:change.clone(),expires_at,new_wallet_proof:proof,
-        };
-        assert_noop!(PublicManage::propose_institution_governance(RuntimeOrigin::signed(other.clone()),cid.clone(),action.clone(),cid.to_vec(),other_role.clone()),publicentity::Error::<Runtime>::PermissionDenied);
-        assert_ok!(PublicManage::propose_institution_governance(RuntimeOrigin::signed(group[0].clone()),cid.clone(),action,cid.to_vec(),role.clone()));
-        let pid=VotingEngine::next_proposal_id()-1;
-        let plan=VotingEngine::proposal_vote_plan(pid).unwrap();
-        assert_eq!(plan.voter_subjects.len(),1);
-        let snapshot=engingcore::VoterSnapshot::<Runtime>::get(pid,&plan.proposer_subject).unwrap();
-        assert_eq!(snapshot.len(),5);
-        assert!(!snapshot.contains(&other));
-        assert!(internalvote::Pallet::<Runtime>::do_internal_vote(other,pid,internalvote::InternalVoteTicketClaim::InstitutionRole(other_role),true).is_err());
-        assert_ok!(internalvote::Pallet::<Runtime>::do_internal_vote(group[1].clone(),pid,internalvote::InternalVoteTicketClaim::InstitutionRole(role.clone()),true));
-        assert_ok!(internalvote::Pallet::<Runtime>::do_internal_vote(group[2].clone(),pid,internalvote::InternalVoteTicketClaim::InstitutionRole(role.clone()),true));
-        <VotingEngine as Hooks<BlockNumber>>::on_initialize(System::block_number());
-        assert_eq!(PublicAdmins::current_institution_wallet(adminbase::FRG,&cid,&change.new_wallet),
-            Some(change.new_wallet.clone()));
-        assert_eq!(publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid,&role).iter().map(|a|a.account_id.clone()).collect::<Vec<_>>(),group);
-        assert_eq!(PublicAdmins::institution_admins_len(adminbase::FRG,&cid),Some(215));
-    });
-}
-
-#[test]
-fn institution_wallet_new_pq_proof_is_first_use_scoped_and_operation_safe() {
-    use adminbase::{InstitutionAdminQuery, InstitutionAdminWalletQuery};
-    use frame_support::{assert_noop, assert_ok};
-    new_test_ext().execute_with(|| {
-        let institution=primitives::governance_skeleton::federal_registry_institution();
-        let cid: publicentity::pallet::CidNumberOf<Runtime>=institution.cid_number.as_bytes().to_vec().try_into().unwrap();
-        let accounts_before = account_state_without_wallet_refs().encode();
-        let issuance_before = Balances::total_issuance();
-        let roles_before = publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid)
-            .collect::<Vec<_>>()
-            .encode();
-        let anchor=crate::PublicAdmins::institution_admins(adminbase::FRG,&cid).unwrap()[0].clone();
-        let child=[94;32]; let public=mldsa::public_key(&child); let new=AccountId::new(mldsa::account_id(&public));
-        let expires_at=1_782_950_400+180;
-        let change=adminbase::InstitutionAdminWalletChange{admin_account:anchor.clone(),expected_wallet:anchor.clone(),new_wallet:new.clone(),expected_revision:0,
-        };
-        let payload=adminbase::InstitutionWalletAcceptance{genesis_hash:System::block_hash(0),cid_number:cid.to_vec().try_into().unwrap(),change:change.clone(),mode:adminbase::InstitutionWalletChangeMode::SelfSigned,expires_at,
-        }.encode();
-        let signature=mldsa::sign(&child,&primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET,&payload,
-            ),
-        ).unwrap();
-        let proof:adminbase::InstitutionWalletProof=mldsa::encode_pq_signature(&public,&signature).try_into().unwrap();
-        <mldsa::GenesisChainPhase<Runtime> as mldsa::ChainPhase>::enter_operation();
-        assert!(!mldsa::PqPublicKey::<Runtime>::contains_key(&new));
-        let mut forged=proof.clone();forged[2000]^=1;
-        assert_noop!(crate::PublicManage::rotate_institution_admin_wallet(crate::RuntimeOrigin::signed(anchor.clone()),cid.clone(),change.clone(),expires_at,forged),publicentity::Error::<Runtime>::InvalidWalletProof);
-        assert_ok!(crate::PublicManage::rotate_institution_admin_wallet(crate::RuntimeOrigin::signed(anchor.clone()),cid.clone(),change,expires_at,proof));
-        assert_eq!(crate::PublicAdmins::current_institution_wallet(adminbase::FRG,&cid,&new),Some(new.clone()));
-        assert_eq!(crate::PublicAdmins::resolve_admin_account(adminbase::FRG,&cid,&new),Some(new.clone())
-        );
-        assert_eq!(
-            account_state_without_wallet_refs().encode(),
-            accounts_before
-        );
-        assert_eq!(Balances::total_issuance(), issuance_before);
-        assert_eq!(
-            publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid)
-                .collect::<Vec<_>>()
-                .encode(),
-            roles_before
-        );
-        assert!(!mldsa::PqPublicKey::<Runtime>::contains_key(new)); // domain proof does not mutate transaction key registration
-    });
-}
-
-/// 源码配置清单，不读取或改写任何运行中的链；既有名册不再等待登录时补建。
-#[test]
-fn institution_wallet_genesis_catalog_has_complete_actual_wallets() {
-    use adminbase::{InstitutionAdminQuery, InstitutionAdminWalletQuery};
-    new_test_ext().execute_with(|| {
-        let mut public_institutions=0;let mut public_wallets=0;
-        for (cid,roster) in publicadmin::AdminAccounts::<Runtime>::iter() {
-            public_institutions+=1;
-            public_wallets+=roster.admins.len();
-            for admin in roster.admins {
-                assert_eq!(PublicAdmins::resolve_admin_account(roster.institution_code,&cid,&admin.account_id),Some(admin.account_id.clone()));
-                assert_eq!(PublicAdmins::resolve_role_authorization(roster.institution_code,&cid,&admin.account_id),Some(admin.account_id.clone()));
-                assert_eq!(PublicAdmins::institution_wallet_state(roster.institution_code,&cid,&admin.account_id),Some(adminbase::InstitutionAdminWalletState{wallet:Some(admin.account_id),revision:0}));
-            }
-        }
-        let mut private_institutions=0;let mut private_wallets=0;
-        for (cid,roster) in privateadmin::AdminAccounts::<Runtime>::iter() {
-            private_institutions+=1;private_wallets+=roster.admins.len();
-            for admin in roster.admins {
-                assert_eq!(PrivateAdmins::resolve_admin_account(roster.institution_code,&cid,&admin.account_id),Some(admin.account_id.clone()));
-                assert_eq!(PrivateAdmins::resolve_role_authorization(roster.institution_code,&cid,&admin.account_id),Some(admin.account_id.clone()));
-                assert_eq!(PrivateAdmins::institution_wallet_state(roster.institution_code,&cid,&admin.account_id).unwrap().revision,0);
-            }
-        }
-        assert_eq!(public_institutions,90);assert_eq!(private_institutions,1);
-        eprintln!("source genesis admin inventory: public={public_institutions}/{public_wallets} wallets, private={private_institutions}/{private_wallets} wallets");
-    });
-}
-
-#[test]
-fn registry_wallet_six_national_institutions_keep_personnel_and_restore_from_zero() {
-    use adminbase::InstitutionAdminQuery;
-    new_test_ext().execute_with(|| {
-        let actor = test_cid_number(
-            primitives::governance_skeleton::federal_registry_institution()
-                .cid_number
-                .as_bytes(),
-        );
-        for (index, institution) in primitives::institution_constraints::singleton_institutions()
-            .into_iter()
-            .enumerate()
-        {
-            let cid = test_cid_number(institution.cid_number.as_bytes());
-            let (province, _) = primitives::cid::number::cid_scope_codes(&cid).unwrap();
-            let role: publicentity::RoleCodeOf =
-                primitives::governance_skeleton::province_commissioner_role_code(province)
-                    .try_into()
-                    .unwrap();
-            let registrar = publicentity::InstitutionRoleAssignments::<Runtime>::get(&actor, &role)
-                [0]
-            .account_id
-            .clone();
-            let personnel = publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid)
-                .collect::<Vec<_>>()
-                .encode();
-            let roles = publicentity::InstitutionRoles::<Runtime>::iter_prefix(&cid)
-                .collect::<Vec<_>>()
-                .encode();
-            let accounts = account_state_without_wallet_refs().encode();
-            let wallet = AccountId::new([111 + index as u8; 32]);
-            let add = || entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
-                added: vec![adminbase::Admin {
-                    account_id: wallet.clone(),
-                    cid_number: Default::default(),
-                    family_name: b"F".to_vec().try_into().unwrap(),
-                    given_name: b"G".to_vec().try_into().unwrap(),
-                }],
-                removed: vec![],
-                replaced: vec![],
-            };
-            let send = |action| {
-                PublicManage::register_institution_admins(
-                    RuntimeOrigin::signed(registrar.clone()),
-                    cid.clone(),
-                    action,
-                    actor.to_vec(),
-                    role.to_vec(),
-                    PublicManage::registration_state_hash(&cid).unwrap(),
-                    None,
-                )
-            };
-            assert_ok!(send(add()));
-            assert_eq!(
-                PublicAdmins::institution_admins_len(institution.code, &cid),
-                Some(1)
-            );
-            assert_ok!(send(
-                entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
-                    added: vec![],
-                    removed: vec![(wallet.clone(), 0)],
-                    replaced: vec![]
-                }
-            ));
-            assert_eq!(
-                PublicAdmins::institution_admins_len(institution.code, &cid),
-                Some(0)
-            );
-            assert_ok!(send(add()));
-            assert_eq!(
-                publicadmin::AdminWallets::<Runtime>::get(&cid, &wallet)
-                    .unwrap()
-                    .revision,
-                2
-            );
-            assert_eq!(
-                publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid)
-                    .collect::<Vec<_>>()
-                    .encode(),
-                personnel
-            );
-            assert_eq!(
-                publicentity::InstitutionRoles::<Runtime>::iter_prefix(&cid)
-                    .collect::<Vec<_>>()
-                    .encode(),
-                roles
-            );
-            assert_eq!(
-                account_state_without_wallet_refs().encode(),
-                accounts
-            );
-            if let Some(spec) = primitives::institution_constraints::member_composition_by_identity(
-                institution.code,
-                &cid,
-            ) {
-                let role_code: publicentity::RoleCodeOf =
-                    spec.role_code.to_vec().try_into().unwrap();
-                publicentity::InstitutionRoles::<Runtime>::insert(
-                    &cid,
-                    &role_code,
-                    entitybase::InstitutionRole {
-                        cid_number: cid.clone(),
-                        role_code: role_code.clone(),
-                        role_name: spec.role_name.to_vec().try_into().unwrap(),
-                        term_required: false,
-                        role_status: entitybase::InstitutionRoleStatus::Active,
-                    },
-                );
-                let members = (0..spec.min_members)
-                    .map(|i| {
-                        let mut raw = [0xf0; 32];
-                        raw[..4].copy_from_slice(&i.to_le_bytes());
-                        AccountId::new(raw)
-                    })
-                    .collect::<Vec<_>>();
-                assert_ok!(PublicManage::apply_institution_governance_result(
-                    entitybase::InstitutionGovernanceResult {
-                        institution_code: institution.code,
-                        cid_number: cid.to_vec(),
-                        proposal_id: 123,
-                        role_mutations: vec![],
-                        assignment_changes: vec![entitybase::InstitutionRoleAssignmentChange {
-                            role_code: spec.role_code.to_vec(),
-                            assignments: members
-                                .iter()
-                                .cloned()
-                                .map(|account_id| entitybase::InstitutionAssignmentTarget {
-                                    account_id,
-                                    term_start: 0,
-                                    term_end: 0,
-                                    assignment_source:
-                                        entitybase::InstitutionAssignmentSource::PopularElection,
-                                    assignment_source_ref: b"election-result".to_vec(),
-                                    assignment_status:
-                                        entitybase::InstitutionAssignmentStatus::Active
-                                })
-                                .collect()
-                        }],
-                        legal_representative_change: None,
-                        result_source_ref: b"election-result".to_vec()
-                    }
-                ));
-                assert_eq!(
-                    PublicAdmins::institution_admins_len(institution.code, &cid),
-                    Some(1)
-                );
-                assert!(
-                    PublicAdmins::resolve_admin_account(institution.code, &cid, &members[0])
-                        .is_none()
-                );
-            }
-        }
-    });
-}
-
-#[test]
-fn registry_wallet_frg_replacement_checks_original_province_after_each_rotation() {
-    use adminbase::InstitutionAdminQuery;
-    new_test_ext().execute_with(|| {
-        let cid = test_cid_number(
-            primitives::governance_skeleton::federal_registry_institution()
-                .cid_number
-                .as_bytes(),
-        );
-        let role: publicentity::RoleCodeOf =
-            primitives::governance_skeleton::province_commissioner_role_code(*b"GD")
-                .try_into()
-                .unwrap();
-        let other: publicentity::RoleCodeOf =
-            primitives::governance_skeleton::province_commissioner_role_code(*b"HU")
-                .try_into()
-                .unwrap();
-        let group = publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role);
-        let outside = publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &other)[0]
-            .account_id
-            .clone();
-        let registrar = group[0].account_id.clone();
-        let target = group[1].account_id.clone();
-        let before = publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid)
-            .collect::<Vec<_>>()
-            .encode();
-        let subject = engingcore::AuthorizationSubject::Institution(engingcore::RoleSubject {
-            cid_number: cid.to_vec().try_into().unwrap(),
-            role_code: role.to_vec().try_into().unwrap(),
-        });
-        let frozen: frame_support::BoundedVec<
-            AccountId,
-            <Runtime as engingcore::Config>::MaxAdminsPerInstitution,
-        > = group
-            .iter()
-            .map(|a| a.account_id.clone())
-            .collect::<Vec<_>>()
-            .try_into()
-            .unwrap();
-        engingcore::VoterSnapshot::<Runtime>::insert(9988128u128, &subject, &frozen);
-
-        let send = |action| {
-            PublicManage::register_institution_admins(
-                RuntimeOrigin::signed(registrar.clone()),
-                cid.clone(),
-                action,
-                cid.to_vec(),
-                role.to_vec(),
-                PublicManage::registration_state_hash(&cid).unwrap(),
-                None,
-            )
-        };
-        let action = |old: AccountId, new: AccountId| {
-            entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
-                added: vec![],
-                removed: vec![],
-                replaced: vec![adminbase::InstitutionAdminWalletChange {
-                    admin_account: old.clone(),
-                    expected_wallet: old,
-                    new_wallet: new,
-                    expected_revision: 0,
-                }],
-            }
-        };
-        assert_noop!(
-            send(action(outside, AccountId::new([191; 32]))),
-            publicentity::Error::<Runtime>::PermissionDenied
-        );
-        let new = AccountId::new([192; 32]);
-        assert_ok!(send(action(target.clone(), new.clone())));
-        assert_ok!(send(action(new.clone(), AccountId::new([193; 32]))));
-        assert_eq!(
-            PublicAdmins::institution_admins_len(adminbase::FRG, &cid),
-            Some(215)
-        );
-        assert_eq!(
-            publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid)
-                .collect::<Vec<_>>()
-                .encode(),
-            before
-        );
-        assert_eq!(
-            engingcore::VoterSnapshot::<Runtime>::get(9988128, &subject),
-            Some(frozen)
-        );
-        assert_eq!(
-            publicadmin::WalletRoleBindings::<Runtime>::get(&cid, AccountId::new([193; 32])),
-            Some(target)
-        );
-    });
-}
-
-#[test]
-fn frozen_institution_votes_survive_real_frg_wallet_rotation_without_expanding_current_authority() {
-    use adminbase::InstitutionAdminQuery;
-    use codec::Encode;
-    use frame_support::traits::Hooks;
-    new_test_ext().execute_with(|| {
-        let cid = test_cid_number(
-            primitives::governance_skeleton::federal_registry_institution()
-                .cid_number
-                .as_bytes(),
-        );
-        let role: publicentity::RoleCodeOf =
-            primitives::governance_skeleton::province_commissioner_role_code(*b"GD")
-                .try_into()
-                .unwrap();
-        let group = publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role)
-            .iter()
-            .map(|a| a.account_id.clone())
-            .collect::<Vec<_>>();
-        let personnel = publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid)
-            .collect::<Vec<_>>()
-            .encode();
-        let accounts = account_state_without_wallet_refs().encode();
-        let expires_at = 1_782_950_400 + 86400;
-        let action = |old: AccountId, seed: u8| {
-            let pair = sr25519::Pair::from_seed(&[seed; 32]);
-            let change = adminbase::InstitutionAdminWalletChange {
-                admin_account: old.clone(),
-                expected_wallet: old,
-                new_wallet: AccountId::new(pair.public().0),
-                expected_revision: 0,
-            };
-            let acceptance = adminbase::InstitutionWalletAcceptance {
-                genesis_hash: System::block_hash(0),
-                cid_number: cid.to_vec().try_into().unwrap(),
-                change: change.clone(),
-                mode: adminbase::InstitutionWalletChangeMode::Governance,
-                expires_at,
-            };
-            let proof = pair
-                .sign(&primitives::sign::signing_message(
-                    primitives::sign::OP_SIGN_INSTITUTION_WALLET,
-                    &acceptance.encode(),
-                ))
-                .0
-                .to_vec()
-                .try_into()
-                .unwrap();
-            (
-                entitybase::InstitutionGovernanceAction::RotateAdminWallet {
-                    change: change.clone(),
-                    expires_at,
-                    new_wallet_proof: proof,
-                },
-                change,
-            )
-        };
-        let (first, target) = action(group[4].clone(), 219);
-        assert_ok!(PublicManage::propose_institution_governance(
-            RuntimeOrigin::signed(group[0].clone()),
-            cid.clone(),
-            first,
-            cid.to_vec(),
-            role.clone()
-        ));
-        let pid = VotingEngine::next_proposal_id() - 1;
-        let plan = VotingEngine::proposal_vote_plan(pid).unwrap();
-        let original =
-            engingcore::VoterSnapshot::<Runtime>::get(pid, &plan.proposer_subject).unwrap();
-        let versions =
-            engingcore::FrozenWalletVersions::<Runtime>::get(pid, &plan.proposer_subject).unwrap();
-        let first_pair = sr25519::Pair::from_seed(&[220; 32]);
-        let new_creator = AccountId::new(first_pair.public().0);
-        let second_pair = sr25519::Pair::from_seed(&[221; 32]);
-        let new_voter = AccountId::new(second_pair.public().0);
-        let changes = vec![
-            (group[0].clone(), new_creator.clone()),
-            (group[1].clone(), new_voter.clone()),
-        ]
-        .into_iter()
-        .map(
-            |(old, new_wallet)| adminbase::InstitutionAdminWalletChange {
-                admin_account: old.clone(),
-                expected_wallet: old,
-                new_wallet,
-                expected_revision: 0,
-            },
-        )
-        .collect();
-        assert_ok!(PublicManage::register_institution_admins(
-            RuntimeOrigin::signed(group[2].clone()),
-            cid.clone(),
-            entitybase::InstitutionGovernanceAction::RegisterAdminWalletChanges {
-                added: vec![],
-                removed: vec![],
-                replaced: changes
-            },
-            cid.to_vec(),
-            role.to_vec(),
-            PublicManage::registration_state_hash(&cid).unwrap(),
-            None
-        ));
-        assert!(PublicAdmins::resolve_admin_account(adminbase::FRG, &cid, &group[1]).is_none());
-        let claim = || internalvote::InternalVoteTicketClaim::InstitutionRole(role.clone());
-        assert_noop!(
-            InternalVote::cast(RuntimeOrigin::signed(new_voter.clone()), pid, claim(), true),
-            engingcore::Error::<Runtime>::NoPermission
-        );
-        assert_noop!(
-            InternalVote::cast(RuntimeOrigin::signed(group[0].clone()), pid, claim(), false),
-            engingcore::Error::<Runtime>::AlreadyVoted
-        );
-        assert_eq!(internalvote::InternalTallies::<Runtime>::get(pid).yes, 1);
-        let vote_call = RuntimeCall::InternalVote(internalvote::Call::cast {
-            proposal_id: pid,
-            ticket_claim: claim(),
-            approve: true,
-        });
-        assert_eq!(
-            <RuntimeFeeRouter as onchain::CallFeeRoute<AccountId, RuntimeCall, Balance>>::fee_route(
-                &group[1], &vote_call
-            ),
-            primitives::fee_policy::FeeRoute::Vote {
-                payer_account_id: group[1].clone()
-            }
-        );
-        assert_ok!(InternalVote::cast(
-            RuntimeOrigin::signed(group[1].clone()),
-            pid,
-            claim(),
-            true
-        ));
-        assert_ok!(InternalVote::cast(
-            RuntimeOrigin::signed(group[2].clone()),
-            pid,
-            claim(),
-            true
-        ));
-        <VotingEngine as Hooks<BlockNumber>>::on_initialize(System::block_number());
-        assert_eq!(
-            publicadmin::AdminWallets::<Runtime>::get(&cid, &target.new_wallet)
-                .unwrap()
-                .wallet,
-            Some(target.new_wallet)
-        );
-        assert_eq!(
-            engingcore::VoterSnapshot::<Runtime>::get(pid, &plan.proposer_subject),
-            Some(original)
-        );
-        assert_eq!(
-            engingcore::FrozenWalletVersions::<Runtime>::get(pid, &plan.proposer_subject),
-            Some(versions)
-        );
-        let (next, _) = action(group[3].clone(), 222);
-        assert_ok!(PublicManage::propose_institution_governance(
-            RuntimeOrigin::signed(new_creator.clone()),
-            cid.clone(),
-            next,
-            cid.to_vec(),
-            role.clone()
-        ));
-        let fresh = VotingEngine::next_proposal_id() - 1;
-        let fresh_plan = VotingEngine::proposal_vote_plan(fresh).unwrap();
-        assert_eq!(
-            VotingEngine::frozen_voter_identity(fresh, &fresh_plan.proposer_subject, &new_voter),
-            Some((new_voter, 0))
-        );
-        assert_noop!(
-            InternalVote::cast(
-                RuntimeOrigin::signed(group[1].clone()),
-                fresh,
-                claim(),
-                true
-            ),
-            engingcore::Error::<Runtime>::NoPermission
-        );
-        assert_eq!(
-            publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid)
-                .collect::<Vec<_>>()
-                .encode(),
-            personnel
-        );
-        assert_eq!(
-            account_state_without_wallet_refs().encode(),
-            accounts
-        );
-        assert_eq!(
-            PublicAdmins::institution_admins_len(adminbase::FRG, &cid),
-            Some(215)
-        );
-    });
-}
-
-#[test]
-fn missing_current_wallet_data_cannot_shrink_frozen_role_population() {
-    use codec::Encode;
-    new_test_ext().execute_with(|| {
-        let cid=test_cid_number(primitives::governance_skeleton::federal_registry_institution().cid_number.as_bytes());
-        let role:publicentity::RoleCodeOf=primitives::governance_skeleton::province_commissioner_role_code(*b"GD").try_into().unwrap();
-        let group=publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid,&role).iter().map(|a|a.account_id.clone()).collect::<Vec<_>>();
-        let pair=sr25519::Pair::from_seed(&[223;32]);let expires_at=1_782_950_400+86400;
-        let change=adminbase::InstitutionAdminWalletChange{admin_account:group[3].clone(),expected_wallet:group[3].clone(),new_wallet:AccountId::new(pair.public().0),expected_revision:0};
-        let acceptance=adminbase::InstitutionWalletAcceptance{genesis_hash:System::block_hash(0),cid_number:cid.to_vec().try_into().unwrap(),change:change.clone(),mode:adminbase::InstitutionWalletChangeMode::Governance,expires_at};
-        let proof=pair.sign(&primitives::sign::signing_message(primitives::sign::OP_SIGN_INSTITUTION_WALLET,&acceptance.encode())).0.to_vec().try_into().unwrap();
-        publicadmin::AdminWallets::<Runtime>::remove(&cid,&group[4]);
-        assert_eq!(<RuntimeInstitutionRoleProvider as engingcore::InstitutionRoleProvider<AccountId>>::active_accounts_for_role(&cid,&role).len(),5);
-        let next=VotingEngine::next_proposal_id();
-        assert!(PublicManage::propose_institution_governance(RuntimeOrigin::signed(group[0].clone()),cid.clone(),entitybase::InstitutionGovernanceAction::RotateAdminWallet{change,expires_at,new_wallet_proof:proof},cid.to_vec(),role).is_err());
-        assert_eq!(VotingEngine::next_proposal_id(),next);
-        assert!(!engingcore::VoterSnapshot::<Runtime>::iter_prefix(next).next().is_some());
-        assert!(!engingcore::FrozenWalletVersions::<Runtime>::iter_prefix(next).next().is_some());
-    });
-}
-
-#[test]
-fn frozen_wallet_metadata_does_not_change_existing_snapshot_or_vote_ticket_codec() {
-    use codec::Encode;
-    let f: serde_json::Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/primitives/tests/fixtures/role_permission.json"
-    )))
-    .unwrap();
-    let f = &f["frozen_institution_voters"];
-    let cid = f["cid_number"].as_str().unwrap().as_bytes();
-    let role = f["role_code"].as_str().unwrap().as_bytes();
-    let records = vec![([17u8; 32], 0u64), ([34u8; 32], 6u64)];
-    let ticket = engingcore::types::InstitutionVoteTicket::<[u8; 32]> {
-        role_subject: engingcore::types::RoleSubject {
-            cid_number: cid.to_vec().try_into().unwrap(),
-            role_code: role.to_vec().try_into().unwrap(),
-        },
-        voter_account_id: [17u8; 32],
-    };
-    let hex = |bytes: Vec<u8>| {
-        format!(
-            "0x{}",
-            bytes.iter().map(|b| format!("{b:02x}")).collect::<String>()
-        )
-    };
-    assert_eq!(hex(vec![[17u8; 32], [34u8; 32]].encode()), f["voters_hex"]);
-    assert_eq!(hex(records.encode()), f["versions_hex"]);
-    assert_eq!(hex(ticket.encode()), f["original_ticket_hex"]);
-}
-
-/// 完整V5认证及交易扩展：零余额新钱包由机构费用账户支付，退役再登记不重置nonce。
-#[test]
-fn institution_wallet_zero_balance_executes_native_pipeline_and_never_reuses_nonce() {
-    use adminbase::{InstitutionAdminWalletLifecycle, InstitutionAdminWalletQuery};
-    use entitybase::InstitutionMultisigQuery;
-    use frame_support::traits::Currency;
-    use sp_runtime::traits::{ExtensionVariant, PipelineAtVers, TransactionExtension};
-    new_test_ext().execute_with(|| {
-        let cid = test_cid_number(
-            primitives::governance_skeleton::federal_registry_institution()
-                .cid_number
-                .as_bytes(),
-        );
-        let old = PublicAdmins::institution_admins(adminbase::FRG, &cid).unwrap()[0].clone();
-        let seed = [0x91; 32];
-        let public = mldsa::public_key(&seed);
-        let account = mldsa::account_id(&public);
-        let wallet = AccountId::new(account);
-        assert_eq!(System::account(&wallet).providers, 0);
-        assert_eq!(System::account(&wallet).sufficients, 0);
-        assert!(
-            frame_system::CheckNonce::<Runtime>::validate_nonce_for_account(&wallet, 0).is_err()
-        );
-        assert_ok!(PublicAdmins::change_institution_wallet(
-            adminbase::FRG,
-            cid.to_vec(),
-            adminbase::InstitutionAdminWalletChange {
-                admin_account: old.clone(),
-                expected_wallet: old,
-                new_wallet: wallet.clone(),
-                expected_revision: 0
-            }
-        ));
-        assert_eq!(Balances::free_balance(&wallet), 0);
-        assert_eq!(System::account(&wallet).providers, 0);
-        assert_eq!(System::account(&wallet).sufficients, 1);
-        assert!(
-            frame_system::CheckNonce::<Runtime>::validate_nonce_for_account(&wallet, 0).is_ok()
-        );
-        let target_seed = [0x92; 32];
-        let target_public = mldsa::public_key(&target_seed);
-        let target = AccountId::new(mldsa::account_id(&target_public));
-        let change = adminbase::InstitutionAdminWalletChange {
-            admin_account: wallet.clone(),
-            expected_wallet: wallet.clone(),
-            new_wallet: target.clone(),
-            expected_revision: 0,
-        };
-        let expires_at = 1_782_950_400 + 180;
-        let acceptance = adminbase::InstitutionWalletAcceptance {
-            genesis_hash: System::block_hash(0),
-            cid_number: cid.to_vec().try_into().unwrap(),
-            change: change.clone(),
-            mode: adminbase::InstitutionWalletChangeMode::SelfSigned,
-            expires_at,
-        };
-        let accept = mldsa::sign(
-            &target_seed,
-            &primitives::sign::signing_message(
-                primitives::sign::OP_SIGN_INSTITUTION_WALLET,
-                &acceptance.encode(),
-            ),
-        )
-        .unwrap();
-        let call = RuntimeCall::PublicManage(publicentity::Call::rotate_institution_admin_wallet {
-            cid_number: cid.clone(),
-            change,
-            expires_at,
-            new_wallet_proof: mldsa::encode_pq_signature(&target_public, &accept)
-                .try_into()
-                .unwrap(),
-        });
-        let fee_account = RuntimeInstitutionQuery::lookup_institution_account(
-            &cid,
-            primitives::account_derive::RESERVED_NAME_FEE,
-        )
-        .unwrap();
-        let _ = Balances::make_free_balance_be(&fee_account, 10_000_000);
-        <mldsa::GenesisChainPhase<Runtime> as mldsa::ChainPhase>::enter_operation();
-        let ext: TxExtension = (
-            frame_system::AuthorizeCall::new(),
-            frame_system::CheckNonZeroSender::new(),
-            CheckNonStakeSender,
-            frame_system::CheckSpecVersion::new(),
-            frame_system::CheckTxVersion::new(),
-            frame_system::CheckGenesis::new(),
-            frame_system::CheckEra::from(sp_runtime::generic::Era::Immortal),
-            frame_system::CheckNonce::from(0),
-            frame_system::CheckWeight::new(),
-            pallet_transaction_payment::ChargeTransactionPayment::from(0),
-            frame_metadata_hash_extension::CheckMetadataHash::new(false),
-            (Default::default(), frame_system::WeightReclaim::new()),
-        );
-        let next_ext_template = ext.clone();
-        let review = (call.clone(), ext.clone(), ext.implicit().unwrap()).encode();
-        let mut implication = vec![mldsa::EXTENSION_VERSION];
-        implication.extend(review);
-        let proof = mldsa::Proof::First {
-            account,
-            public,
-            signature: mldsa::sign(&seed, &mldsa::transaction_message(&account, &implication))
-                .unwrap(),
-        };
-        let xt: UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic::from_parts(
-            call,
-            sp_runtime::generic::Preamble::General(ExtensionVariant::Other(
-                PipelineAtVers::<1, _>::new((mldsa::Authenticate::<Runtime>::from(proof), ext)),
-            )),
-        )
-        .into();
-        let fees_before = Balances::free_balance(&fee_account);
-        assert_ok!(Executive::apply_extrinsic(xt.clone())
-            .expect("full native pipeline accepts funded institution and zero balance signer"));
-        assert_eq!(Balances::free_balance(&wallet), 0);
-        assert!(Balances::free_balance(&fee_account) < fees_before);
-        assert_eq!(System::account_nonce(&wallet), 1);
-        assert_eq!(System::account(&wallet).sufficients, 1);
-        assert_eq!(
-            PublicAdmins::current_institution_wallet(adminbase::FRG, &cid, &target),
-            Some(target.clone())
-        );
-        assert_ok!(PublicAdmins::change_institution_wallet(
-            adminbase::FRG,
-            cid.to_vec(),
-            adminbase::InstitutionAdminWalletChange {
-                admin_account: target.clone(),
-                expected_wallet: target,
-                new_wallet: wallet.clone(),
-                expected_revision: 0
-            }
-        ));
-        assert_eq!(System::account_nonce(&wallet), 1);
-        assert_eq!(System::account(&wallet).sufficients, 1);
-        assert_eq!(
-            PublicAdmins::institution_wallet_state(adminbase::FRG, &cid, &wallet)
-                .unwrap()
-                .revision,
-            2
-        );
-        assert!(
-            frame_system::CheckNonce::<Runtime>::validate_nonce_for_account(&wallet, 0).is_err()
-        );
-        assert!(Executive::apply_extrinsic(xt).is_err());
-        assert_eq!(Balances::free_balance(&wallet), 0);
-        // 机构费用账户有余额也不能代付原定额投票费；完整扩展在dispatch前拒绝。
-        let vote = RuntimeCall::InternalVote(internalvote::Call::cast {
-            proposal_id: 0,
-            ticket_claim: internalvote::InternalVoteTicketClaim::InstitutionRole(
-                b"ORIGINAL_ROLE".to_vec().try_into().unwrap(),
-            ),
-            approve: true,
-        });
-        let mut vote_ext = next_ext_template;
-        vote_ext.7 = frame_system::CheckNonce::from(1);
-        let mut implication = vec![mldsa::EXTENSION_VERSION];
-        implication.extend((vote.clone(), vote_ext.clone(), vote_ext.implicit().unwrap()).encode());
-        let proof = mldsa::Proof::Stored {
-            account,
-            signature: mldsa::sign(&seed, &mldsa::transaction_message(&account, &implication))
-                .unwrap(),
-        };
-        let vote_xt: UncheckedExtrinsic = sp_runtime::generic::UncheckedExtrinsic::from_parts(
-            vote,
-            sp_runtime::generic::Preamble::General(ExtensionVariant::Other(
-                PipelineAtVers::<1, _>::new((
-                    mldsa::Authenticate::<Runtime>::from(proof),
-                    vote_ext,
-                )),
-            )),
-        )
-        .into();
-        assert!(matches!(
-            Executive::apply_extrinsic(vote_xt),
-            Err(
-                sp_runtime::transaction_validity::TransactionValidityError::Invalid(
-                    sp_runtime::transaction_validity::InvalidTransaction::Payment
-                )
-            )
-        ));
-        assert_eq!(System::account_nonce(&wallet), 1);
-    });
-}
-
-#[test]
-fn frg_retired_roster_actions_and_cross_province_personnel_are_rejected() {
-    new_test_ext().execute_with(|| {
-        let institution = primitives::governance_skeleton::federal_registry_institution();
-        let cid = test_cid_number(institution.cid_number.as_bytes());
-        let role: publicentity::RoleCodeOf =
-            primitives::governance_skeleton::province_commissioner_role_code(*b"GD")
-                .try_into()
-                .unwrap();
-        let other: publicentity::RoleCodeOf =
-            primitives::governance_skeleton::province_commissioner_role_code(*b"HU")
-                .try_into()
-                .unwrap();
-        let group = publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role);
-        let registrar = group[0].account_id.clone();
-        let admins = publicadmin::AdminAccounts::<Runtime>::get(&cid)
-            .unwrap()
-            .admins;
-        assert_eq!(admins.len(), 215);
-        let original = publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid)
-            .collect::<Vec<_>>()
-            .encode();
-        let mut target = group.clone();
-        target[1].account_id = AccountId::new([242; 32]);
-        let change = entitybase::InstitutionRoleAssignmentChange {
-            role_code: role.to_vec(),
-            assignments: target
-                .iter()
-                .map(|a| entitybase::InstitutionAssignmentTarget {
-                    account_id: a.account_id.clone(),
-                    term_start: 0,
-                    term_end: 0,
-                    assignment_source:
-                        entitybase::InstitutionAssignmentSource::InstitutionGovernance,
-                    assignment_source_ref: vec![],
-                    assignment_status: entitybase::InstitutionAssignmentStatus::Active,
-                })
-                .collect(),
-        };
-        let send = |action| {
-            PublicManage::propose_institution_governance(
-                RuntimeOrigin::signed(registrar.clone()),
-                cid.clone(),
-                action,
-                cid.to_vec(),
-                role.clone(),
-            )
-        };
-        for action in [
-            entitybase::InstitutionGovernanceAction::ReplaceAdmins {
-                admins: admins.to_vec(),
-            },
-            entitybase::InstitutionGovernanceAction::ReplaceAdminsAndMutateRoles {
-                admins: admins.to_vec(),
-                role_mutations: vec![],
-                assignment_changes: vec![change],
-                legal_representative_change: None,
-            },
-        ] {
-            assert_noop!(
-                send(action),
-                publicentity::Error::<Runtime>::InvalidInstitutionGovernanceAction
-            );
-        }
-        let mut outside = publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &other);
-        outside[1].account_id = AccountId::new([243; 32]);
-        assert_noop!(
-            send(
-                entitybase::InstitutionGovernanceAction::MutateRolesAndAssignments {
-                    role_mutations: vec![],
-                    assignment_changes: vec![entitybase::InstitutionRoleAssignmentChange {
-                        role_code: other.to_vec(),
-                        assignments: outside
-                            .iter()
-                            .map(|a| entitybase::InstitutionAssignmentTarget {
-                                account_id: a.account_id.clone(),
-                                term_start: 0,
-                                term_end: 0,
-                                assignment_source:
-                                    entitybase::InstitutionAssignmentSource::InstitutionGovernance,
-                                assignment_source_ref: vec![],
-                                assignment_status: entitybase::InstitutionAssignmentStatus::Active
-                            })
-                            .collect()
-                    }],
-                    legal_representative_change: None,
-                }
-            ),
-            publicentity::Error::<Runtime>::PermissionDenied
-        );
-        assert_eq!(
-            publicadmin::AdminAccounts::<Runtime>::get(&cid)
-                .unwrap()
-                .admins,
-            admins
-        );
-        assert_eq!(
-            publicentity::InstitutionRoleAssignments::<Runtime>::iter_prefix(&cid)
-                .collect::<Vec<_>>()
-                .encode(),
-            original
-        );
-    });
-}
-
-
-#[test]
-fn wallet_upgrade_repairs_existing_91_institutions_and_preserves_all_other_storage() {
-    use adminbase::{InstitutionAdminQuery, InstitutionAdminWalletQuery};
-    use frame_support::traits::{Currency, Hooks, StorageVersion};
-    use std::collections::BTreeMap;
-    new_test_ext().execute_with(|| {
-        let public = publicadmin::AdminAccounts::<Runtime>::iter().collect::<Vec<_>>();
-        let private = privateadmin::AdminAccounts::<Runtime>::iter().collect::<Vec<_>>();
-        assert_eq!((public.len(), private.len()), (90, 1));
-        let mut references = BTreeMap::<AccountId, u32>::new();
-        // 隔离夹具还原实读问题：名单、岗位均已存在，两类钱包记录全为空。
-        for (cid, roster) in &public {
-            for admin in &roster.admins {
-                publicadmin::AdminWallets::<Runtime>::remove(cid, &admin.account_id);
-                publicadmin::WalletRoleBindings::<Runtime>::remove(cid, &admin.account_id);
-                System::dec_sufficients(&admin.account_id);
-                *references.entry(admin.account_id.clone()).or_default() += 1;
-            }
-        }
-        for (cid, roster) in &private {
-            for admin in &roster.admins {
-                privateadmin::AdminWallets::<Runtime>::remove(cid, &admin.account_id);
-                privateadmin::WalletRoleBindings::<Runtime>::remove(cid, &admin.account_id);
-                System::dec_sufficients(&admin.account_id);
-                *references.entry(admin.account_id.clone()).or_default() += 1;
-            }
-        }
-        assert_eq!(references.values().sum::<u32>(), 1025);
-        StorageVersion::new(0).put::<PublicAdmins>();
-        StorageVersion::new(0).put::<PrivateAdmins>();
-        let sample = public[0].1.admins[0].account_id.clone();
-        let _ = Balances::make_free_balance_be(&sample, 12_345);
-        frame_system::Account::<Runtime>::mutate(&sample, |info| info.nonce = 23);
-        let subject = engingcore::AuthorizationSubject::Institution(engingcore::RoleSubject {
-            cid_number: public[0].0.to_vec().try_into().unwrap(),
-            role_code: b"COMMITTEE_MEMBER".to_vec().try_into().unwrap(),
-        });
-        let pid = 998899u128;
-        let frozen: frame_support::BoundedVec<
-            AccountId,
-            <Runtime as engingcore::Config>::MaxAdminsPerInstitution,
-        > = vec![sample.clone()].try_into().unwrap();
-        engingcore::VoterSnapshot::<Runtime>::insert(pid, &subject, &frozen);
-        internalvote::InternalTallies::<Runtime>::insert(
-            pid,
-            engingcore::VoteCountU32 { yes: 7, no: 2 },
-        );
-        let engingcore::AuthorizationSubject::Institution(role_subject) = subject else {
-            unreachable!()
-        };
-        internalvote::InternalVotesByTicket::<Runtime>::insert(
-            pid,
-            internalvote::InternalVoteTicket::Institution(engingcore::InstitutionVoteTicket {
-                role_subject,
-                voter_account_id: sample.clone(),
-            }),
-            true,
-        );
-        let mut expected_accounts =
-            frame_system::Account::<Runtime>::iter().collect::<BTreeMap<_, _>>();
-        for (wallet, count) in &references {
-            expected_accounts
-                .entry(wallet.clone())
-                .or_default()
-                .sufficients += *count;
-        }
-        let mut allowed = Vec::new();
-        for pallet in [b"PublicAdmins".as_slice(), b"PrivateAdmins".as_slice()] {
-            for name in [b"AdminWallets".as_slice(), b"WalletRoleBindings".as_slice()] {
-                allowed.push(frame_support::storage::storage_prefix(pallet, name).to_vec());
-            }
-        }
-        allowed.push(StorageVersion::storage_key::<PublicAdmins>().to_vec());
-        allowed.push(StorageVersion::storage_key::<PrivateAdmins>().to_vec());
-        for name in [
-            b"Account".as_slice(),
-            b"Events".as_slice(),
-            b"EventCount".as_slice(),
-        ] {
-            allowed.push(frame_support::storage::storage_prefix(b"System", name).to_vec());
-        }
-        let protected_state = || {
-            let mut entries = Vec::new();
-            let mut cursor = Vec::new();
-            while let Some(key) = sp_io::storage::next_key(&cursor) {
-                if !allowed.iter().any(|prefix| key.starts_with(prefix)) {
-                    entries.push((key.clone(), sp_io::storage::get(&key).unwrap().to_vec()));
-                }
-                cursor = key;
-            }
-            entries
-        };
-        let before = protected_state();
-        let weight = <PublicAdmins as Hooks<BlockNumber>>::on_runtime_upgrade()
-            .saturating_add(<PrivateAdmins as Hooks<BlockNumber>>::on_runtime_upgrade());
-        assert!(
-            weight.all_lte(RuntimeBlockWeights::get().max_block),
-            "全部1025条补齐必须在区块预算内"
-        );
-        assert_eq!(
-            StorageVersion::get::<PublicAdmins>(),
-            StorageVersion::new(1)
-        );
-        assert_eq!(
-            StorageVersion::get::<PrivateAdmins>(),
-            StorageVersion::new(1)
-        );
-        assert_eq!(
-            protected_state(),
-            before,
-            "名单、岗位、任职、权限、阈值、余额及旧提案所有记录必须逐字节不变"
-        );
-        assert_eq!(
-            frame_system::Account::<Runtime>::iter().collect::<BTreeMap<_, _>>(),
-            expected_accounts
-        );
-        for (cid, roster) in &public {
-            for admin in &roster.admins {
-                assert_eq!(
-                    PublicAdmins::institution_wallet_state(
-                        roster.institution_code,
-                        cid,
-                        &admin.account_id
-                    ),
-                    Some(adminbase::InstitutionAdminWalletState {
-                        wallet: Some(admin.account_id.clone()),
-                        revision: 0
-                    })
-                );
-                assert_eq!(
-                    PublicAdmins::resolve_role_authorization(
-                        roster.institution_code,
-                        cid,
-                        &admin.account_id
-                    ),
-                    Some(admin.account_id.clone())
-                );
-            }
-        }
-        for (cid, roster) in &private {
-            for admin in &roster.admins {
-                assert_eq!(
-                    PrivateAdmins::institution_wallet_state(
-                        roster.institution_code,
-                        cid,
-                        &admin.account_id
-                    ),
-                    Some(adminbase::InstitutionAdminWalletState {
-                        wallet: Some(admin.account_id.clone()),
-                        revision: 0
-                    })
-                );
-                assert_eq!(
-                    PrivateAdmins::resolve_role_authorization(
-                        roster.institution_code,
-                        cid,
-                        &admin.account_id
-                    ),
-                    Some(admin.account_id.clone())
-                );
-            }
-        }
-        let after = sp_io::storage::root(sp_runtime::StateVersion::V1);
-        <PublicAdmins as Hooks<BlockNumber>>::on_runtime_upgrade();
-        <PrivateAdmins as Hooks<BlockNumber>>::on_runtime_upgrade();
-        assert_eq!(
-            sp_io::storage::root(sp_runtime::StateVersion::V1),
-            after,
-            "重复升级不能再次补引用或改写状态"
-        );
-    });
 }

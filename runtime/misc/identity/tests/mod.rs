@@ -30,7 +30,7 @@ mod runtime {
     #[runtime::pallet_index(0)]
     pub type System = frame_system;
     #[runtime::pallet_index(1)]
-    pub type CitizenIdentity = super;
+    pub type Identity = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -133,7 +133,7 @@ impl CitizenIdentityAuthority<u64, pallet::SignatureOf<Test>> for TestCitizenIde
         signature.as_slice() == rebind_signature_bytes(account_id, payload)
     }
 
-    fn verify_admin_rebind_signature(
+    fn verify_registrar_rebind_signature(
         account_id: &u64,
         payload: &[u8],
         signature: &pallet::SignatureOf<Test>,
@@ -279,7 +279,7 @@ fn occupy_tag(tag: &str) {
 fn occupy_tag_as(tag: &str, account: u64) {
     let cid_bytes = citizen_cid_number(tag);
     let expires_at = rebind_expires_at();
-    assert_ok!(CitizenIdentity::occupy_cid(
+    assert_ok!(Identity::occupy_cid(
         RuntimeOrigin::signed(100),
         registrar_cid_number(),
         registrar_role_code(),

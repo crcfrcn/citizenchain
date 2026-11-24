@@ -1,16 +1,14 @@
-//! 内部投票写票、提前判定和超时终结。
-
+//! 机构岗位票据资格校验；个人多签投票归personal.rs。
 use super::*;
 
 impl<T: Config> Pallet<T> {
-    pub fn do_internal_vote(
+    pub(crate) fn vote_institution(
         who: T::AccountId,
         proposal_id: u128,
-        ticket_claim: InternalVoteTicketClaim,
+        role_code: RoleCode,
         approve: bool,
     ) -> DispatchResult {
-        let proposal = <engingcore::Pallet<T>>::ensure_open_proposal(proposal_id)?;
-
+        let proposal = engingcore::Pallet::<T>::ensure_open_proposal(proposal_id)?;
         ensure!(
             proposal.kind == PROPOSAL_KIND_INTERNAL,
             engingcore::Error::<T>::InvalidProposalKind
@@ -19,106 +17,33 @@ impl<T: Config> Pallet<T> {
             proposal.stage == STAGE_INTERNAL,
             engingcore::Error::<T>::InvalidProposalStage
         );
-        let (ticket, voter_role_code, eligible, eligible_total) = if let Some(actor_cid_number) =
-            proposal.actor_cid_number
-        {
-            let role_code = match ticket_claim {
-                InternalVoteTicketClaim::InstitutionRole(role_code) => role_code,
-                InternalVoteTicketClaim::Personal => {
-                    return Err(engingcore::Error::<T>::NoPermission.into())
-                }
-            };
-            let role_subject = engingcore::types::RoleSubject {
-                cid_number: actor_cid_number.clone(),
-                role_code: role_code.clone(),
-            };
-            let subject = AuthorizationSubject::Institution(role_subject.clone());
-            // 按该提案冻结的实际钱包去重，版本取自同一不可变快照，不能继承或重置旧票。
-            // 与下面的资格校验同源，同样只解析原始 `who`（绝不二次解析规范账户）。
-            // 解析为 None 时资格校验必然失败，此处的回退值不会被采用。
-            let voter_account_id = <engingcore::Pallet<T>>::resolve_snapshot_voter(proposal_id, &subject, &who)
-                    .ok_or(engingcore::Error::<T>::NoPermission)?;
-            (
-                InternalVoteTicket::Institution(InstitutionVoteTicket {
-                    role_subject,
-                    voter_account_id,
-                }),
-                Some(role_code),
-                <engingcore::Pallet<T>>::is_subject_voter_in_snapshot(proposal_id, subject, &who),
-                <engingcore::Pallet<T>>::institution_ticket_count(proposal_id, actor_cid_number)
-                    .ok_or(engingcore::Error::<T>::MissingVoterSnapshot)?,
-            )
-        } else {
-            ensure!(
-                matches!(ticket_claim, InternalVoteTicketClaim::Personal),
-                engingcore::Error::<T>::NoPermission
-            );
-            let personal_account_id = proposal
-                .execution_account_id
-                .ok_or(engingcore::Error::<T>::InvalidInstitution)?;
-            let subject = ProposalSubject::PersonalAccount(personal_account_id);
-            (
-                InternalVoteTicket::Personal(who.clone()),
-                None,
-                <engingcore::Pallet<T>>::is_admin_in_snapshot(proposal_id, subject.clone(), &who),
-                <engingcore::Pallet<T>>::snapshot_admins_len(proposal_id, subject)
-                    .ok_or(engingcore::Error::<T>::MissingAdminSnapshot)?,
-            )
+        let cid = proposal
+            .actor_cid_number
+            .ok_or(engingcore::Error::<T>::NoPermission)?;
+        let role_subject = engingcore::types::RoleSubject {
+            cid_number: cid.clone(),
+            role_code: role_code.clone(),
         };
-        ensure!(eligible, engingcore::Error::<T>::NoPermission);
+        let subject = AuthorizationSubject::Institution(role_subject.clone());
+        let person_cid =
+            engingcore::Pallet::<T>::resolve_snapshot_voter(proposal_id, &subject, &who)
+                .ok_or(engingcore::Error::<T>::NoPermission)?;
         ensure!(
-            !InternalVotesByTicket::<T>::contains_key(proposal_id, &ticket),
-            engingcore::Error::<T>::AlreadyVoted
+            engingcore::Pallet::<T>::is_subject_voter_in_snapshot(proposal_id, subject, &who),
+            engingcore::Error::<T>::NoPermission
         );
-
-        InternalVotesByTicket::<T>::insert(proposal_id, ticket, approve);
-        let tally = InternalTallies::<T>::mutate(proposal_id, |tally| {
-            if approve {
-                tally.yes = tally.yes.saturating_add(1);
-            } else {
-                tally.no = tally.no.saturating_add(1);
-            }
-            *tally
-        });
-
-        Self::deposit_event(Event::<T>::InternalVoteCast {
-            proposal_id,
+        let eligible_total = engingcore::Pallet::<T>::institution_ticket_count(proposal_id, cid)
+            .ok_or(engingcore::Error::<T>::MissingVoterSnapshot)?;
+        Self::record_internal_vote(
             who,
-            voter_role_code,
+            proposal_id,
+            InternalVoteTicket::Institution(InstitutionVoteTicket {
+                role_subject,
+                person_cid,
+            }),
+            Some(role_code),
             approve,
-        });
-
-        let threshold = InternalThresholdSnapshot::<T>::get(proposal_id)
-            .ok_or(Error::<T>::MissingThresholdSnapshot)?;
-        if tally.yes >= threshold {
-            <engingcore::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_PASSED)?;
-        } else {
-            let casted = tally.yes.saturating_add(tally.no);
-            let remaining = eligible_total.saturating_sub(casted);
-            if tally.yes.saturating_add(remaining) < threshold {
-                <engingcore::Pallet<T>>::set_status_and_emit(proposal_id, STATUS_REJECTED)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn do_finalize_internal_timeout(
-        proposal: &Proposal<frame_system::pallet_prelude::BlockNumberFor<T>, T::AccountId>,
-        proposal_id: u128,
-    ) -> DispatchResult {
-        ensure!(
-            proposal.stage == STAGE_INTERNAL,
-            engingcore::Error::<T>::InvalidProposalStage
-        );
-        ensure!(
-            proposal.status == engingcore::STATUS_VOTING,
-            engingcore::Error::<T>::ProposalAlreadyFinalized
-        );
-        ensure!(
-            <frame_system::Pallet<T>>::block_number() > proposal.end,
-            engingcore::Error::<T>::VoteNotExpired
-        );
-        <engingcore::Pallet<T>>::set_status_and_emit(proposal_id, engingcore::STATUS_REJECTED)
+            eligible_total,
+        )
     }
 }

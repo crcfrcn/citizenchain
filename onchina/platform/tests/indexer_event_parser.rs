@@ -35,7 +35,7 @@ fn runtime_issuance_and_personal_events_project_real_fields() {
     for (events, kind, recipient) in [
         (
             runtime_event(
-                "FullnodeIssuance",
+                "FullnodeIssue",
                 "FullnodeIssuanceIssued",
                 (7u32, other, account, 123u128),
             ),
@@ -44,7 +44,7 @@ fn runtime_issuance_and_personal_events_project_real_fields() {
         ),
         (
             runtime_event(
-                "ProvincialBankInterest",
+                "PrbBankIssue",
                 "ProvincialBankInterestMinted",
                 (2026u32, account, 123u128),
             ),
@@ -53,7 +53,7 @@ fn runtime_issuance_and_personal_events_project_real_fields() {
         ),
         (
             runtime_event(
-                "CitizenIssuance",
+                "CitizenIssue",
                 "CertificationRewardIssued",
                 (
                     account,
@@ -70,7 +70,7 @@ fn runtime_issuance_and_personal_events_project_real_fields() {
         ),
         (
             runtime_event(
-                "MultisigTransfer",
+                "Multisig",
                 "TransferExecuted",
                 (1u128, other, other, account, 123u128, 2u128),
             ),
@@ -79,7 +79,7 @@ fn runtime_issuance_and_personal_events_project_real_fields() {
         ),
         (
             runtime_event(
-                "PersonalManage",
+                "Personal",
                 "PersonalCreated",
                 (1u128, account, other, 3u32, 2u32, 123u128, 2u128),
             ),
@@ -88,7 +88,7 @@ fn runtime_issuance_and_personal_events_project_real_fields() {
         ),
         (
             runtime_event(
-                "PersonalManage",
+                "Personal",
                 "PersonalClosed",
                 (1u128, other, account, 3u32, 2u32, 123u128, 2u128),
             ),
@@ -136,7 +136,7 @@ fn empty_event_vectors_and_invalid_count_prefixes_follow_scale_decode() {
 #[test]
 fn overflow_corrupt_and_truncated_events_stop_the_batch() {
     let events = runtime_event(
-        "ProvincialBankInterest",
+        "PrbBankIssue",
         "ProvincialBankInterestMinted",
         (2026u32, [0x11u8; 32], i64::MAX as u128 + 1),
     );
@@ -149,10 +149,23 @@ fn overflow_corrupt_and_truncated_events_stop_the_batch() {
         assert!(collect_entity_projection_cids(&corrupt).is_err());
     }
     let unknown = runtime_event(
-        "ProvincialBankInterest",
+        "PrbBankIssue",
         "ProvincialBankYearSettled",
         (2026u32, 43u32, 123u128),
     );
     assert!(parse_block_events(&unknown, 7, None).unwrap().is_empty());
     assert!(parse_block_events(&unknown, 7, Some(u64::MAX)).is_err());
+}
+
+#[test]
+fn private_entity_events_refresh_the_real_institution_after_runtime_rename() {
+    let cid = b"GZ018-SFGYR-201206100-2026".to_vec();
+    let events = runtime_event(
+        "PrivateEntity",
+        "InstitutionCreated",
+        (cid.clone(), [0x11u8; 32], 2u32, 0u128, 0u128),
+    );
+    let (persons, institutions) = collect_entity_projection_cids(&events).unwrap();
+    assert!(persons.is_empty());
+    assert_eq!(institutions, vec![String::from_utf8(cid).unwrap()]);
 }

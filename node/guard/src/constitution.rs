@@ -151,7 +151,7 @@ fn find_article(chapters: &[MChapter], number: u32) -> Option<&MArticle> {
 
 /// 立法院模块在 `construct_runtime` 中的 pallet 名(twox128 前缀据此推导)。
 /// 硬编码,绝不读链上 metadata —— metadata 属可升级 runtime,会被恶意升级伪造。
-const PALLET_NAME: &[u8] = b"LegislationYuan";
+const PALLET_NAME: &[u8] = b"Legislation";
 
 /// 链上不可修改条款 manifest 镜像(与 `legislation::ImmutableManifest` 字段序一致)。
 #[derive(Decode, Encode)]
@@ -802,14 +802,14 @@ pub mod storage_key {
         out
     }
 
-    /// `LegislationYuan::Laws[law_id]` 的完整存储 key。
+    /// `Legislation::Laws[law_id]` 的完整存储 key。
     pub fn law(law_id: u64) -> Vec<u8> {
         let mut k = map_prefix(b"Laws");
         k.extend_from_slice(&blake2_128_concat(&law_id.encode()));
         k
     }
 
-    /// `LegislationYuan::LawVersions[law_id][version]` 的完整存储 key。
+    /// `Legislation::LawVersions[law_id][version]` 的完整存储 key。
     pub fn law_version(law_id: u64, version: u32) -> Vec<u8> {
         let mut k = map_prefix(b"LawVersions");
         k.extend_from_slice(&blake2_128_concat(&law_id.encode()));
@@ -817,7 +817,7 @@ pub mod storage_key {
         k
     }
 
-    /// `LegislationYuan::LawVersions[0]` 的 RAW key 前缀，用于识别未被 `latest_version` 声明的隐藏版本。
+    /// `Legislation::LawVersions[0]` 的 RAW key 前缀，用于识别未被 `latest_version` 声明的隐藏版本。
     pub fn constitution_versions_prefix() -> Vec<u8> {
         let mut k = map_prefix(b"LawVersions");
         k.extend_from_slice(&blake2_128_concat(
@@ -868,7 +868,7 @@ pub mod storage_key {
             || key.starts_with(&map_prefix(b"ConstitutionGuardVoteProof"))
     }
 
-    /// `LegislationYuan::LawVersionLabels[law_id][version]` 的完整存储 key。
+    /// `Legislation::LawVersionLabels[law_id][version]` 的完整存储 key。
     pub fn law_version_label(law_id: u64, version: u32) -> Vec<u8> {
         let mut k = map_prefix(b"LawVersionLabels");
         k.extend_from_slice(&blake2_128_concat(&law_id.encode()));
@@ -876,12 +876,12 @@ pub mod storage_key {
         k
     }
 
-    /// `LegislationYuan::ConstitutionImmutableManifest`(StorageValue,无 key hash)的完整 key。
+    /// `Legislation::ConstitutionImmutableManifest`(StorageValue,无 key hash)的完整 key。
     pub fn manifest() -> Vec<u8> {
         map_prefix(b"ConstitutionImmutableManifest")
     }
 
-    /// `LegislationYuan::ConstitutionAmendmentProof[version]`(Blake2_128Concat)的完整 key。
+    /// `Legislation::ConstitutionAmendmentProof[version]`(Blake2_128Concat)的完整 key。
     /// 核心修宪的永久公投凭据 `(eligible, yes, no)`,供守卫背书(第十九条,ADR-027 §6.3)。
     pub fn constitution_amendment_proof(version: u32) -> Vec<u8> {
         let mut k = map_prefix(b"ConstitutionAmendmentProof");
@@ -889,7 +889,7 @@ pub mod storage_key {
         k
     }
 
-    /// `LegislationYuan::ConstitutionGuardVoteProof[version]`(Blake2_128Concat)的完整 key。
+    /// `Legislation::ConstitutionGuardVoteProof[version]`(Blake2_128Concat)的完整 key。
     /// 修宪的永久护宪大法官终审凭据(赞成票数),供守卫背书(第21条,ADR-027 §6.3)。
     pub fn constitution_guard_vote_proof(version: u32) -> Vec<u8> {
         let mut k = map_prefix(b"ConstitutionGuardVoteProof");
@@ -897,7 +897,7 @@ pub mod storage_key {
         k
     }
 
-    /// `LegislationYuan::LawsByScope[Tier::Constitution][0]` 的完整 key(宪法层级唯一性校验)。
+    /// `Legislation::LawsByScope[Tier::Constitution][0]` 的完整 key(宪法层级唯一性校验)。
     /// Tier::Constitution 编码为单字节变体索引 `[0]`,scope_code = 0。
     pub fn laws_by_scope_constitution() -> Vec<u8> {
         let mut k = map_prefix(b"LawsByScope");

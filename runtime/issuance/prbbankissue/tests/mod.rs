@@ -37,7 +37,7 @@ mod runtime {
     #[runtime::pallet_index(1)]
     pub type Balances = pallet_balances;
     #[runtime::pallet_index(2)]
-    pub type ProvincialBankInterest = super;
+    pub type PrbBankIssue = super;
 }
 
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -102,8 +102,8 @@ fn run_to_block(n: u64) {
         let block = System::block_number() + 1;
         System::set_block_number(block);
         System::on_initialize(block);
-        ProvincialBankInterest::on_initialize(block);
-        ProvincialBankInterest::on_finalize(block);
+        PrbBankIssue::on_initialize(block);
+        PrbBankIssue::on_finalize(block);
         System::on_finalize(block);
     }
 }

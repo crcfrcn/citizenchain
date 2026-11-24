@@ -21,25 +21,20 @@ fn tier1_registry_keeps_subordinate_registry_business_superset() {
 }
 
 #[test]
-fn subordinate_registry_can_read_federal_registry_without_registry_crud_flags() {
+fn subordinate_registry_can_browse_federal_institution() {
     let federal = capabilities_for("FRG");
     let city = capabilities_for("CREG");
 
-    // CREG 必须能进入联邦注册局入口只读本省管理员;注册局维护类写权只留给 FRG。
+    // CREG 保留正常机构浏览；具体写权仍由对应业务和岗位授权核验。
     assert!(city.view_federal_registry);
-    assert!(city.view_federal_admins);
-    assert!(!city.manage_city_admins);
     assert!(federal.view_federal_registry);
-    assert!(federal.view_federal_admins);
-    assert!(federal.manage_city_admins);
 }
 
 #[test]
-fn national_judicial_yuan_can_view_own_admins_only() {
+fn national_judicial_yuan_has_no_registry_business() {
     let judicial = capabilities_for("NJD");
 
-    // NJD 可进入司法院工作台,但本期只给本机构管理员只读页,不获得注册局业务能力。
-    assert!(judicial.view_own_admins);
+    // NJD 可进入司法院工作台，不获得注册局业务能力。
     assert!(!judicial.can_view_citizens);
     assert!(!judicial.can_view_institutions);
     assert!(!judicial.view_city_registry);
@@ -48,12 +43,11 @@ fn national_judicial_yuan_can_view_own_admins_only() {
 
 #[test]
 fn legislative_institutions_get_role_based_legislation_capabilities() {
-    // 发起机构（国家众议会）：发起 + 代表机构表决；同时保留本机构管理员只读位。
+    // 发起机构（国家众议会）：发起 + 代表机构表决。
     let house = capabilities_for("NRP");
     assert!(house.can_view_legislation);
     assert!(house.can_propose_legislation);
     assert!(house.cast_representative_vote);
-    assert!(house.view_own_admins);
 
     // 参议会:只表决,无发起权(权力分离硬约束)。
     let senate = capabilities_for("NSN");
@@ -90,8 +84,7 @@ fn ownerless_cases_exercise_real_base_capabilities() {
             "{code} must not be injected by fixture"
         );
         assert!(fixture.workspace(code).is_none());
-        let mut expected = serde_json::to_value(super::EMPTY).unwrap();
-        if ["NRC", "PRC", "PRB"].contains(&code) { expected["canViewOwnAdmins"] = true.into(); }
+        let expected = serde_json::to_value(super::EMPTY).unwrap();
         assert_eq!(
             serde_json::to_value(super::capabilities_for(&empty, code)).unwrap(),
             expected,
@@ -104,20 +97,22 @@ fn ownerless_cases_exercise_real_base_capabilities() {
         );
     }
     let ordinary = super::capabilities_for(&empty, "SFGQ");
-    assert!(ordinary.view_own_admins);
     assert!(!ordinary.can_business_write && !ordinary.can_view_citizens);
 }
 
 
 #[test]
-fn wallet_frontend_entry_uses_only_own_institution_read_capability() {
+fn institution_workspace_has_profile_without_personnel_list_capabilities() {
     for code in ["NRC", "PRC", "PRB", "NJD", "CGOV", "CEDU", "SFGY", "UNIN"] {
         let capabilities = capabilities_for(code);
+        let serialized = serde_json::to_value(capabilities).unwrap();
+        for removed in ["canViewOwnAdmins", "canViewFederalRegistryAdmins", "canViewCityRegistryAdmins", "canCrudCityRegistryAdmins"] {
+            assert!(serialized.get(removed).is_none(), "{code}: {removed}");
+        }
         let sections = crate::workspace::manifest::own_institution_sections(capabilities);
-        let action = sections.iter().flat_map(|section| &section.workspace_actions).find(|action| action.action == "manage_own_admins").unwrap();
-        assert!(action.enabled, "已支持机构须有自己的钱包入口：{code}");
-        if ["NRC", "PRC", "PRB", "NJD", "SFGY", "UNIN"].contains(&code) { assert!(!capabilities.can_business_write, "钱包入口不授予注册局业务权限：{code}"); }
+        assert!(sections[0].workspace_actions.is_empty());
+        assert_eq!(sections[1].workspace_actions.len(), 1);
+        assert_eq!(sections[1].workspace_actions[0].action, "view_institution_profile");
+        assert!(sections[1].workspace_actions[0].enabled);
     }
-    let disabled = crate::workspace::manifest::own_institution_sections(super::EMPTY);
-    assert!(!disabled[0].workspace_actions[0].enabled);
 }

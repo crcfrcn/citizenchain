@@ -63,7 +63,7 @@ fn sign_golden_vectors() {
     assert!(!vectors.is_empty(), "fixture 至少需 1 条向量");
 
     assert_eq!(OP_SIGN_MLS_DEVICE_BIND, 0x1C);
-    assert_eq!(SIGN_OP_TAGS.len(), 17);
+    assert_eq!(SIGN_OP_TAGS.len(), 16);
     assert_eq!(vectors.len(), SIGN_OP_TAGS.len());
     for vector in &vectors {
         assert!(

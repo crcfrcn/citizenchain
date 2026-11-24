@@ -11,7 +11,7 @@ use core::cell::RefCell;
 
 use engingcore::{
     CitizenIdentityReader, ElectionProposalFinalizer, ElectionVoteResultCallback,
-    InstitutionRoleProvider, InternalAdminProvider, PopulationScope, ProposalExecutionOutcome,
+    InstitutionRoleProvider, InternalVoteProvider, PopulationScope, ProposalExecutionOutcome,
     ProposalTrackHandler, STATUS_PASSED, STATUS_REJECTED,
 };
 
@@ -102,7 +102,7 @@ thread_local! {
 }
 
 pub struct TestCitizenIdentityReader;
-pub struct TestInternalAdminProvider;
+pub struct TestInternalVoteProvider;
 pub struct TestInstitutionRoleProvider;
 
 const ORGANIZER_ROLE: &[u8] = b"ORGANIZER";
@@ -111,6 +111,15 @@ const SECOND_VOTER_ROLE: &[u8] = b"SECOND_MEMBER";
 const ELECTED_ROLE: &[u8] = b"SPEAKER";
 
 impl CitizenIdentityReader<AccountId32> for TestCitizenIdentityReader {
+    fn person_cid(who: &AccountId32) -> Option<engingcore::CidNumber> {
+        codec::Encode::encode(who).try_into().ok()
+    }
+
+    fn person_account(cid: &engingcore::CidNumber) -> Option<AccountId32> {
+        let bytes: [u8; 32] = cid.as_slice().try_into().ok()?;
+        Some(AccountId32::new(bytes))
+    }
+
     fn citizen_subject(who: &AccountId32) -> Option<engingcore::CitizenSubject<AccountId32>> {
         (*who != account(251)).then(|| test_citizen_subject(who))
     }
@@ -168,36 +177,10 @@ fn test_citizen_subject(who: &AccountId32) -> engingcore::CitizenSubject<Account
     }
 }
 
-impl InternalAdminProvider<AccountId32> for TestInternalAdminProvider {
-    fn institution_wallet_snapshot(
-        _cid: &[u8],
-        references: &[AccountId32],
-    ) -> Option<Vec<(AccountId32, u64)>> {
-        Some(
-            references
-                .iter()
-                .map(|reference| {
-                    let key = codec::Encode::encode(&(b"fixture-current-wallet", _cid, reference));
-                    sp_io::storage::get(&key)
-                        .map(|raw| {
-                            <(AccountId32, u64) as codec::Decode>::decode(&mut &raw[..])
-                                .expect("explicit fixture wallet")
-                        })
-                        .unwrap_or_else(|| (reference.clone(), 0))
-                })
-                .collect(),
-        )
-    }
+impl InternalVoteProvider<AccountId32> for TestInternalVoteProvider {
 
-    fn is_institution_admin(
-        institution_code: InstitutionCode,
-        cid_number: &[u8],
-        who: &AccountId32,
-    ) -> bool {
-        institution_code == INSTITUTION_CODE
-            && cid_number == institution_cid_number().as_slice()
-            && *who == organizer_admin()
-    }
+
+
 }
 
 impl InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
@@ -207,7 +190,13 @@ impl InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
             && role_code == ORGANIZER_ROLE
     }
 
-    fn active_accounts_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
+    fn active_persons_for_role(cid: &[u8], role: &[u8]) -> Vec<Vec<u8>> {
+        Self::fixture_wallets_for_role(cid, role).iter().map(codec::Encode::encode).collect()
+    }
+
+}
+impl TestInstitutionRoleProvider {
+    fn fixture_wallets_for_role(cid_number: &[u8], role_code: &[u8]) -> Vec<AccountId32> {
         if cid_number == institution_cid_number().as_slice() && role_code == TARGET_ROLE {
             target_admins()
         } else if cid_number == institution_cid_number().as_slice()
@@ -221,6 +210,7 @@ impl InstitutionRoleProvider<AccountId32> for TestInstitutionRoleProvider {
         }
     }
 }
+
 
 pub struct TestTimeProvider;
 
@@ -257,8 +247,8 @@ impl engingcore::Config for Test {
     type CitizenIdentityReader = TestCitizenIdentityReader;
     type JointVoteResultCallback = ();
     type InternalVoteResultCallback = ();
-    type InternalAdminProvider = TestInternalAdminProvider;
-    type MaxAdminsPerInstitution = ConstU32<16>;
+    type InternalVoteProvider = TestInternalVoteProvider;
+    type MaxSnapshotVoters = ConstU32<16>;
     type TimeProvider = TestTimeProvider;
     type WeightInfo = ();
     type TrackHandlers = (ElectionVote, ());
@@ -404,11 +394,3 @@ mod tally {
 }
 
 mod unit;
-
-/// 仅测试的当前机构凭据事实；不改岗位人员，不触碰个人身份。
-fn set_fixture_wallet(cid: &[u8], reference: &AccountId32, wallet: AccountId32, revision: u64) {
-    sp_io::storage::set(
-        &codec::Encode::encode(&(b"fixture-current-wallet", cid, reference)),
-        &codec::Encode::encode(&(wallet, revision)),
-    );
-}

@@ -31,22 +31,22 @@ pub(crate) const PURPOSE_INSTITUTION_CLOSE_ACCOUNT: &str = "INSTITUTION_CLOSE_AC
 
 /// 新增/关闭账户提案共用的鉴权前置:节点绑定 + 只能操作本机构 + 岗位码合法 + 作用域校验。
 ///
-/// 授权终局在 runtime(origin 处 `is_institution_admin` + 岗位码);本端只保证登录会话有效、
-/// 存在链上机构绑定、目标机构就是本机构、岗位码非空且不超长、机构落在管理员作用域内。
-/// 返回本机构 4 字节机构码(编码器据此选 pallet:公 30 / 私 31)。
+/// 授权终局在 runtime当前人员绑定及有效岗位任职;本端只保证登录会话有效、
+/// 存在链上机构绑定、目标机构就是本机构、岗位码非空且不超长、机构落在当前岗位作用域内。
+/// 返回是否为私权实体，编码器据此选择公权30或私权31。
 async fn authorize_own_institution_proposal(
     state: &AppState,
     ctx: &AdminAuthContext,
     cid_number: &str,
     proposer_role_code: &str,
-) -> Result<[u8; 4], axum::response::Response> {
-    let binding = match auth_repo::active_node_binding(&state.db) {
+) -> Result<bool, axum::response::Response> {
+    let _binding = match auth_repo::active_node_binding(&state.db) {
         Ok(Some(binding)) => binding,
         Ok(None) => {
             return Err(api_error(
                 StatusCode::FORBIDDEN,
                 2002,
-                "not an on-chain admin",
+                "node binding required",
             ))
         }
         Err(err) => {
@@ -65,10 +65,12 @@ async fn authorize_own_institution_proposal(
             "proposer_role_code 长度必须为 1 到 64 字节",
         ));
     }
-    if cid_number != binding.institution_cid_number
-        || binding.institution_code != ctx.institution_code
-    {
-        return Err(api_error(StatusCode::FORBIDDEN, 1003, "只能操作本机构账户"));
+    if cid_number != ctx.institution_cid_number || proposer_role_code != ctx.role_code {
+        return Err(api_error(
+            StatusCode::FORBIDDEN,
+            1003,
+            "必须使用当前所选机构和岗位",
+        ));
     }
     let Some((inst, _)) = (match state.db.get_institution_with_accounts(cid_number) {
         Ok(value) => value,
@@ -93,10 +95,20 @@ async fn authorize_own_institution_proposal(
         return Err(api_error(
             StatusCode::FORBIDDEN,
             1003,
-            "institution out of current admin scope",
+            "机构超出当前岗位作用域",
         ));
     }
-    code_bytes(&inst.institution_code)
+    crate::authentication::login::validate_selected_permission(
+        state,
+        ctx,
+        None,
+        Some(entitybase::business_action::ACTION_INSTITUTION_CLOSE),
+    )
+    .await?;
+    let snapshot = super::roles::fetch_registration_snapshot(cid_number)
+        .await
+        .map_err(|e| api_error(StatusCode::BAD_GATEWAY, 5002, &e))?;
+    Ok(snapshot.owner == crate::chain_runtime::EntityPallet::Private)
 }
 
 pub(crate) async fn create_account(
@@ -130,7 +142,7 @@ pub(crate) async fn create_account(
     }
     let cid_number = cid_number.trim().to_string();
     let proposer_role_code = input.proposer_role_code.trim().to_string();
-    let code =
+    let is_private =
         match authorize_own_institution_proposal(&state, &ctx, &cid_number, &proposer_role_code)
             .await
         {
@@ -138,11 +150,11 @@ pub(crate) async fn create_account(
             Err(resp) => return resp,
         };
     // 新增机构自定义账户 = 发起本机构内部投票提案(runtime call 7);由发起管理员使用签名钱包冷签,
-    // OnChina 不再签发独立凭证,授权由 runtime 在 origin 处以 is_institution_admin + 岗位码校验。
+    // OnChina 不再签发独立凭证,授权由 runtime 在 origin 处以当前人员有效任职及岗位权限校验。
     let chain = encode_propose_add_institution_account(&ProposeAddInstitutionAccountArgs {
         cid_number: cid_number.clone().into_bytes(),
         account_names: vec![account_name.clone().into_bytes()],
-        institution_code: code,
+        is_private,
         proposer_role_code: proposer_role_code.into_bytes(),
     });
     let output = match build_chain_sign_output(
@@ -260,7 +272,7 @@ pub(crate) async fn delete_account(
     }
     let cid_number = cid_number.trim().to_string();
     let proposer_role_code = input.proposer_role_code.trim().to_string();
-    let code =
+    let is_private =
         match authorize_own_institution_proposal(&state, &ctx, &cid_number, &proposer_role_code)
             .await
         {
@@ -279,13 +291,13 @@ pub(crate) async fn delete_account(
         );
     };
     // 关闭机构自定义账户 = 发起本机构内部投票提案(runtime call 1);关闭执行时余额扫入本机构主账户,
-    // 授权由 runtime 在 origin 处以 is_institution_admin + 岗位码校验。
+    // 授权由 runtime 在 origin 处以当前人员有效任职及岗位权限校验。
     let chain = encode_propose_close_institution(&ProposeCloseInstitutionArgs {
         actor_cid_number: cid_number.clone().into_bytes(),
         proposer_role_code: proposer_role_code.into_bytes(),
         institution_account_id,
         beneficiary_account_id,
-        institution_code: code,
+        is_private,
     });
     let output = match build_chain_sign_output(
         &state,

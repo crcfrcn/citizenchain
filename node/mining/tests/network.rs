@@ -58,7 +58,7 @@ fn institution_catalog_is_only_an_identity_map_not_an_online_node_list() {
     );
 }
 
-/// 存储键必须与链端 `CitizenIdentity::CidCount` 逐字节一致。
+/// 存储键必须与链端 `Identity::CidCount` 逐字节一致。
 ///
 /// pallet 或 storage 改名后，`state_getStorage` 只会安静地返回 null，
 /// 挖矿页轻节点一格随之常年显示 0 —— 没有任何报错。本测试是唯一的早期告警。
@@ -66,7 +66,7 @@ fn institution_catalog_is_only_an_identity_map_not_an_online_node_list() {
 fn cid_count_storage_key_matches_chain_pallet_and_storage_name() {
     let key = cid_count_storage_key();
     assert_eq!(key.len(), 32);
-    assert_eq!(&key[..16], twox_128(b"CitizenIdentity").as_slice());
+    assert_eq!(&key[..16], twox_128(b"Identity").as_slice());
     assert_eq!(&key[16..], twox_128(b"CidCount").as_slice());
 }
 

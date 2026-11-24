@@ -6,6 +6,7 @@ import { QrcodeOutlined } from '@ant-design/icons';
 import { Button, Card, Layout, Typography } from 'antd';
 import { AuthProvider } from "../authentication/Context";
 import { useAuth } from "../authentication/useAuth";
+import { usePasskeyRegistration } from "../authentication/usePasskey";
 import { writeStoredAuth, clearStoredAuth } from "../authentication/storage";
 import type { AdminAuth } from "../authentication/types";
 import { adminLogout, checkAdminAuth } from "../authentication/api";
@@ -24,13 +25,13 @@ function resolveHeaderAdminIdentity(auth: AdminAuth | null): { cidShortName: str
 }
 
 function AppInner() {
-  const { auth, setAuth, capabilities, passkeyState } = useAuth();
+  const { auth, setAuth, capabilities } = useAuth();
+  const { busy: passkeyBusy, register: registerPasskey } = usePasskeyRegistration();
   const authRef = useRef(auth);
   authRef.current = auth;
   const requestedModule = new URLSearchParams(window.location.search).get('module');
   const [bootstrapping, setBootstrapping] = useState(true);
   const [cidMeta, setCidMeta] = useState<CidMetaResult | null>(null);
-  const passkeyRegistered = passkeyState.status === 'ready' ? passkeyState.registered : null;
 
   useEffect(() => {
     setCidMeta(null);
@@ -51,8 +52,9 @@ function AppInner() {
         if (cancelled || authRef.current !== auth) return;
         const refreshedAuth: AdminAuth = {
           ...auth,
-          walletRevision: checked.walletRevision,
-          walletNamespace: checked.walletNamespace,
+          bindingRevision: checked.bindingRevision,
+          personCid: checked.personCid,
+          roleCode: checked.roleCode,
           setupRequired: checked.setupRequired,
           accountId: checked.accountId,
           institutionCidNumber: checked.institutionCidNumber,
@@ -180,6 +182,7 @@ function AppInner() {
                 {`${headerAdminIdentity.familyName}${headerAdminIdentity.givenName}` || '暂未设置'}
               </span>
             </Typography.Text>
+            <Button size="small" loading={passkeyBusy} onClick={() => void registerPasskey()} aria-label="本人密钥设置">密钥</Button>
             <Button
               size="small"
               danger
@@ -231,7 +234,6 @@ function AppInner() {
             requestedModule={requestedModule}
             auth={auth}
             capabilities={capabilities}
-            passkeyRegistered={passkeyRegistered}
             cidMeta={cidMeta}
             setCidMeta={setCidMeta}
           />

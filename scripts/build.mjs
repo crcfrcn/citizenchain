@@ -563,8 +563,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 export async function generatedHeaders(source) {
  const {readFile,writeFile}=await import('node:fs/promises');
  const files={
-  "runtime/admins/personaladmin/src/weights.rs": "定义个人多签管理员变更的执行及数据库读写权重。",
-  "runtime/entity/personalentity/src/weights.rs": "定义个人多签创建与关闭的执行及数据库读写权重。",
+  "runtime/misc/personal/src/weights.rs": "定义个人多签创建、关闭、成员变更和终态的执行及数据库读写权重。",
   "runtime/entity/privateentity/src/weights.rs": "定义私权机构账户和治理登记的执行及数据库读写权重。",
   "runtime/entity/publicentity/src/weights.rs": "定义公权机构账户和治理登记的执行及数据库读写权重。",
   "runtime/governance/destroy/src/weights.rs": "定义决议销毁的执行及数据库读写权重。",

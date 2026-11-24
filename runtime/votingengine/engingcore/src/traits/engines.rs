@@ -53,6 +53,11 @@ impl<AccountId> JointVoteEngine<AccountId> for () {
 /// 业务模块只能选择“提案语义”，不能传入“本次投票通过阈值”。
 /// 阈值读取、快照、计票、自动赞成票与通过/否决判定全部归属投票引擎。
 pub trait InternalVoteEngine<AccountId> {
+    /// 个人普通阈值的唯一引擎校验；未配置引擎时拒绝，不猜测默认规则。
+    fn validate_personal_threshold(_admins_len: u32, _threshold: u32) -> Result<(), DispatchError> {
+        Err(DispatchError::Other("PersonalVoteEngineNotConfigured"))
+    }
+
     /// 创建机构内部提案。机构唯一主体是 CID；具体资产账户仅作为执行上下文。
     fn create_institution_proposal_with_data(
         who: AccountId,
@@ -63,22 +68,6 @@ pub trait InternalVoteEngine<AccountId> {
         vote_plan: VotePlanOf<AccountId>,
         data: sp_std::vec::Vec<u8>,
     ) -> Result<u128, DispatchError>;
-
-    /// 创建机构管理员集合变更提案。
-    ///
-    /// 本次机构投票使用业务模块传入 `VotePlan` 的岗位有效选民快照和当前机构阈值；
-    /// 变更通过后的新阈值由 admins 模块在回调执行成功时登记。
-    fn create_institution_admin_change_proposal_with_data(
-        _who: AccountId,
-        _institution_code: InstitutionCode,
-        _actor_cid_number: sp_std::vec::Vec<u8>,
-        _vote_plan: VotePlanOf<AccountId>,
-        _data: sp_std::vec::Vec<u8>,
-    ) -> Result<u128, DispatchError> {
-        Err(DispatchError::Other(
-            "InstitutionAdminSetMutationVoteEngineNotConfigured",
-        ))
-    }
 
     /// 创建个人多签普通内部提案。个人多签没有机构 CID。
     fn create_personal_proposal_with_data(
@@ -119,7 +108,7 @@ pub trait InternalVoteEngine<AccountId> {
         ))
     }
 
-    /// 创建管理员集合变更内部投票提案。只允许 admins 模块 模块接入。
+    /// 创建个人多签管理员集合变更内部提案，仅供个人多签模块接入。
     ///
     /// 本次投票仍使用当前 active 阈值；`new_threshold` 只表示变更执行成功后
     /// 写入投票引擎的下一阶段动态阈值。
@@ -146,16 +135,6 @@ pub trait InternalVoteEngine<AccountId> {
 
     /// 个人多签已激活动态阈值。
     fn active_personal_threshold(_personal_account: AccountId) -> Option<u32> {
-        None
-    }
-
-    /// 读取指定提案的 pending 阈值；不存在时再读取主体 active 阈值。
-    /// 注册业务回调在核心提交执行成功副作用前发事件时使用。
-    fn configured_institution_threshold(
-        _proposal_id: u128,
-        _institution_code: InstitutionCode,
-        _cid_number: &[u8],
-    ) -> Option<u32> {
         None
     }
 

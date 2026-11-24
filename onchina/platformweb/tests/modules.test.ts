@@ -163,7 +163,7 @@ describe('当前会话的密钥状态与工作台首屏', () => {
     const React = await import('react');
     const { createRoot } = await import('react-dom/client');
     const root = createRoot(document.getElementById('root')!);
-    const auth = { walletRevision: '0', walletNamespace: 'PublicAdmins' as const, setupRequired: false, accessToken: 'fixture-session', accountId: 'fixture-account', institutionCidNumber: 'fixture-institution',
+    const auth = { bindingRevision:'1',personCid:'fixture-person',roleCode:'REGISTRAR', setupRequired: false, accessToken: 'fixture-session', accountId: 'fixture-account', institutionCidNumber: 'fixture-institution',
       institutionCode: 'FRG', familyName: '测', givenName: '试', workspace: { workspace_kind: 'registry' } } as import('../authentication/types').AdminAuth;
     return { React, root, auth, dispose: async () => {
       await React.act(async () => root.unmount());
@@ -261,65 +261,45 @@ describe('当前会话的密钥状态与工作台首屏', () => {
 });
 
 
-describe('管理员表格字段与原操作边界', () => {
-  const browserTest = process.env.ONCHINA_TEST_DOM ? it : it.skip;
-  browserTest('岗位姓名独立显示，钱包使用完整SS58，密钥和钱包更换仅限本人', async () => {
+describe('宿主本人密钥工具', () => {
+  (process.env.ONCHINA_TEST_DOM ? it : it.skip)('密钥入口不依赖名单，首次设置和后续更新沿用同一认证流程', async () => {
     vi.resetModules();
     const { createRequire } = await import('node:module');
     const { JSDOM } = createRequire(import.meta.url)(process.env.ONCHINA_TEST_DOM!);
-    const dom = new JSDOM('<div id="root"></div>', { url: 'https://onchina.example.invalid/', pretendToBeVisual: true });
-    const computed = dom.window.getComputedStyle.bind(dom.window);
-    dom.window.getComputedStyle = (element: Element) => computed(element);
-    dom.window.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
-    for (const name of ['window', 'document', 'navigator', 'HTMLElement', 'Element', 'ShadowRoot', 'SVGElement', 'getComputedStyle']) vi.stubGlobal(name, dom.window[name]);
+    const dom = new JSDOM('<div id="root"></div>', { url: 'https://onchina.example.invalid/' });
+    for (const name of ['window', 'document', 'navigator', 'sessionStorage', 'HTMLElement', 'Element', 'ShadowRoot', 'SVGElement', 'getComputedStyle']) vi.stubGlobal(name, dom.window[name]);
     vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
-    const account = (byte: string) => '0x' + byte.repeat(32);
-    const auth = { accessToken: 'admin-table-session', accountId: account('11'), institutionCode: 'SFGY', institutionCidNumber: 'own-institution' };
-    const register = vi.fn(async () => {});
-    vi.doMock('../authentication/useAuth', () => ({ useAuth: () => ({ auth }) }));
-    vi.doMock('../authentication/usePasskey', () => ({ usePasskeyRegistration: () => ({ registered: false, busy: false, register }) }));
-    const rows = [
-      { accountId: account('11'), roleCode: 'R_FINANCE', roleName: '财务岗', familyName: '张', givenName: '三', balanceFen: '12345', isSelf: true },
-      { accountId: account('22'), roleCode: 'R_REVIEW', roleName: '复核岗', familyName: '', givenName: '', balanceFen: '0', isSelf: false },
-      { accountId: account('33'), roleCode: '', roleName: '', familyName: '李', givenName: '四', balanceFen: null, isSelf: false },
-    ];
-    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 0, data: { institutionCode: 'SFGY', rows } })));
     const React = await import('react');
     const { createRoot } = await import('react-dom/client');
-    const { OwnInstitutionAdminsView } = await import('../institutions/AdminsView');
-    const { decodeSs58 } = await import('../codes/ss58');
-    const host = document.getElementById('root')!;
-    const root = createRoot(host);
+    const root = createRoot(document.getElementById('root')!);
+    const auth = { bindingRevision:'1',personCid:'fixture-person',roleCode:'REGISTRAR', setupRequired: false, accessToken: 'key-session', accountId: 'key-account', institutionCidNumber: 'key-institution', institutionCode: 'FRG', familyName: '测', givenName: '试', workspace: { workspace_kind: 'registry' } };
+    vi.doMock('../workspace/modules', async original => ({ ...await original<typeof import('../workspace/modules')>(), initializeModules: async () => {}, workspaceView: () => () => React.createElement('span', null, '业务工作台') }));
+    vi.doMock('../authentication/LoginView', () => ({ LoginView: () => {
+      const { setAuth } = useAuth(); return React.createElement('button', { onClick: () => setAuth(auth as never) }, '测试登录');
+    } }));
+    vi.doMock('../controls/notice', () => ({ notice: { success: vi.fn(), error: vi.fn() } }));
+    const { useAuth } = await import('../authentication/useAuth');
+    const client = await import('../authentication/passkeyClient');
+    const register = vi.spyOn(client, 'registerPasskey').mockResolvedValue();
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async path => {
+      expect(path).toBe('/api/admin/auth/passkey/status');
+      return new Response(JSON.stringify({ code: 0, data: { registered: true } }));
+    });
     try {
-      await React.act(async () => root.render(React.createElement(OwnInstitutionAdminsView, { layout: 'table' })));
-      expect([...host.querySelectorAll('thead th')].map(cell => cell.textContent)).toEqual(['序号', '岗位', '姓名', '钱包账户', '余额', '操作']);
-      const actual = [...host.querySelectorAll('tbody tr[data-row-key]')];
-      const first = actual[0].querySelectorAll('td');
-      expect(first[1].textContent).toBe('财务岗'); expect(first[2].textContent).toBe('张三');
-      expect(decodeSs58(first[3].textContent!)).toBe(rows[0].accountId);
-      expect(first[4].textContent).toBe('123.45 元'); expect([...first[5].querySelectorAll('button')].map(button => button.textContent?.replace(/\s/g, ''))).toEqual(['密钥', '更换']);
-      expect(actual[1].querySelectorAll('td')[1].textContent).toBe('复核岗');
-      expect(actual[1].querySelectorAll('td')[2].textContent).toBe('-');
-      expect(actual[1].querySelectorAll('td')[4].textContent).toBe('0.00 元');
-      expect(actual[1].querySelectorAll('td')[5].textContent?.trim()).toBe('');
-      expect(actual[2].querySelectorAll('td')[1].textContent).toBe('-');
-      expect(actual[2].querySelectorAll('td')[2].textContent).toBe('李四');
-      await React.act(async () => first[5].querySelector('button')!.click());
-      expect(register).toHaveBeenCalledTimes(1);
-      expect(document.body.textContent).not.toContain('管理员完整信息');
-      await React.act(async () => (actual[1] as HTMLElement).click());
-      expect(document.body.textContent).toContain('管理员完整信息');
-      expect(document.body.textContent).toContain('复核岗');
+      const { default: App } = await import('../workspace/App');
+      await React.act(async () => root.render(React.createElement(App)));
+      await React.act(async () => [...document.querySelectorAll('button')].find(b => b.textContent === '测试登录')!.click());
+      expect(document.body.textContent).toContain('业务工作台');
+      expect(document.body.textContent).not.toContain('管理员列表');
+      expect(fetcher).not.toHaveBeenCalled();
+      const key = document.querySelector('[aria-label="本人密钥设置"]') as HTMLButtonElement;
+      expect(key).not.toBeNull();
+      await React.act(async () => key.click());
+      expect(register).toHaveBeenCalledTimes(1); expect(register).toHaveBeenCalledWith(auth);
       expect(fetcher).toHaveBeenCalledTimes(1);
-      expect(fetcher.mock.calls[0][0]).toBe('/api/admin/own-institution-admins');
-      await React.act(async () => root.render(React.createElement(OwnInstitutionAdminsView, { layout: 'cards' })));
-      expect(host.querySelector('table')).toBeNull();
-      expect([...host.querySelectorAll('button')].filter(button => button.textContent?.replace(/\s/g, '') === '更换')).toHaveLength(1);
-      expect([...host.querySelectorAll('button')].filter(button => button.textContent?.replace(/\s/g, '') === '密钥')).toHaveLength(1);
-
     } finally {
-      await React.act(async () => root.unmount()); fetcher.mockRestore();
-      vi.doUnmock('../authentication/useAuth'); vi.doUnmock('../authentication/usePasskey');
+      await React.act(async () => root.unmount()); register.mockRestore(); fetcher.mockRestore();
+      vi.doUnmock('../workspace/modules'); vi.doUnmock('../authentication/LoginView'); vi.doUnmock('../controls/notice');
       dom.window.close(); vi.unstubAllGlobals(); vi.resetModules();
     }
   });

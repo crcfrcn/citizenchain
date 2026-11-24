@@ -65,7 +65,7 @@ export interface Institution {
     family_name: string;
     given_name: string;
     cid_number: string;
-    account_id: string;
+    account_id: string | null;
   } | null;
   photoPath?: string | null;
   photoName?: string | null;
@@ -174,15 +174,6 @@ export interface LegalRepresentativePhoto {
   file_size: number;
 }
 
-export interface CreateInstitutionAdminInput {
-  /** 机构初始管理员账户 ID。 */
-  accountId: string;
-  /** 管理员姓；不填时后端按公民资料解析，仍无法解析则使用“管理”。 */
-  familyName?: string | null;
-  /** 管理员名；不填时后端按公民资料解析，仍无法解析则使用“员”。 */
-  givenName?: string | null;
-}
-
 // ─── 请求 DTO ─────────────────────────────────────────────────
 
 export interface CreateInstitutionInput {
@@ -211,7 +202,6 @@ export interface CreateInstitutionInput {
   parentCidNumber?: string;
   privateType?: PrivateType;
   partnershipKind?: PartnershipKind;
-  admins: CreateInstitutionAdminInput[];
 }
 
 export interface InstitutionCreatePayload {
@@ -227,7 +217,6 @@ export interface InstitutionCreatePayload {
   parentCidNumber: string | null;
   privateType: PrivateType | null;
   partnershipKind: PartnershipKind | null;
-  admins: CreateInstitutionAdminInput[];
 }
 
 function nullableTrim(value?: string | null): string | null {
@@ -255,11 +244,6 @@ export function buildInstitutionCreatePayload(input: CreateInstitutionInput): In
     parentCidNumber: nullableTrim(input.parentCidNumber),
     privateType: nullableTrim(input.privateType) as PrivateType | null,
     partnershipKind: nullableTrim(input.partnershipKind) as PartnershipKind | null,
-    admins: (input.admins ?? []).map((admin) => ({
-      accountId: admin.accountId.trim(),
-      familyName: nullableTrim(admin.familyName) ?? '管理',
-      givenName: nullableTrim(admin.givenName) ?? '员',
-    })),
   };
 }
 

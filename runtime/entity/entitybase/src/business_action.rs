@@ -79,7 +79,7 @@ pub const ACTION_UPDATE_VOTING_IDENTITY: u32 = 2;
 pub const ACTION_UPDATE_CANDIDATE_IDENTITY: u32 = 3;
 pub const ACTION_REVOKE_IDENTITY: u32 = 4;
 pub const ACTION_OCCUPY_CID: u32 = 6;
-pub const ACTION_ADMIN_REBIND_CID_ACCOUNT_ID: u32 = 7;
+pub const ACTION_REGISTRAR_REBIND_CID: u32 = 7;
 pub const ACTION_REVOKE_CID: u32 = 8;
 pub const ACTION_SET_ADDRESS_CATALOG: u32 = 0;
 pub const ACTION_SET_ADDRESS_NAME: u32 = 1;
@@ -344,7 +344,7 @@ pub fn fixed_role_permission_specs(
                     ACTION_UPDATE_CANDIDATE_IDENTITY,
                     ACTION_REVOKE_IDENTITY,
                     ACTION_OCCUPY_CID,
-                    ACTION_ADMIN_REBIND_CID_ACCOUNT_ID,
+                    ACTION_REGISTRAR_REBIND_CID,
                     ACTION_REVOKE_CID,
                 ],
             );
@@ -490,7 +490,7 @@ pub fn registry_institution_capability_allows(
                 | ACTION_UPDATE_CANDIDATE_IDENTITY
                 | ACTION_REVOKE_IDENTITY
                 | ACTION_OCCUPY_CID
-                | ACTION_ADMIN_REBIND_CID_ACCOUNT_ID
+                | ACTION_REGISTRAR_REBIND_CID
                 | ACTION_REVOKE_CID
         ),
         MODULE_ADDRESS_REGISTRY => matches!(

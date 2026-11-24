@@ -1,7 +1,7 @@
 //! 读取准确最终块上下文并构造GRANDPA更换持钥证明。
 
 use crate::request::COMMITTEE_ROLE_CODE;
-use codec::Decode;
+use codec::DecodeAll;
 use codec::Encode;
 
 use serde_json::Value;
@@ -45,7 +45,7 @@ pub fn fetch_current_public_key(
     finalized_hash: &str,
 ) -> Result<[u8; 32], String> {
     let key = nodeclient::query::map_key(
-        "GrandpaKeyChange",
+        "GrandpaKey",
         "CurrentGrandpaKeys",
         &cid_scale(actor_cid_number)?,
     );
@@ -53,7 +53,7 @@ pub fn fetch_current_public_key(
         .ok_or_else(|| "链上未找到目标机构 GRANDPA 公钥".to_string())?;
     let bytes = hex::decode(raw.trim_start_matches("0x"))
         .map_err(|error| format!("解码当前 GRANDPA 公钥失败: {error}"))?;
-    <[u8; 32]>::decode(&mut bytes.as_slice())
+    <[u8; 32]>::decode_all(&mut bytes.as_slice())
         .map_err(|_| "当前 GRANDPA 公钥 SCALE 数据无效".to_string())
 }
 
@@ -62,7 +62,7 @@ pub(crate) fn fetch_proof_nonce(
     finalized_hash: &str,
 ) -> Result<u64, String> {
     let key = nodeclient::query::map_key(
-        "GrandpaKeyChange",
+        "GrandpaKey",
         "NextGrandpaKeyProofNonce",
         &cid_scale(actor_cid_number)?,
     );
@@ -71,7 +71,8 @@ pub(crate) fn fetch_proof_nonce(
     };
     let bytes = hex::decode(raw.trim_start_matches("0x"))
         .map_err(|error| format!("解码 GRANDPA proof nonce 失败: {error}"))?;
-    u64::decode(&mut bytes.as_slice()).map_err(|_| "GRANDPA proof nonce SCALE 数据无效".to_string())
+    u64::decode_all(&mut bytes.as_slice())
+        .map_err(|_| "GRANDPA proof nonce SCALE 数据无效".to_string())
 }
 
 pub(crate) fn fetch_current_set_id(finalized_hash: &str) -> Result<u64, String> {
@@ -81,7 +82,7 @@ pub(crate) fn fetch_current_set_id(finalized_hash: &str) -> Result<u64, String> 
     };
     let bytes = hex::decode(raw.trim_start_matches("0x"))
         .map_err(|error| format!("解码 GRANDPA set id 失败: {error}"))?;
-    u64::decode(&mut bytes.as_slice()).map_err(|_| "GRANDPA set id SCALE 数据无效".to_string())
+    u64::decode_all(&mut bytes.as_slice()).map_err(|_| "GRANDPA set id SCALE 数据无效".to_string())
 }
 
 pub fn fetch_authorities(
@@ -92,7 +93,7 @@ pub fn fetch_authorities(
         .ok_or_else(|| "链上 GRANDPA authority set 不存在".to_string())?;
     let bytes = hex::decode(raw.trim_start_matches("0x"))
         .map_err(|error| format!("解码 GRANDPA authority set 失败: {error}"))?;
-    sp_consensus_grandpa::AuthorityList::decode(&mut bytes.as_slice())
+    sp_consensus_grandpa::AuthorityList::decode_all(&mut bytes.as_slice())
         .map_err(|_| "GRANDPA authority set SCALE 数据无效".to_string())
 }
 
@@ -122,7 +123,7 @@ pub(crate) fn build_runtime_call(
         .try_into()
         .map_err(|_| "委员岗位码超出链上范围".to_string())?;
     let call = match old_key_signature {
-        Some(old_key_signature) => runtime::RuntimeCall::GrandpaKeyChange(
+        Some(old_key_signature) => runtime::RuntimeCall::GrandpaKey(
             grandpakey::Call::<runtime::Runtime>::schedule_grandpa_key_rotation {
                 actor_cid_number,
                 actor_role_code,
@@ -133,7 +134,7 @@ pub(crate) fn build_runtime_call(
                 new_public_key_signature: new_key_signature,
             },
         ),
-        None => runtime::RuntimeCall::GrandpaKeyChange(
+        None => runtime::RuntimeCall::GrandpaKey(
             grandpakey::Call::<runtime::Runtime>::propose_emergency_grandpa_key_recovery {
                 actor_cid_number,
                 actor_role_code,

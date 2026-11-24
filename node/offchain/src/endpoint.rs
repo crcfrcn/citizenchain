@@ -26,11 +26,11 @@ fn encode_cid_key_data(cid_number: &str) -> Result<Vec<u8>, String> {
     Ok(bv.encode())
 }
 
-/// 构造 `OffchainTransaction::ClearingBankNodes(cid_number)` 的 storage key(hex 含 0x 前缀)。
+/// 构造 `Offchain::ClearingBankNodes(cid_number)` 的 storage key(hex 含 0x 前缀)。
 pub fn clearing_bank_nodes_key(cid_number: &str) -> Result<String, String> {
     let key_data = encode_cid_key_data(cid_number)?;
     Ok(nodeclient::query::map_key(
-        "OffchainTransaction",
+        "Offchain",
         "ClearingBankNodes",
         &key_data,
     ))

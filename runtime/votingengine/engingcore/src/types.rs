@@ -37,14 +37,13 @@ pub type RoleCode =
 
 /// 机构岗位的一张投票票据。
 ///
-/// 票权由机构 CID、岗位码和实际签名账户共同确定；同一账户担任多个岗位时，
-/// 每个岗位各形成一张独立票据，同一岗位与同一账户组合只能使用一次。
+/// 票权由机构 CID、岗位码和人员 CID 确定。同一人员换绑钱包不产生新票。
 #[derive(
     Clone, Debug, PartialEq, Eq, Encode, Decode, DecodeWithMemTracking, TypeInfo, MaxEncodedLen,
 )]
-pub struct InstitutionVoteTicket<AccountId> {
+pub struct InstitutionVoteTicket {
     pub role_subject: RoleSubject<CidNumber, RoleCode>,
-    pub voter_account_id: AccountId,
+    pub person_cid: CidNumber,
 }
 
 /// 公民公投的一张完整票据。
@@ -432,8 +431,8 @@ pub enum PendingCleanupStage {
     /// 清理业务数据（ProposalData + ProposalMeta）和核心数据（Proposals + Tallies）。
     /// 这是清理流程的最后一步，单次完成。
     FinalCleanup,
-    /// 与机构名单快照同寿命的冻结钱包版本；原清理游标编码不变。
-    FrozenWalletVersions,
+    /// 清理到期的历史钱包快照原始字节，仅供清理状态机使用。
+    HistoricalVoterSnapshots,
 }
 
 /// 延迟清理 FIFO 中的单个任务。

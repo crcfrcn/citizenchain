@@ -51,8 +51,9 @@ fn module_action_json_and_dispatch_share_valid_names_and_rejections() {
 #[test]
 fn ordinary_institution_cannot_prepare_registry_business() {
     let admin = AdminAuthContext {
-        wallet_revision: "0".into(),
-        wallet_namespace: crate::chain_runtime::AdminPallet::PublicAdmins,
+        binding_revision: "1".into(),
+        person_cid: crate::testing::person_cid(),
+        role_code: "REGISTRAR".into(),
         account_id: format!("0x{}", "11".repeat(32)),
         institution_cid_number: "own-institution".into(),
         institution_code: "SFLP".into(),
@@ -65,8 +66,6 @@ fn ordinary_institution_cannot_prepare_registry_business() {
         cid_short_name: None,
     };
     for action in [
-        AdminActionType::CreateCityRegistry,
-        AdminActionType::DeleteCityRegistry,
         AdminActionType::InstitutionCreate,
         AdminActionType::CitizenOnchainPush,
         AdminActionType::InstitutionUpdate,
@@ -84,7 +83,6 @@ fn passkey_prepare_is_limited_to_local_governance() {
     assert!(!AdminActionType::InstitutionUploadDocument.can_prepare());
     assert!(!AdminActionType::InstitutionDeleteDocument.can_prepare());
     assert!(!AdminActionType::CitizenOnchainPush.can_prepare());
-    assert!(AdminActionType::CreateCityRegistry.can_prepare());
 }
 
 #[test]
@@ -108,27 +106,10 @@ fn operation_auth_has_exactly_three_tiers() {
 }
 
 #[test]
-fn governing_capability_boundary_excludes_institution_update_and_upload() {
-    // 机构元数据更新与文档上传由发起管理员的 scope 限定本辖区,不要求 Tier1 创世注册局治理能力。
-    assert!(!AdminActionType::InstitutionUpdate.requires_governing_capability());
-    assert!(!AdminActionType::InstitutionUploadDocument.requires_governing_capability());
-    // 注册局新增/删除下级仍要求 Tier1 创世注册局治理能力。
-    assert!(AdminActionType::CreateCityRegistry.requires_governing_capability());
-    assert!(AdminActionType::DeleteCityRegistry.requires_governing_capability());
-    // 机构自定义账户增删属机构自管(不经注册局审批),不要求治理能力。
-    assert!(!AdminActionType::InstitutionCreate.requires_governing_capability());
-    assert!(!AdminActionType::InstitutionCreateAccount.requires_governing_capability());
-    assert!(!AdminActionType::InstitutionDeleteAccount.requires_governing_capability());
-    assert!(!AdminActionType::InstitutionDeleteDocument.requires_governing_capability());
-    assert!(!AdminActionType::NodeBindingUnbind.requires_governing_capability());
-}
-
-#[test]
 fn citizen_onchain_push_uses_one_passkey_and_round_trips() {
     // 最终链签已是管理员唯一钱包签名，操作创建阶段只额外消费一次 Passkey。
     let action = AdminActionType::CitizenOnchainPush;
     assert_eq!(action.auth_type(), AdminOperationAuth::Passkey);
-    assert!(!action.requires_governing_capability());
     assert!(!action.is_governance());
     let parsed = parse_action_type(action.as_str()).expect("citizen action parses");
     assert_eq!(parsed, action);
@@ -151,7 +132,6 @@ fn legislation_actions_are_cold_sign_and_round_trip() {
     ];
     for action in actions {
         assert_eq!(action.auth_type(), AdminOperationAuth::PasskeyColdSign);
-        assert!(!action.requires_governing_capability());
         // as_str ↔ parse_action_type 逐字往返一致。
         let parsed = parse_action_type(action.as_str()).expect("legislation action parses");
         assert_eq!(parsed, action);
@@ -172,8 +152,6 @@ fn expected_tier(action: &AdminActionType) -> AdminOperationAuth {
         A::NodeBindingUnbind => Passkey,
         A::CitizenOnchainPush => Passkey,
         // 链上写:产生链上交易/凭证、改 Active 集合或高危治理。
-        A::CreateCityRegistry => Passkey,
-        A::DeleteCityRegistry => Passkey,
         A::InstitutionCreate => PasskeyColdSign,
         A::InstitutionUpdate => Passkey,
         A::InstitutionCreateAccount => PasskeyColdSign,
@@ -193,9 +171,7 @@ fn expected_tier(action: &AdminActionType) -> AdminOperationAuth {
 }
 
 /// 固定内建动作逐项核对；开放模块动作由独立回归核对归属和鉴权档。
-const ALL_ACTIONS: [AdminActionType; 20] = [
-    AdminActionType::CreateCityRegistry,
-    AdminActionType::DeleteCityRegistry,
+const ALL_ACTIONS: [AdminActionType; 18] = [
     AdminActionType::InstitutionCreate,
     AdminActionType::InstitutionUpdate,
     AdminActionType::InstitutionCreateAccount,
@@ -298,7 +274,7 @@ fn tier_membership_counts_are_pinned() {
         .iter()
         .filter(|a| a.auth_type() == AdminOperationAuth::PasskeyColdSign)
         .count();
-    assert_eq!(passkey, 7, "本地写(Passkey)档动作数变化,必须显式确认");
+    assert_eq!(passkey, 5, "本地写(Passkey)档动作数变化,必须显式确认");
     assert_eq!(
         cold_sign, 13,
         "链上写(PasskeyColdSign)档动作数变化,必须显式确认"

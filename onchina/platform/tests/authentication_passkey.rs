@@ -210,8 +210,12 @@ fn mandatory_setup_and_credential_update_follow_real_http_and_webauthn() {
 #[ignore = "由控制台交付本机 onchina_test 数据库后执行隔离 PostgreSQL 集成回归"]
 fn assertion_is_bound_to_account_expiry_and_single_consumption() {
     let sandbox = crate::database::IsolatedTestDb::new();
-    let actor = format!("0x{}", "11".repeat(32));
-    let other = format!("0x{}", "22".repeat(32));
+    let (_, _, session) = crate::testing::session_fixture(&sandbox.db, false);
+    let actor = session.context();
+    let other = crate::authentication::login::AdminAuthContext {
+        role_code: "OTHER".into(),
+        ..actor.clone()
+    };
     let now = Utc::now();
     sandbox
         .db
@@ -222,6 +226,20 @@ fn assertion_is_bound_to_account_expiry_and_single_consumption() {
                 conn, "missing", &actor, now
             )?);
             assert!(!store::consume_assertion_conn(conn, "live", &other, now)?);
+            for dimension in ["person", "binding", "institution", "wallet"] {
+                let mut changed = actor.clone();
+                match dimension {
+                    "person" => changed.person_cid = crate::testing::person_for("CTZN", "other"),
+                    "binding" => changed.binding_revision = "2".into(),
+                    "institution" => changed.institution_cid_number = "other".into(),
+                    _ => changed.account_id = format!("0x{}", "22".repeat(32)),
+                }
+                assert!(
+                    !store::consume_assertion_conn(conn, "live", &changed, now)?,
+                    "{dimension}"
+                );
+            }
+
             assert!(!store::consume_assertion_conn(
                 conn, "expired", &actor, now
             )?);
@@ -269,14 +287,40 @@ fn assertion_is_bound_to_account_expiry_and_single_consumption() {
         .unwrap();
 }
 
+fn user_fixture() -> crate::authentication::login::AdminAuthContext {
+    crate::authentication::login::AdminAuthContext {
+        binding_revision: "1".into(),
+        person_cid: crate::testing::person_cid(),
+        role_code: "R1".into(),
+        account_id: format!("0x{}", "11".repeat(32)),
+        institution_cid_number: "institution".into(),
+        institution_code: "CREG".into(),
+        admin_level: None,
+        family_name: String::new(),
+        given_name: String::new(),
+        scope_province_name: None,
+        scope_city_name: None,
+        scope_town_name: None,
+        cid_short_name: None,
+    }
+}
 #[test]
-fn admin_user_uuid_is_stable_for_canonical_account_id() {
-    let account_id = "0x1111111111111111111111111111111111111111111111111111111111111111";
-    let a = admin_user_uuid(account_id);
-    let b = admin_user_uuid(account_id);
-    assert_eq!(a, b, "相同规范账户 ID 的 user handle 必须稳定");
-    let c = admin_user_uuid("0x2222222222222222222222222222222222222222222222222222222222222222");
-    assert_ne!(a, c, "不同账户 user handle 必须不同");
+fn person_user_uuid_tracks_person_binding_but_can_serve_multiple_roles() {
+    let a = user_fixture();
+    assert_eq!(person_user_uuid(&a), person_user_uuid(&a));
+    let mut b = a.clone();
+    b.role_code = "R2".into();
+    b.institution_cid_number = "another".into();
+    assert_eq!(person_user_uuid(&a), person_user_uuid(&b));
+    for change in ["person", "binding", "account"] {
+        let mut b = a.clone();
+        match change {
+            "person" => b.person_cid = crate::testing::person_for("CTZN", "other"),
+            "binding" => b.binding_revision = "2".into(),
+            _ => b.account_id = format!("0x{}", "22".repeat(32)),
+        };
+        assert_ne!(person_user_uuid(&a), person_user_uuid(&b));
+    }
 }
 
 #[test]
@@ -305,7 +349,7 @@ fn passkey_register_and_authenticate_round_trip() {
     let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
 
     // 注册往返:server 出挑战 → 软认证器签 → server 验证落凭证。
-    let user_id = admin_user_uuid("0xtestadmin");
+    let user_id = person_user_uuid(&user_fixture());
     let (ccr, reg_state) = webauthn
         .start_passkey_registration(user_id, "0xtestadmin", "0xtestadmin", None)
         .expect("start registration");

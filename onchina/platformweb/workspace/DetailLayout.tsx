@@ -43,8 +43,6 @@ function defaultIcon(key: string) {
       return <TeamOutlined />;
     case 'representative':
       return <IdcardOutlined />;
-    case 'admins':
-      return <TeamOutlined />;
     case 'accounts':
       return <WalletOutlined />;
     case 'documents':

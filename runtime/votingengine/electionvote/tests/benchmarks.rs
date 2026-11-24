@@ -2,8 +2,14 @@
 
 #![cfg(feature = "runtime-benchmarks")]
 
-use codec::Decode;
-use engingcore::{CitizenIdentityReader, InternalAdminProvider};
+/// 清理基准只需有界且互异的票据键，无须配置身份。
+fn cleanup_cid(index: u32) -> engingcore::types::CidNumber {
+    let mut bytes = sp_runtime::sp_std::vec![b'C'; 32];
+    bytes[..4].copy_from_slice(&index.to_le_bytes());
+    bytes.try_into().expect("清理基准 CID 键长度")
+}
+
+use engingcore::{CitizenIdentityReader, InternalVoteProvider};
 use frame_benchmarking::v2::*;
 use frame_system::RawOrigin;
 use sp_runtime::traits::SaturatedConversion;
@@ -23,9 +29,9 @@ fn setup_election<T: Config>(
     let proposal_id = 0u128;
     // 互选入口会按当前机构管理员真源解析签名账户，不能使用任意 benchmark 账户。
     // fresh spec 中 NRC 第一个在册管理员同时适用于普选夹具。
-    let voter =
-        T::AccountId::decode(&mut &primitives::cid::china::china_cb::CHINA_CB[0].admins[0][..])
-            .expect("NRC benchmark admin account decodes");
+    let voter = frame_benchmarking::account(
+        primitives::cid::china::china_cb::CHINA_CB[0].cid_number, 0, 0,
+    );
     let actor_cid_number: engingcore::CidNumber = primitives::cid::china::china_cb::CHINA_CB[0]
         .cid_number
         .as_bytes()
@@ -100,7 +106,7 @@ fn setup_election<T: Config>(
             },
         );
     } else {
-        <T as engingcore::Config>::InternalAdminProvider::benchmark_seed_institution_voter(
+        <T as engingcore::Config>::InternalVoteProvider::benchmark_seed_institution_voter(
             actor_cid_number.as_slice(),
             &voter,
         );
@@ -114,7 +120,7 @@ fn setup_election<T: Config>(
         engingcore::Pallet::<T>::snapshot_role_voters(
             proposal_id,
             subject.clone(),
-            sp_runtime::sp_std::vec![voter.clone()],
+            sp_runtime::sp_std::vec![T::CitizenIdentityReader::person_cid(&voter).expect("基准选民身份").into_inner()],
         )
         .expect("benchmark mutual role snapshot");
         assert!(
@@ -168,7 +174,7 @@ mod benchmarks {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
-                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+                person_cid: cleanup_cid(i),
             };
             crate::PopularElectionVotesByCid::<T>::insert(
                 0u128,
@@ -198,7 +204,7 @@ mod benchmarks {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
-                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+                person_cid: cleanup_cid(i),
             };
             crate::MutualElectionVotesByTicket::<T>::insert(
                 0u128,
@@ -228,7 +234,7 @@ mod benchmarks {
                     cid_number: cid.clone(),
                     role_code: sp_runtime::sp_std::vec![b'R';64].try_into().unwrap(),
                 },
-                voter_account_id: account::<T::AccountId>("cleanup", i, 0),
+                person_cid: cleanup_cid(i),
             };
             crate::ElectionCandidateTallies::<T>::insert(0u128, cid, 1u32);
         }

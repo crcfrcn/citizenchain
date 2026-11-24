@@ -30,8 +30,8 @@ pub fn action_label_zh(action_key: &str) -> String {
 static ACTION_LOGIN_CODE: LazyLock<u16> = LazyLock::new(|| registry_action_code("login"));
 static ACTION_CITIZEN_IDENTITY_CODE: LazyLock<u16> =
     LazyLock::new(|| registry_action_code("citizen_identity"));
-static ACTION_ONCHINA_ADMIN_CODE: LazyLock<u16> =
-    LazyLock::new(|| registry_action_code("onchina_admin_action"));
+static ACTION_ONCHINA_CONFIRM_CODE: LazyLock<u16> =
+    LazyLock::new(|| registry_action_code("onchina_confirm"));
 static ACTION_CITIZEN_OCCUPY_CODE: LazyLock<u16> =
     LazyLock::new(|| registry_action_code("citizen_occupy"));
 static ACTION_CITIZEN_REBIND_CODE: LazyLock<u16> =
@@ -47,10 +47,10 @@ pub fn action_citizen_identity() -> u16 {
     *ACTION_CITIZEN_IDENTITY_CODE
 }
 
-/// 注册局管理员治理文本确认(非链动作,b.d=onchina_admin_governance canonical JSON),
+/// 链上中国操作文本确认(非链动作,b.d=onchina_admin_governance canonical JSON),
 /// 对应 qr-action-registry.md 非链动作码 a=3。
-pub(crate) fn action_onchina_admin() -> u16 {
-    *ACTION_ONCHINA_ADMIN_CODE
+pub(crate) fn action_onchina_confirm() -> u16 {
+    *ACTION_ONCHINA_CONFIRM_CODE
 }
 
 /// 注册局代办首次绑定的公民域签名。b.d 是含零 account_id 槽的
@@ -60,19 +60,18 @@ pub fn action_occupy() -> u16 {
 }
 
 /// 注册局代办换绑钱包的新账户域签名。b.d 是含零 new_account_id 槽的
-/// CidRebindAuthorization 模板，域为 OP_SIGN_CID_ADMIN_REBIND。
+/// CidRebindAuthorization 模板，域为 OP_SIGN_CID_REGISTRAR_REBIND。
 pub fn action_rebind() -> u16 {
     *ACTION_CITIZEN_REBIND_CODE
 }
-// 链交易动作码(机构治理/管理员集合)不在此处发明扁平常量:
+// 链交易动作码不另设扁平常量：
 // 统一用 `crate::institutions::chain_action_code(pallet,call)` 派生(b.a 与 b.d 同源),
-// 旧机构直接创建 call 5 已关闭。机构管理员变更由 entity 治理结果驱动，
-// 不存在 public/private admins 的直接集合变更动作。
+// 正常岗位任免由实体治理入口执行，不存在独立机构管理员集合动作。
 // 详见 qr-action-registry.md「链交易动作码」。
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignRequestBody {
-    /// a:动作码。登录=1,公民绑定=2,链上中国平台管理员动作=3。
+    /// a:动作码。登录=1,公民绑定=2,链上中国操作确认=3。
     #[serde(rename = "a")]
     pub action: u16,
     /// g:算法提示。0 按账户选择，1 为 sr25519，2 为 ML-DSA-65。
@@ -232,11 +231,8 @@ struct AccountIdCodeBody {
 /// 未知字段全部拒绝。已废止的旧 `k=5 chat_node_pairing` 载荷会因 body 字段集不匹配
 /// 被 `deny_unknown_fields` 拒掉，不需要专门的拒绝分支。
 ///
-/// 账户码不携带 CID 与昵称：后端从链上管理员名册读取身份字段，并在同一个 finalized
-/// 区块解析带 CID 管理员的当前绑定账户。私权 LR 的 CID 来自机构法定代表人记录；冻结
-/// 公权无 CID 管理员和私权非 LR 无 CID 管理员按名册账户处理；个人多签不进入 OnChina。
-/// 管理员私钥保管在离线的 CitizenWallet，账户码由它自己就能出示，登录第 1 步不再
-/// 需要联网热钱包参与。
+/// 账户码只表达钱包账户；后端在同一finalized块解析identity绑定、人员CID及有效岗位。
+/// 账户码和二维码均不提供独立机构名单，私钥保留在离线钱包。
 pub(crate) fn parse_account_id_code(raw: &str) -> Result<String, QrParseError> {
     let value: serde_json::Value =
         serde_json::from_str(raw).map_err(|error| QrParseError::BadJson(error.to_string()))?;
@@ -391,11 +387,18 @@ pub(crate) async fn join_frames(
     }
 }
 
-
 /// 仅展示公开签名材料，分帧与钱包使用同一原生实现，不改变签名原文。
-pub(crate) async fn split_frames(axum::Json(text): axum::Json<String>) -> impl axum::response::IntoResponse {
+pub(crate) async fn split_frames(
+    axum::Json(text): axum::Json<String>,
+) -> impl axum::response::IntoResponse {
     match chain_signing::mldsa::qr_frames(&text) {
-        Ok(frames) => (axum::http::StatusCode::OK, axum::Json(serde_json::json!({"code":0,"data":frames}))),
-        Err(error) => (axum::http::StatusCode::BAD_REQUEST, axum::Json(serde_json::json!({"code":1,"message":error}))),
+        Ok(frames) => (
+            axum::http::StatusCode::OK,
+            axum::Json(serde_json::json!({"code":0,"data":frames})),
+        ),
+        Err(error) => (
+            axum::http::StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({"code":1,"message":error})),
+        ),
     }
 }

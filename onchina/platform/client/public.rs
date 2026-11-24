@@ -16,7 +16,7 @@ use crate::*;
 
 /// 公民端完整公权目录过滤。
 /// CitizenApp 公民端“公权机构”必须显示:
-/// ① 链上 PublicManage 投影出的公权机构;
+/// ① 链上 PublicEntity 投影出的公权机构;
 /// ② 上级为链上公法人的非法人。
 /// 参数 $1=province_code、$2=city_code。
 const GOV_FROM_WHERE: &str = "
@@ -91,7 +91,7 @@ impl PublicInstitutionRow {
             row.get::<_, Option<String>>("representative_cid"),
             row.get::<_, Option<String>>("representative_account"),
         ) {
-            (Some(family_name), Some(given_name), Some(cid_number), Some(account_id)) => {
+            (Some(family_name), Some(given_name), Some(cid_number), account_id) => {
                 Some(crate::institutions::LegalRepresentative {
                     family_name,
                     given_name,

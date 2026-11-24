@@ -14,7 +14,7 @@ fn city_registration_counts_first_identity_once_for_the_actual_registry() {
         assert_eq!(CityRegistryProgress::<Test>::get(&registry).registered, 0);
 
         let register = |signature| {
-            CitizenIdentity::register_voting_identity(
+            Identity::register_voting_identity(
                 RuntimeOrigin::signed(100),
                 registry.clone(),
                 registrar_role_code(),
@@ -35,7 +35,7 @@ fn city_registration_counts_first_identity_once_for_the_actual_registry() {
         );
 
         let candidate = |account, citizen_cid: &[u8]| {
-            CitizenIdentity::upgrade_to_candidate_identity(
+            Identity::upgrade_to_candidate_identity(
                 RuntimeOrigin::signed(100),
                 registry.clone(),
                 registrar_role_code(),
@@ -54,7 +54,7 @@ fn city_registration_counts_first_identity_once_for_the_actual_registry() {
             0
         );
 
-        assert_ok!(CitizenIdentity::revoke_identity(
+        assert_ok!(Identity::revoke_identity(
             RuntimeOrigin::signed(100),
             registry.clone(),
             registrar_role_code(),
@@ -80,7 +80,7 @@ fn city_registration_uses_the_next_national_rank_and_qualifies_once() {
                 progress.registered = minimum - 2;
             });
 
-            CitizenIdentity::record_city_registration(&registry);
+            Identity::record_city_registration(&registry);
             assert_eq!(
                 CityRegistryProgress::<Test>::get(&registry).registered,
                 minimum - 1
@@ -88,8 +88,8 @@ fn city_registration_uses_the_next_national_rank_and_qualifies_once() {
             assert_eq!(CityRegistryProgress::<Test>::get(&registry).rank, None);
             assert_eq!(QualifiedCityCount::<Test>::get(), already_qualified);
 
-            CitizenIdentity::record_city_registration(&registry);
-            CitizenIdentity::record_city_registration(&registry);
+            Identity::record_city_registration(&registry);
+            Identity::record_city_registration(&registry);
             assert_eq!(
                 CityRegistryProgress::<Test>::get(&registry).rank,
                 Some(already_qualified + 1)
@@ -105,7 +105,7 @@ fn register_voting_identity_stores_identity_and_counts_scope() {
         // 占号先行:身份写入前置。
         occupy_tag("0001");
 
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -128,7 +128,7 @@ fn register_voting_identity_stores_identity_and_counts_scope() {
         );
         assert_eq!(CountryVotingCount::<Test>::get(), 1);
         assert_eq!(ProvinceVotingCount::<Test>::get(code(b"43")), 1);
-        assert!(CitizenIdentity::voting_subject(&1, &town_scope()).is_some());
+        assert!(Identity::voting_subject(&1, &town_scope()).is_some());
     });
 }
 
@@ -150,12 +150,12 @@ fn natp_resident_cannot_become_voting_citizen() {
         )
         .expect("natp cid should generate")
         .into_bytes();
-        assert_ok!(CitizenIdentity::self_occupy_cid(
+        assert_ok!(Identity::self_occupy_cid(
             RuntimeOrigin::signed(5),
             cid(&natp),
         ));
         assert_noop!(
-            CitizenIdentity::register_voting_identity(
+            Identity::register_voting_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -175,7 +175,7 @@ fn candidate_identity_requires_full_profile_and_enables_candidate_reader() {
         // 占号先行:身份写入前置。
         occupy_tag("CANDIDATE");
 
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -188,8 +188,8 @@ fn candidate_identity_requires_full_profile_and_enables_candidate_reader() {
         assert!(CandidateIdentityByCid::<Test>::contains_key(cid(
             &citizen_cid_number("CANDIDATE")
         )));
-        assert!(CitizenIdentity::voting_subject(&1, &town_scope()).is_some());
-        assert!(CitizenIdentity::candidate_subject(&1, &town_scope()).is_some());
+        assert!(Identity::voting_subject(&1, &town_scope()).is_some());
+        assert!(Identity::candidate_subject(&1, &town_scope()).is_some());
     });
 }
 
@@ -200,7 +200,7 @@ fn candidate_identity_requires_family_name_and_given_name_separately() {
         let mut empty_family = candidate_payload(1, &citizen_cid_number("EMPTY-FAMILY"));
         empty_family.family_name = Default::default();
         assert_noop!(
-            CitizenIdentity::upgrade_to_candidate_identity(
+            Identity::upgrade_to_candidate_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -216,7 +216,7 @@ fn candidate_identity_requires_family_name_and_given_name_separately() {
         let mut empty_given = candidate_payload(2, &citizen_cid_number("EMPTY-GIVEN"));
         empty_given.given_name = Default::default();
         assert_noop!(
-            CitizenIdentity::upgrade_to_candidate_identity(
+            Identity::upgrade_to_candidate_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -236,7 +236,7 @@ fn revoke_identity_marks_status_and_removes_effective_population() {
         // 占号先行:身份写入前置。
         occupy_tag("REVOKE");
 
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -245,7 +245,7 @@ fn revoke_identity_marks_status_and_removes_effective_population() {
             identity_expires_at(),
             valid_signature(),
         ));
-        assert_ok!(CitizenIdentity::revoke_identity(
+        assert_ok!(Identity::revoke_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -263,14 +263,14 @@ fn revoke_identity_marks_status_and_removes_effective_population() {
             Some(2)
         );
         assert_eq!(CountryVotingCount::<Test>::get(), 0);
-        assert!(CitizenIdentity::voting_subject(&1, &town_scope()).is_none());
+        assert!(Identity::voting_subject(&1, &town_scope()).is_none());
 
         let cid_number = cid(&citizen_cid_number("REVOKE"));
         let identity_before = VotingIdentityByCid::<Test>::get(&cid_number);
         let record_before = CidRegistry::<Test>::get(&cid_number);
         let revision_before = BindingRevisionByCid::<Test>::get(&cid_number);
         assert_noop!(
-            CitizenIdentity::revoke_identity(
+            Identity::revoke_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -297,7 +297,7 @@ fn population_data_reads_current_scope_count() {
         // 占号先行:身份写入前置。
         occupy_tag("0001");
 
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -307,13 +307,13 @@ fn population_data_reads_current_scope_count() {
             valid_signature(),
         ));
 
-        let population_data = CitizenIdentity::governance_population_data(&town_scope())
+        let population_data = Identity::governance_population_data(&town_scope())
             .expect("current population should be ready");
         assert_eq!(population_data.eligible_total, 1);
         assert_eq!(population_data.eligibility_revision, 1);
         assert_eq!(population_data.eligibility_date, 20260702);
         let voter_subject =
-            CitizenIdentity::voting_subject_at_population_data(&1, &population_data)
+            Identity::voting_subject_at_population_data(&1, &population_data)
                 .expect("snapshot eligibility should return the complete citizen subject");
         assert_eq!(voter_subject.cid_number, citizen_cid_number("0001"));
         assert_eq!(voter_subject.account_id, 1);
@@ -324,7 +324,7 @@ fn population_data_reads_current_scope_count() {
 fn population_data_revision_freezes_membership_before_identity_update() {
     new_test_ext().execute_with(|| {
         occupy_tag("SNAPSHOT-OLD");
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -334,17 +334,17 @@ fn population_data_revision_freezes_membership_before_identity_update() {
             valid_signature(),
         ));
 
-        let old_population_data = CitizenIdentity::governance_population_data(&town_scope())
+        let old_population_data = Identity::governance_population_data(&town_scope())
             .expect("old population should be ready");
         assert_eq!(old_population_data.eligible_total, 1);
         assert!(
-            CitizenIdentity::voting_subject_at_population_data(&1, &old_population_data).is_some()
+            Identity::voting_subject_at_population_data(&1, &old_population_data).is_some()
         );
 
         // 同一账户迁往另一乡镇后，旧提案仍按创建时身份判断；新提案使用新身份。
         let mut moved = voting_payload(1, &citizen_cid_number("SNAPSHOT-OLD"));
         moved.residence_town_code = code(b"4301002");
-        assert_ok!(CitizenIdentity::update_voting_identity(
+        assert_ok!(Identity::update_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -355,13 +355,13 @@ fn population_data_revision_freezes_membership_before_identity_update() {
         ));
 
         assert!(
-            CitizenIdentity::voting_subject_at_population_data(&1, &old_population_data).is_some()
+            Identity::voting_subject_at_population_data(&1, &old_population_data).is_some()
         );
-        let new_population_data = CitizenIdentity::governance_population_data(&town_scope())
+        let new_population_data = Identity::governance_population_data(&town_scope())
             .expect("new population should be ready");
         assert_eq!(new_population_data.eligible_total, 0);
         assert!(
-            CitizenIdentity::voting_subject_at_population_data(&1, &new_population_data).is_none()
+            Identity::voting_subject_at_population_data(&1, &new_population_data).is_none()
         );
     });
 }
@@ -376,7 +376,7 @@ fn expired_passport_cannot_vote_and_is_excluded_from_population() {
         payload.passport_valid_from = 20200101;
         payload.passport_valid_until = 20250101;
 
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -387,8 +387,8 @@ fn expired_passport_cannot_vote_and_is_excluded_from_population() {
         ));
 
         assert_eq!(CountryVotingCount::<Test>::get(), 0);
-        assert!(CitizenIdentity::voting_subject(&1, &town_scope()).is_none());
-        assert!(CitizenIdentity::candidate_subject(&1, &town_scope()).is_none());
+        assert!(Identity::voting_subject(&1, &town_scope()).is_none());
+        assert!(Identity::candidate_subject(&1, &town_scope()).is_none());
     });
 }
 
@@ -402,7 +402,7 @@ fn not_yet_valid_passport_cannot_vote() {
         payload.passport_valid_from = 20300101;
         payload.passport_valid_until = 20400101;
 
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -414,7 +414,7 @@ fn not_yet_valid_passport_cannot_vote() {
 
         assert_eq!(CountryVotingCount::<Test>::get(), 0);
         assert_eq!(PopulationTransitionCountByDate::<Test>::get(20300101), 1);
-        assert!(CitizenIdentity::voting_subject(&1, &town_scope()).is_none());
+        assert!(Identity::voting_subject(&1, &town_scope()).is_none());
     });
 }
 
@@ -424,7 +424,7 @@ fn first_population_date_must_initialize_before_identity_write() {
         PopulationReadyDate::<Test>::kill();
         occupy_tag("BOOTSTRAP");
         assert_noop!(
-            CitizenIdentity::register_voting_identity(
+            Identity::register_voting_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -436,9 +436,9 @@ fn first_population_date_must_initialize_before_identity_write() {
             Error::<Test>::PopulationDataNotReady
         );
 
-        CitizenIdentity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
+        Identity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
         assert_eq!(PopulationReadyDate::<Test>::get(), 20260702);
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -457,7 +457,7 @@ fn passport_activates_on_valid_from_and_deactivates_after_valid_until() {
         let mut payload = voting_payload(1, &citizen_cid_number("ONE-DAY"));
         payload.passport_valid_from = 20260703;
         payload.passport_valid_until = 20260703;
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -469,19 +469,19 @@ fn passport_activates_on_valid_from_and_deactivates_after_valid_until() {
         assert_eq!(CountryVotingCount::<Test>::get(), 0);
 
         set_day_offset(1);
-        assert!(CitizenIdentity::governance_population_data(&PopulationScope::Country).is_none());
-        CitizenIdentity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
+        assert!(Identity::governance_population_data(&PopulationScope::Country).is_none());
+        Identity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
         assert_eq!(PopulationReadyDate::<Test>::get(), 20260703);
         assert_eq!(CountryVotingCount::<Test>::get(), 1);
         assert_eq!(
-            CitizenIdentity::governance_population_data(&PopulationScope::Country)
+            Identity::governance_population_data(&PopulationScope::Country)
                 .expect("activation date should be ready")
                 .eligibility_date,
             20260703
         );
 
         set_day_offset(2);
-        CitizenIdentity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
+        Identity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
         assert_eq!(PopulationReadyDate::<Test>::get(), 20260704);
         assert_eq!(CountryVotingCount::<Test>::get(), 0);
     });
@@ -495,7 +495,7 @@ fn population_transition_limit_hides_partial_day_and_blocks_identity_changes() {
             let mut payload = voting_payload(account_id, &citizen_cid_number(tag));
             payload.passport_valid_from = 20260703;
             payload.passport_valid_until = 20300101;
-            assert_ok!(CitizenIdentity::register_voting_identity(
+            assert_ok!(Identity::register_voting_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -507,17 +507,17 @@ fn population_transition_limit_hides_partial_day_and_blocks_identity_changes() {
         }
 
         set_day_offset(1);
-        CitizenIdentity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
+        Identity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
         assert_eq!(PopulationReadyDate::<Test>::get(), 20260702);
         assert_eq!(PopulationTransitionCursorByDate::<Test>::get(20260703), 2);
         assert_eq!(CountryVotingCount::<Test>::get(), 2);
-        assert!(CitizenIdentity::governance_population_data(&PopulationScope::Country).is_none());
+        assert!(Identity::governance_population_data(&PopulationScope::Country).is_none());
 
         let mut update = voting_payload(1, &citizen_cid_number("BATCH-1"));
         update.passport_valid_from = 20260703;
         update.passport_valid_until = 20310101;
         assert_noop!(
-            CitizenIdentity::update_voting_identity(
+            Identity::update_voting_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -529,10 +529,10 @@ fn population_transition_limit_hides_partial_day_and_blocks_identity_changes() {
             Error::<Test>::PopulationDataNotReady
         );
 
-        CitizenIdentity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
+        Identity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
         assert_eq!(PopulationReadyDate::<Test>::get(), 20260703);
         assert_eq!(CountryVotingCount::<Test>::get(), 3);
-        assert!(CitizenIdentity::governance_population_data(&PopulationScope::Country).is_some());
+        assert!(Identity::governance_population_data(&PopulationScope::Country).is_some());
     });
 }
 
@@ -543,7 +543,7 @@ fn identity_update_invalidates_old_population_transitions_by_revision() {
         let mut first = voting_payload(1, &citizen_cid_number("RESCHEDULE"));
         first.passport_valid_from = 20260703;
         first.passport_valid_until = 20260703;
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -556,7 +556,7 @@ fn identity_update_invalidates_old_population_transitions_by_revision() {
         let mut replacement = voting_payload(1, &citizen_cid_number("RESCHEDULE"));
         replacement.passport_valid_from = 20260704;
         replacement.passport_valid_until = 20260705;
-        assert_ok!(CitizenIdentity::update_voting_identity(
+        assert_ok!(Identity::update_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -567,10 +567,10 @@ fn identity_update_invalidates_old_population_transitions_by_revision() {
         ));
 
         set_day_offset(1);
-        CitizenIdentity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
+        Identity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
         assert_eq!(CountryVotingCount::<Test>::get(), 0);
         set_day_offset(2);
-        CitizenIdentity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
+        Identity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
         assert_eq!(PopulationReadyDate::<Test>::get(), 20260704);
         assert_eq!(CountryVotingCount::<Test>::get(), 1);
     });
@@ -580,12 +580,12 @@ fn identity_update_invalidates_old_population_transitions_by_revision() {
 fn population_faults_closed_when_chain_date_moves_backwards() {
     new_test_ext().execute_with(|| {
         set_day_offset(-1);
-        CitizenIdentity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
+        Identity::on_idle(System::block_number(), frame_support::weights::Weight::MAX);
         assert_eq!(
             PopulationMaintenanceFault::<Test>::get(),
             Some(PopulationFault::DateMovedBackwards)
         );
-        assert!(CitizenIdentity::governance_population_data(&PopulationScope::Country).is_none());
+        assert!(Identity::governance_population_data(&PopulationScope::Country).is_none());
     });
 }
 
@@ -595,7 +595,7 @@ fn candidate_identity_stores_sex_and_public_profile() {
         // 占号先行:身份写入前置。
         occupy_tag("SEX");
 
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -612,7 +612,7 @@ fn candidate_identity_stores_sex_and_public_profile() {
         assert_eq!(stored.given_name, given_name(b"One"));
         assert_eq!(stored.birth_date, 20000131);
         // 固定链上日 20260702 − 出生 20000131 → 26 周岁。
-        assert_eq!(CitizenIdentity::candidate_age(&1), Some(26));
+        assert_eq!(Identity::candidate_age(&1), Some(26));
     });
 }
 
@@ -621,7 +621,7 @@ fn candidate_birth_date_is_immutable_on_update() {
     new_test_ext().execute_with(|| {
         occupy_tag("IMMUT");
         let cid = citizen_cid_number("IMMUT");
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -635,7 +635,7 @@ fn candidate_birth_date_is_immutable_on_update() {
         let mut tampered = candidate_payload(1, &cid);
         tampered.birth_date = 19990101;
         assert_noop!(
-            CitizenIdentity::update_candidate_identity(
+            Identity::update_candidate_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -654,7 +654,7 @@ fn candidate_birth_scope_and_sex_are_immutable_on_update() {
     new_test_ext().execute_with(|| {
         occupy_tag("IMMUT-PROFILE");
         let cid = citizen_cid_number("IMMUT-PROFILE");
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -668,7 +668,7 @@ fn candidate_birth_scope_and_sex_are_immutable_on_update() {
         let mut tampered_sex = candidate_payload(1, &cid);
         tampered_sex.citizen_sex = CitizenSex::Male;
         assert_noop!(
-            CitizenIdentity::update_candidate_identity(
+            Identity::update_candidate_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -684,7 +684,7 @@ fn candidate_birth_scope_and_sex_are_immutable_on_update() {
         let mut tampered_city = candidate_payload(1, &cid);
         tampered_city.birth_city_code = code(b"4302");
         assert_noop!(
-            CitizenIdentity::update_candidate_identity(
+            Identity::update_candidate_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -705,7 +705,7 @@ fn candidate_illegal_birth_date_rejected() {
         let mut payload = candidate_payload(1, &citizen_cid_number("BADDOB"));
         payload.birth_date = 20261340; // 非法月/日
         assert_noop!(
-            CitizenIdentity::upgrade_to_candidate_identity(
+            Identity::upgrade_to_candidate_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -726,7 +726,7 @@ fn candidate_future_birth_date_rejected() {
         let mut payload = candidate_payload(1, &citizen_cid_number("FUTDOB"));
         payload.birth_date = 20990101; // 未来出生 → 算不出年龄
         assert_noop!(
-            CitizenIdentity::upgrade_to_candidate_identity(
+            Identity::upgrade_to_candidate_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -752,7 +752,7 @@ fn candidate_under_sixteen_cannot_register_onchain_identity() {
         payload.birth_date = 20150301;
 
         assert_noop!(
-            CitizenIdentity::upgrade_to_candidate_identity(
+            Identity::upgrade_to_candidate_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -774,7 +774,7 @@ fn replaying_an_old_voting_payload_is_rejected_by_identity_version() {
         let cid_bytes = citizen_cid_number("REPLAY-OLD");
         let original = voting_payload(1, &cid_bytes);
         let original_version = identity_version(&cid_bytes);
-        assert_ok!(CitizenIdentity::register_voting_identity(
+        assert_ok!(Identity::register_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -788,7 +788,7 @@ fn replaying_an_old_voting_payload_is_rejected_by_identity_version() {
         let mut moved = voting_payload(1, &cid_bytes);
         moved.residence_town_code = code(b"4301002");
         moved.passport_valid_until = 20400630;
-        assert_ok!(CitizenIdentity::update_voting_identity(
+        assert_ok!(Identity::update_voting_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -800,7 +800,7 @@ fn replaying_an_old_voting_payload_is_rejected_by_identity_version() {
 
         // 原载荷 + 原版本号原样重提：版本已推进，拒绝。
         assert_noop!(
-            CitizenIdentity::update_voting_identity(
+            Identity::update_voting_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),
@@ -827,7 +827,7 @@ fn replaying_an_old_candidate_payload_is_rejected_by_identity_version() {
         let cid_bytes = citizen_cid_number("REPLAY-CAND");
         let payload = candidate_payload(1, &cid_bytes);
         let stale_version = identity_version(&cid_bytes);
-        assert_ok!(CitizenIdentity::upgrade_to_candidate_identity(
+        assert_ok!(Identity::upgrade_to_candidate_identity(
             RuntimeOrigin::signed(100),
             registrar_cid_number(),
             registrar_role_code(),
@@ -838,7 +838,7 @@ fn replaying_an_old_candidate_payload_is_rejected_by_identity_version() {
         ));
 
         assert_noop!(
-            CitizenIdentity::update_candidate_identity(
+            Identity::update_candidate_identity(
                 RuntimeOrigin::signed(100),
                 registrar_cid_number(),
                 registrar_role_code(),

@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::authentication::action_sign::{
     hash_json, payload_hash_for_text, signed_payload_text, verify_account_signature,
-    AdminSignedPayload, ADMIN_ACTION_TTL_SECONDS,
+    OperationPayload, OPERATION_TTL_SECONDS,
 };
 use crate::authentication::login::AdminAuthContext;
 use crate::authentication::operation_auth::{
@@ -95,104 +95,23 @@ pub(crate) fn actor_cid_number_for_context(
     db: &Db,
     ctx: &AdminAuthContext,
 ) -> Result<String, axum::response::Response> {
-    let binding = repo::active_node_binding(db).map_err(|err| {
-        tracing::error!(error = %err, "query active institution binding failed");
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            5001,
-            "node binding query failed",
-        )
-    })?;
-    let binding =
-        binding.ok_or_else(|| api_error(StatusCode::FORBIDDEN, 2002, "node binding missing"))?;
-    if binding.institution_code != ctx.institution_code {
-        return Err(api_error(
-            StatusCode::FORBIDDEN,
-            2002,
-            "node binding institution mismatch",
-        ));
-    }
-    let cid_number = binding.institution_cid_number;
-    if cid_number.is_empty()
-        || cid_number.len() > primitives::core_const::CID_NUMBER_MAX_BYTES as usize
+    if repo::active_node_binding(db)
+        .map_err(|_| {
+            api_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                5001,
+                "node binding unavailable",
+            )
+        })?
+        .is_none()
     {
         return Err(api_error(
             StatusCode::FORBIDDEN,
-            2002,
-            "node binding actor_cid_number missing",
-        ));
-    }
-    Ok(cid_number)
-}
-
-/// 校验账号 ∈ 本机构链上 Active 管理员集合(冷签 step-up 与替换目标校验共用)。
-async fn ensure_account_id_on_chain_admin(
-    db: &Db,
-    actor_cid_number: &str,
-    account_id: &str,
-    message: &'static str,
-) -> Result<(), axum::response::Response> {
-    use crate::chain_runtime;
-    let binding = repo::active_node_binding(db).map_err(|err| {
-        tracing::error!(error = %err, "query node binding failed");
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            5001,
-            "node binding query failed",
-        )
-    })?;
-    let Some(binding) = binding else {
-        return Err(api_error(
-            StatusCode::FORBIDDEN,
-            2002,
+            1003,
             "node binding missing",
         ));
-    };
-    if binding.institution_cid_number != actor_cid_number {
-        return Err(api_error(
-            StatusCode::FORBIDDEN,
-            2002,
-            "actor_cid_number does not match node binding",
-        ));
     }
-    let identity = chain_runtime::identity_from_binding_parts(
-        &binding.institution_code,
-        Some(actor_cid_number),
-    )
-    .map_err(|err| {
-        tracing::error!(error = %err, "node binding is invalid");
-        api_error(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            5001,
-            "node binding invalid",
-        )
-    })?;
-    let onchain = chain_runtime::fetch_active_admins_onchain(&identity)
-        .await
-        .map_err(|err| {
-            tracing::warn!(error = %err, "chain unreachable during action commit");
-            api_error(StatusCode::BAD_GATEWAY, 5002, "chain unreachable")
-        })?
-        .ok_or_else(|| api_error(StatusCode::FORBIDDEN, 2002, "not an on-chain admin"))?;
-    let normalized = chain_runtime::normalize_account_id(account_id)
-        .ok_or_else(|| api_error(StatusCode::FORBIDDEN, 2002, message))?;
-    if !onchain
-        .iter()
-        .any(|admin| same_account_id(&admin.account_id, normalized.as_str()))
-    {
-        return Err(api_error(StatusCode::FORBIDDEN, 2002, message));
-    }
-    Ok(())
-}
-
-/// 校验扫码签名 signer ∈ 本机构链上 Active 管理员集合(冷签 step-up,与登录同源)。
-async fn ensure_signer_on_chain_admin(
-    db: &Db,
-    actor_cid_number: &str,
-    account_id: &str,
-) -> Result<(), axum::response::Response> {
-    ensure_account_id_on_chain_admin(db, actor_cid_number, account_id, "not an on-chain admin")
-        .await
+    Ok(ctx.institution_cid_number.clone())
 }
 
 pub(crate) async fn prepare_admin_action(
@@ -233,6 +152,18 @@ pub(crate) async fn prepare_admin_action(
             "action does not support prepare",
         );
     }
+    if input.action_type == AdminActionType::NodeBindingUnbind {
+        if let Err(response) = crate::authentication::login::validate_selected_permission(
+            &state,
+            &ctx,
+            None,
+            Some(entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE),
+        )
+        .await
+        {
+            return response;
+        }
+    }
     let actor_cid_number = match actor_cid_number_for_context(&state.db, &ctx) {
         Ok(value) => value,
         Err(resp) => return resp,
@@ -251,13 +182,13 @@ pub(crate) async fn prepare_admin_action(
         Err(err) => return admin_action_error(err),
     };
     let now = Utc::now();
-    let expires_at = now + Duration::seconds(ADMIN_ACTION_TTL_SECONDS);
+    let expires_at = now + Duration::seconds(OPERATION_TTL_SECONDS);
     let action_id = format!("cid-admin-action-{}", Uuid::new_v4());
     let province = ctx.scope_province_name.clone().unwrap_or_default();
     let request_hash = hash_json(&input.payload);
     let (payload_text, payload_hash, sign_request) =
         if preview.auth_type == AdminOperationAuth::PasskeyColdSign {
-            let payload_text = signed_payload_text(AdminSignedPayload {
+            let payload_text = signed_payload_text(OperationPayload {
                 domain: "onchina_admin_governance",
                 qr_proto: crate::qr::QR_V1,
                 action_id: action_id.as_str(),
@@ -278,7 +209,7 @@ pub(crate) async fn prepare_admin_action(
                 expires_at.timestamp(),
                 ctx.account_id.as_str(),
                 payload_text.as_str(),
-                crate::qr::action_onchina_admin(),
+                crate::qr::action_onchina_confirm(),
             ) {
                 Ok(v) => v,
                 Err(resp) => return resp,
@@ -291,6 +222,9 @@ pub(crate) async fn prepare_admin_action(
         action_id: action_id.clone(),
         action_type: input.action_type.as_str().to_string(),
         actor_account_id: ctx.account_id.clone(),
+        person_cid: ctx.person_cid.clone(),
+        role_code: ctx.role_code.clone(),
+        binding_revision: ctx.binding_revision.clone(),
         actor_institution_code: ctx.institution_code.clone(),
         actor_cid_number: actor_cid_number.clone(),
         actor_province_name: province,
@@ -384,7 +318,11 @@ pub(crate) async fn commit_admin_action(
             "admin action expired",
         );
     }
-    if !same_account_id(challenge.actor_account_id.as_str(), ctx.account_id.as_str()) {
+    if !same_account_id(challenge.actor_account_id.as_str(), ctx.account_id.as_str())
+        || challenge.person_cid != ctx.person_cid
+        || challenge.role_code != ctx.role_code
+        || challenge.binding_revision != ctx.binding_revision
+    {
         return api_error(StatusCode::FORBIDDEN, 1003, "admin action owner mismatch");
     }
     let actor_cid_number = match actor_cid_number_for_context(&state.db, &ctx) {
@@ -456,7 +394,7 @@ pub(crate) async fn commit_admin_action(
             return resp;
         }
         if let Err(resp) =
-            ensure_signer_on_chain_admin(&state.db, &actor_cid_number, account_id).await
+            crate::authentication::login::validate_current_assignment(&state, &ctx).await
         {
             return resp;
         }
@@ -486,7 +424,7 @@ pub(crate) async fn commit_admin_action(
             repo::cleanup_security_state_conn(conn, now)?;
             let binding = repo::get_active_node_binding_conn(conn)?
                 .ok_or_else(|| "http:forbidden:node binding missing".to_string())?;
-            if binding.institution_cid_number != ctx.institution_cid_number || binding.institution_code != ctx.institution_code {
+            if action_type == AdminActionType::NodeBindingUnbind && binding.institution_cid_number != ctx.institution_cid_number {
                 return Err("http:forbidden:node binding changed".to_string());
             }
             let mut current = repo::get_action_challenge_conn(
@@ -511,6 +449,9 @@ pub(crate) async fn commit_admin_action(
                     grant_id: grant_id.clone(),
                     action_type: action_type.as_str().to_string(),
                     actor_account_id: ctx.account_id.clone(),
+        person_cid:ctx.person_cid.clone(),
+        role_code:ctx.role_code.clone(),
+        binding_revision:ctx.binding_revision.clone(),
                     actor_institution_code: ctx.institution_code.clone(),
                     actor_cid_number: current.actor_cid_number.clone(),
                     actor_province_name: ctx.scope_province_name.clone().unwrap_or_default(),
@@ -623,7 +564,7 @@ pub(crate) fn consume_admin_security_grant(
         let conn = &mut tx;
         let now = Utc::now(); // 排队等待不能延长一次性授权的有效期。
         let binding = repo::get_active_node_binding_conn(conn)?.ok_or("http:forbidden:node binding missing")?;
-        if binding.institution_cid_number != actor_cid_number || binding.institution_code != ctx.institution_code {
+        if action_type == AdminActionType::NodeBindingUnbind && binding.institution_cid_number != actor_cid_number {
             return Err("http:forbidden:security grant binding changed".into());
         }
         repo::cleanup_security_state_conn(conn, now)?;
@@ -642,6 +583,9 @@ pub(crate) fn consume_admin_security_grant(
             return Err("http:forbidden:security grant auth type mismatch".to_string());
         }
         if !same_account_id(grant.actor_account_id.as_str(), ctx.account_id.as_str())
+            || grant.person_cid != ctx.person_cid
+            || grant.role_code != ctx.role_code
+            || grant.binding_revision != ctx.binding_revision
             || grant.actor_institution_code != ctx.institution_code
             || grant.actor_cid_number != actor_cid_number
         {

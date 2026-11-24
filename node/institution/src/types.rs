@@ -38,11 +38,7 @@ pub struct AccountWithBalance {
     pub can_close: bool,
 }
 
-/// 机构管理员账户及其全部有效岗位任职，与管理员管理模块共用同一 DTO。
-pub(crate) type InstitutionAdminDisplay = crate::admins::InstitutionAdminInfo;
-
-/// 机构详情 = `PublicManage/PrivateManage::Institutions[cid_number]`(机构最小集)
-/// + 派生的主/费账户余额 + 管理员模块管理员集合 + entity 机构治理阈值。
+/// 机构详情以实体资料、岗位任职、账户与独立治理阈值组成。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InstitutionDetail {
@@ -56,10 +52,8 @@ pub struct InstitutionDetail {
     pub fee_account_info: AccountWithBalance,
     /// 主账户/费用账户之外的全部账户(自定义初始账户)。
     pub other_accounts: Vec<AccountWithBalance>,
-    pub admins_len: u32,
     pub threshold: u32,
-    /// 管理员账户及其有效岗位任职。
-    pub admins: Vec<InstitutionAdminDisplay>,
+    pub roles: Vec<crate::roles::InstitutionRoleInfo>,
     pub created_at: u64,
     pub account_count: u32,
 }

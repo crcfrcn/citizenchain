@@ -212,23 +212,51 @@ async fn login_rejects_bad_account_qr_before_chain_or_database_access() {
     }
 }
 
-
 #[tokio::test]
 async fn pq_sign_request_frames_round_trip_without_authorization_or_payload_changes() {
-    use axum::{body::{Body, to_bytes}, http::{Request, StatusCode}, routing::post, Router};
+    use axum::{
+        body::{to_bytes, Body},
+        http::{Request, StatusCode},
+        routing::post,
+        Router,
+    };
     use tower::ServiceExt;
     let app = Router::new().route("/split", post(split_frames));
     let original = "完整机构签名请求".repeat(800);
-    let response = app.clone().oneshot(Request::builder().method("POST").uri("/split").header("content-type", "application/json")
-        .body(Body::from(serde_json::to_string(&original).unwrap())).unwrap()).await.unwrap();
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/split")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&original).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let result: serde_json::Value=serde_json::from_slice(&to_bytes(response.into_body(),1024*1024).await.unwrap()).unwrap();
-    let frames: Vec<String>=serde_json::from_value(result["data"].clone()).unwrap();
-    assert_eq!(frames,chain_signing::mldsa::qr_frames(&original).unwrap());
-    assert!(frames.len()>1 && frames.iter().all(|frame| frame.len()<=2331));
-    assert_eq!(chain_signing::mldsa::qr_join(&frames.join("\n")).unwrap(),Some(original));
-    let too_long="x".repeat(chain_signing::mldsa::QR_MAX_BYTES+1);
-    let response=app.oneshot(Request::builder().method("POST").uri("/split").header("content-type","application/json")
-        .body(Body::from(serde_json::to_string(&too_long).unwrap())).unwrap()).await.unwrap();
-    assert_eq!(response.status(),StatusCode::BAD_REQUEST);
+    let result: serde_json::Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 1024 * 1024).await.unwrap())
+            .unwrap();
+    let frames: Vec<String> = serde_json::from_value(result["data"].clone()).unwrap();
+    assert_eq!(frames, chain_signing::mldsa::qr_frames(&original).unwrap());
+    assert!(frames.len() > 1 && frames.iter().all(|frame| frame.len() <= 2331));
+    assert_eq!(
+        chain_signing::mldsa::qr_join(&frames.join("\n")).unwrap(),
+        Some(original)
+    );
+    let too_long = "x".repeat(chain_signing::mldsa::QR_MAX_BYTES + 1);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/split")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&too_long).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

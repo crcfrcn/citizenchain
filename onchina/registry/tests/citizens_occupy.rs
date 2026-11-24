@@ -220,10 +220,10 @@ fn encode_occupy_cid_call_byte_golden() {
 
 /// 换绑调用字节 golden:pallet 10 / call 7,锁定 revision/expires 的 LE 顺序。
 #[test]
-fn encode_admin_rebind_cid_account_id_call_byte_golden() {
+fn encode_registrar_rebind_cid_call_byte_golden() {
     let new_account_id = [0x11u8; 32];
     let new_account_signature = [0x22u8; 4];
-    let out = encode_admin_rebind_cid_account_id_call(
+    let out = encode_registrar_rebind_cid_call(
         "A",
         "B",
         "C",
@@ -291,7 +291,7 @@ fn verify_occupy_signature_roundtrip_and_domain_separation() {
         sig_hex.as_str()
     ));
     // 占号签名拿去过换绑域验签器 → 拒(0x12 与 0x1F 分离)。
-    assert!(!verify_admin_rebind_signature(
+    assert!(!verify_registrar_rebind_signature(
         account_hex.as_str(),
         &payload,
         sig_hex.as_str()
@@ -300,7 +300,7 @@ fn verify_occupy_signature_roundtrip_and_domain_separation() {
 
 /// 换绑验签往返 + 反向域分离。
 #[test]
-fn verify_admin_rebind_signature_roundtrip_and_domain_separation() {
+fn verify_registrar_rebind_signature_roundtrip_and_domain_separation() {
     let pair = sr25519::Pair::from_seed(&[9u8; 32]);
     let account = pair.public().0;
     let account_hex = format!("0x{}", hex::encode(account));
@@ -318,10 +318,10 @@ fn verify_admin_rebind_signature_roundtrip_and_domain_separation() {
         expires_at,
     );
     let msg =
-        primitives::sign::signing_message(primitives::sign::OP_SIGN_CID_ADMIN_REBIND, &payload);
+        primitives::sign::signing_message(primitives::sign::OP_SIGN_CID_REGISTRAR_REBIND, &payload);
     let sig_hex = format!("0x{}", hex::encode(pair.sign(&msg).0));
 
-    assert!(verify_admin_rebind_signature(
+    assert!(verify_registrar_rebind_signature(
         account_hex.as_str(),
         &payload,
         sig_hex.as_str()
@@ -360,7 +360,7 @@ fn verify_admin_rebind_signature_roundtrip_and_domain_separation() {
             expires_at + 1,
         ),
     ] {
-        assert!(!verify_admin_rebind_signature(
+        assert!(!verify_registrar_rebind_signature(
             account_hex.as_str(),
             &changed,
             sig_hex.as_str()
@@ -404,7 +404,7 @@ fn verify_current_account_signature_requires_chain_current_account_and_own_domai
         &payload,
         current_account_signature.as_str()
     ));
-    assert!(!verify_admin_rebind_signature(
+    assert!(!verify_registrar_rebind_signature(
         current_account_hex.as_str(),
         &payload,
         current_account_signature.as_str()
