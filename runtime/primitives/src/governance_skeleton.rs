@@ -58,7 +58,6 @@ pub fn province_commissioner_role_name(province_name: &str) -> Vec<u8> {
 ///
 /// 创世 `fixed_roles` 的账户索引 0..=6 落 7 名护宪，本常量即其规格单源；
 /// 创世岗位映射与后续 entity 岗位守卫都使用本值，补上宪法守卫
-/// `guard_review_passed(approve>=4)` 里从未被锚定的「7」(见 ADR-027 §6.3)。
 pub const NJD_CONSTITUTION_GUARD_SEATS: u32 = 7;
 
 /// `InstitutionRoleStatus::Active` 与 `InstitutionAssignmentStatus::Active` 的判别值。
