@@ -446,6 +446,25 @@ fn replayed_migration_preserves_storage_views_and_permanent_facts() {
     );
     let read = |key: &[u8]| Ok(state.get(key).cloned());
     let layout = new_layout.with_state(read).unwrap();
+    let mut people = std::collections::BTreeSet::new();
+    let mut assignments = 0usize;
+    for public in [true, false] {
+        let prefix = nodedesktop::storage::prefix(
+            runtime::guard_entity_names(public).1,
+            b"InstitutionRoleAssignments",
+        );
+        for (_, raw) in state.iter().filter(|(key, _)| key.starts_with(&prefix)) {
+            for row in runtime::guard_assignments(raw, false).unwrap() {
+                let runtime::MigrationPerson::Cid(cid) = row.person else {
+                    panic!("完成态不得保留钱包任职");
+                };
+                people.insert(cid);
+                assignments += 1;
+            }
+        }
+    }
+    assert_eq!(assignments, 49);
+    assert_eq!(people.len(), 38);
     let immutable = genesis_pallet::storage_key::citizens_declaration();
     let physical = layout.key(&immutable, true);
     let raw = BTreeMap::from([(physical.clone(), Some(state[&physical].clone()))]);
