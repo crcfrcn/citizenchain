@@ -598,20 +598,19 @@ impl<I> NodeGuard<I> {
         if root != *params.header.state_root() {
             return Err("完整状态根与区块头不匹配".into());
         }
-        // 完整状态也必须使用该状态真实代码的类型声明，不用节点编译期布局猜测。
-        // 这里只调用只读元数据接口，临时externalities中的任何写入均不进入核验状态。
-        use sp_core::traits::CodeExecutor as _;
-        let (metadata, _) = executor.call(
-            &mut sp_state_machine::BasicExternalities::new_empty(),
-            &runtime_code,
-            "Metadata_metadata",
-            &[],
-            sp_core::traits::CallContext::Onchain { import: false },
-        );
-        let metadata = metadata.map_err(|e| format!("完整状态元数据调用失败:{e}"))?;
-        let metadata: sp_core::OpaqueMetadata =
-            codec::DecodeAll::decode_all(&mut metadata.as_slice())
-                .map_err(|e| format!("完整状态元数据编码非法:{e}"))?;
+        // 完整状态和普通执行块使用同一归属规则：布局由写入该块的Runtime确定。
+        // set_code所在块已存新代码，不能以新代码的元数据解释仍为旧布局的值。
+        // 无法证明写入者时明确拒绝，不猜测布局或用另一种解码回退。
+        let writer = if *params.header.number() == 0 {
+            params.post_hash()
+        } else {
+            *params.header.parent_hash()
+        };
+        let metadata = self
+            .client
+            .runtime_api()
+            .metadata(writer)
+            .map_err(|e| format!("完整状态写入Runtime元数据不可读:{e}"))?;
         let physical = |key: &[u8]| Ok(storage.top.get(key).cloned());
         let layout = RuntimeStorage::from_metadata(&metadata)?.with_state(physical)?;
         let read_error = std::cell::RefCell::new(None);
