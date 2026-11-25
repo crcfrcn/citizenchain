@@ -190,7 +190,11 @@ fn entity_migration_preserves_indexes_and_only_resolves_verified_people() {
 
 #[test]
 fn entity_migration_uses_budget_instead_of_a_128_row_limit() {
-    sp_io::TestExternalities::default().execute_with(|| {
+    let mut ext = sp_io::TestExternalities::new_with_state_version(
+        sp_core::storage::Storage::default(),
+        sp_runtime::StateVersion::V0,
+    );
+    ext.execute_with(|| {
         let (cid, _, _) = fixture();
         for index in 0..500u32 {
             let role: publicentity::RoleCodeOf =
@@ -202,7 +206,7 @@ fn entity_migration_uses_budget_instead_of_a_128_row_limit() {
                 &OldRole {
                     cid_number: cid.clone(),
                     role_code: role,
-                    role_name: b"fixture".to_vec().try_into().unwrap(),
+                    role_name: vec![b'R'; 128].try_into().unwrap(),
                     term_required: false,
                     role_status: entitybase::InstitutionRoleStatus::Active,
                 }
@@ -210,9 +214,13 @@ fn entity_migration_uses_budget_instead_of_a_128_row_limit() {
             );
         }
         Institutions::on_runtime_upgrade();
-        let budget = Weight::from_parts(15_000_000_000_000, 2 * 1024 * 1024);
-        let used = Institutions::step_with_budget(budget);
-        assert!(used.all_lte(budget));
+    });
+    ext.commit_all().unwrap();
+    let budget = Weight::from_parts(15_000_000_000_000, 2 * 1024 * 1024);
+    let (used, proof) = ext.execute_and_prove(|| Institutions::step_with_budget(budget));
+    assert!(used.all_lte(budget));
+    assert!(proof.encoded_size() as u64 <= used.proof_size());
+    ext.execute_with(|| {
         let moved = publicentity::InstitutionRoles::<Runtime>::iter_keys().count();
         assert!(moved > 128, "预算有余量时不再卡在128行：{moved}");
         let mut prefix_cursor = prefix(OLD, b"InstitutionRoles").to_vec();
@@ -2314,7 +2322,21 @@ fn full_state_wasm_migration_replay() {
         let (proof, delta) = commit(&mut overlay);
         // 只统计区块执行与提交；归档全量枚举不是 Runtime 读取。
         let counts = backend.read_write_count();
+        let charged = frame_system::ConsumedWeight::decode_all(
+            &mut backend
+                .storage(&frame_system::BlockWeight::<Runtime>::hashed_key())
+                .unwrap()
+                .expect("区块必须保存实际登记权重")
+                .as_slice(),
+        )
+        .unwrap()
+        .total();
         let maximum = crate::configs::RuntimeBlockWeights::get().max_block;
+        assert!(
+            u64::from(proof) <= charged.proof_size(),
+            "实际证明不得超过已登记的区块权重：{proof} > {}",
+            charged.proof_size()
+        );
         assert!(
             u64::from(proof) <= maximum.proof_size() / 4,
             "专用维护块的真实证明必须落在原四分之一预算内：{proof}"
@@ -2361,6 +2383,7 @@ fn full_state_wasm_migration_replay() {
             "wasm_api_micros": api_elapsed.get().as_micros(),
             "header": hex::encode(finalized.encode()),
             "proof_bytes": proof, "reads": counts.0, "repeat_reads": counts.1,
+            "charged_proof_bytes": charged.proof_size(),
             "writes": counts.2, "repeat_writes": counts.3,
         }));
         let mut controls = IterArgs::default();

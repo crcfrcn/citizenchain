@@ -1782,7 +1782,7 @@ impl Institutions {
                     u64::from(count.saturating_sub(progress.offset).min(SEAT_BATCH as u32));
                 Weight::from_parts(
                     150_000_000u64.saturating_add(20_000_000 * people),
-                    8_192u64
+                    1_024u64
                         .saturating_add(u64::from(size) * 2)
                         .saturating_add(2 * key.len() as u64)
                         .saturating_add(u64::from(progress.offset) * 32)
@@ -1793,11 +1793,11 @@ impl Institutions {
                 // 逐行值和键按实际编码长度双份预留；同一来源长度探测/取值
                 // 共享证明，附加路径按真实交叉核验种类预留，不按重复读取叠加。
                 let (paths, reads) = match name {
-                    b"Institutions" => (16_384u64, 24),
-                    b"InstitutionAccounts" => (8_192, 15),
-                    b"AccountRegisteredCid" => (4_096, 11),
-                    b"InstitutionRolePermissions" => (4_096, 9),
-                    _ => (4_096, 10),
+                    b"Institutions" => (2_048u64, 24),
+                    b"InstitutionAccounts" => (1_024, 15),
+                    b"AccountRegisteredCid" => (512, 11),
+                    b"InstitutionRolePermissions" => (512, 9),
+                    _ => (256, 10),
                 };
                 Weight::from_parts(
                     240_000_000,
