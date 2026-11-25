@@ -383,10 +383,12 @@ export function copyRuntimeSource(project, destination, files) {
   }
 }
 
-// 节点CI的测试夹具保持当前提交及原版本；不取链上基线、不生成升级候选。
-export async function prepareTestRuntime({platform, work, environment = process.env, run = runBuildProcess}) {
+// 默认节点CI夹具保持当前提交及原版本；显式迁移基线只生成本机验收Wasm。
+// 正式平台、发布及部署仍由原入口负责，不能把本机验收输入当作正式交付产物。
+export async function prepareTestRuntime({platform, work, runtimeBase, environment = process.env, run = runBuildProcess}) {
   const declared = cfg.product.platforms[platform];
   if (!declared || platform === 'wasm' || process.platform !== declared.host || process.arch !== declared.arch) fail('测试Runtime构建宿主不符');
+  const requested = runtimeBase === undefined ? undefined : parseRuntimeBase(runtimeBase).target;
   checkWork(work);
   if (existsSync(join(work, '.retain-runtime-work'))) fail('Runtime工具退出未确认，保留现场');
   const directory = join(work, 'runtime'), source = join(directory, 'source');
@@ -416,12 +418,15 @@ export async function prepareTestRuntime({platform, work, environment = process.
     const original = readFileSync(join(source, 'runtime/src/lib.rs'), 'utf8');
     const body = original.match(/pub const VERSION:\s*RuntimeVersion\s*=\s*RuntimeVersion\s*\{[\s\S]*?\n\};/gu);
     if (body?.length !== 1) fail('测试Runtime原版本声明必须唯一');
-    const target = {};
+    let target = {};
     for (const [field, name] of [['spec_version', 'specVersion'], ['transaction_version', 'transactionVersion']]) {
       const values = [...body[0].matchAll(new RegExp('\\b' + field + '\\s*:\\s*([0-9]+)\\s*,', 'gu'))];
       if (values.length !== 1) fail('测试Runtime原版本字段非法');
       target[name] = version(Number(values[0][1]));
     }
+    if (requested) target = requested;
+    const inputSource = requested ? patchRuntimeVersion(original, target) : original;
+    if (requested) writeFileSync(join(source, 'runtime/src/lib.rs'), inputSource);
     writeFileSync(join(source, 'runtime/build.rs'), runtimeBuildHook);
     env.CITIZENCHAIN_SOURCE_ROOT = source;
     await invoke(env.CARGO, ['--config', join(source, 'config.toml'), 'build', '--locked', '--release', '-p', 'runtime', '--no-default-features', '--features', 'std'], source);
@@ -430,7 +435,7 @@ export async function prepareTestRuntime({platform, work, environment = process.
     const bytes = readFileSync(input);
     if (!WebAssembly.validate(bytes)) fail('测试Runtime不是有效WASM');
     verifyRuntimeWasm(bytes, target);
-    if (readFileSync(join(source, 'runtime/src/lib.rs'), 'utf8') !== original) fail('测试Runtime版本或源码被改写');
+    if (readFileSync(join(source, 'runtime/src/lib.rs'), 'utf8') !== inputSource) fail('测试Runtime编译输入被改写');
     if ((await invoke('git', ['rev-parse', 'HEAD'], root, {capture: true})).stdout.trim() !== revision) fail('测试Runtime构建期间提交已变化');
     await invoke('git', ['diff', '--quiet', 'HEAD', '--', 'runtime', 'crates', 'Cargo.toml', 'Cargo.lock', 'config.toml']);
     const output = join(directory, 'runtime.wasm');
