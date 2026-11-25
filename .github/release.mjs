@@ -269,7 +269,9 @@ if [ "$PLATFORM" = windows ]; then export PATH="$(cygpath -u "$OPENSSL_DIR")/bin
 # 继续跳过SDK测试Runtime；产品fixture已独立保存，clean后显式重新嵌入。
 cargo --config config.toml clean --release -p runtime -p revive-dev-runtime -p substrate-test-runtime -p frame-storage-access-test-runtime --locked
 cargo --config config.toml test --locked --release --workspace --exclude sc-consensus-grandpa --all-targets
-cargo --config config.toml test --locked --release -p nodeguard --features test-support --lib -- --ignored`, environment);
+# 此处只执行已交付本次Wasm fixture的两项CI验收；真实链归档专项由其完整材料显式调用。
+cargo --config config.toml test --locked --release -p nodeguard --features test-support --lib -- --ignored --exact guard::finalize_issuance_tests::candidate_runtime_interface_rules_are_enforced
+cargo --config config.toml test --locked --release -p nodeguard --features test-support --lib -- --ignored --exact guard::finalize_issuance_tests::normal_import_uses_only_its_verified_execution_result`, environment);
 }
 
 export async function testModules() {
