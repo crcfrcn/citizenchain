@@ -189,6 +189,118 @@ fn entity_migration_preserves_indexes_and_only_resolves_verified_people() {
 }
 
 #[test]
+fn entity_migration_uses_budget_instead_of_a_128_row_limit() {
+    sp_io::TestExternalities::default().execute_with(|| {
+        let (cid, _, _) = fixture();
+        for index in 0..500u32 {
+            let role: publicentity::RoleCodeOf =
+                format!("R_{index:04}").into_bytes().try_into().unwrap();
+            let mut key = storage_key(OLD, b"InstitutionRoles", &cid);
+            add_key(&mut key, &role);
+            sp_io::storage::set(
+                &key,
+                &OldRole {
+                    cid_number: cid.clone(),
+                    role_code: role,
+                    role_name: b"fixture".to_vec().try_into().unwrap(),
+                    term_required: false,
+                    role_status: entitybase::InstitutionRoleStatus::Active,
+                }
+                .encode(),
+            );
+        }
+        Institutions::on_runtime_upgrade();
+        let budget = Weight::from_parts(15_000_000_000_000, 2 * 1024 * 1024);
+        let used = Institutions::step_with_budget(budget);
+        assert!(used.all_lte(budget));
+        let moved = publicentity::InstitutionRoles::<Runtime>::iter_keys().count();
+        assert!(moved > 128, "预算有余量时不再卡在128行：{moved}");
+        let mut prefix_cursor = prefix(OLD, b"InstitutionRoles").to_vec();
+        let mut remaining = 0;
+        while let Some(key) = sp_io::storage::next_key(&prefix_cursor)
+            .filter(|k| k.starts_with(&prefix(OLD, b"InstitutionRoles")))
+        {
+            prefix_cursor = key;
+            remaining += 1;
+        }
+        assert_eq!(moved + remaining, 501);
+        assert!(Institutions::ongoing());
+    });
+}
+
+#[test]
+fn entity_migration_charges_a_deferred_probe_without_writing_or_advancing() {
+    sp_io::TestExternalities::default().execute_with(|| {
+        let (cid, _, _) = fixture();
+        let committee: publicentity::RoleCodeOf = COMMITTEE.to_vec().try_into().unwrap();
+        let mut original = storage_key(OLD, b"InstitutionRoleAssignments", &cid);
+        add_key(&mut original, &committee);
+        sp_io::storage::clear(&original);
+        let role: publicentity::RoleCodeOf = b"R_LARGE".to_vec().try_into().unwrap();
+        let mut key = storage_key(OLD, b"InstitutionRoles", &cid);
+        add_key(&mut key, &role);
+        sp_io::storage::set(
+            &key,
+            &OldRole {
+                cid_number: cid.clone(),
+                role_code: role.clone(),
+                role_name: b"fixture".to_vec().try_into().unwrap(),
+                term_required: false,
+                role_status: entitybase::InstitutionRoleStatus::Active,
+            }
+            .encode(),
+        );
+        let rows: Vec<_> = (0..1989u32)
+            .map(|index| {
+                let mut wallet = [0u8; 32];
+                wallet[..4].copy_from_slice(&index.to_le_bytes());
+                OldAssignment {
+                    cid_number: cid.clone(),
+                    account_id: AccountId::new(wallet),
+                    role_code: role.clone(),
+                    term_start: 0,
+                    term_end: 0,
+                    assignment_source: entitybase::InstitutionAssignmentSource::Genesis,
+                    assignment_source_ref: vec![3; 128].try_into().unwrap(),
+                    assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+                }
+            })
+            .collect();
+        let mut source = storage_key(OLD, b"InstitutionRoleAssignments", &cid);
+        add_key(&mut source, &role);
+        let mut target = storage_key(b"PublicEntity", b"InstitutionRoleAssignments", &cid);
+        add_key(&mut target, &role);
+        sp_io::storage::set(&source, &rows.encode());
+        Institutions::on_runtime_upgrade();
+        Institutions::step();
+        let before = sp_io::storage::get(crate::migrations::PROGRESS);
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        let budget = Weight::from_parts(15_000_000_000_000, 1_000_000);
+        let used = Institutions::step_with_budget(budget);
+        assert!(used.all_lte(budget));
+        assert!(
+            used.proof_size() >= rows.encode().len() as u64,
+            "预读不能免费"
+        );
+        assert_eq!(sp_io::storage::get(crate::migrations::PROGRESS), before);
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+        assert!(!sp_io::storage::exists(&target));
+        assert_eq!(
+            sp_io::storage::get(&source).unwrap().to_vec(),
+            rows.encode()
+        );
+        assert!(
+            Institutions::step().all_lte(Weight::from_parts(15_000_000_000_000, 2 * 1024 * 1024))
+        );
+        assert_ne!(
+            sp_io::storage::get(crate::migrations::PROGRESS),
+            before,
+            "大预算下可以继续"
+        );
+    });
+}
+
+#[test]
 fn entity_migration_stops_at_invalid_row_without_writing_its_target() {
     sp_io::TestExternalities::default().execute_with(|| {
         let (cid, _, _) = fixture();
@@ -214,8 +326,10 @@ fn entity_migration_resumes_after_state_commit() {
     ext.execute_with(|| {
         fixture();
         Institutions::on_runtime_upgrade();
-        let budget = Weight::from_parts(20_000_000_000, 30_000);
+        let budget = Weight::from_parts(20_000_000_000, 1_000_000);
+        let before = sp_io::storage::get(crate::migrations::PROGRESS);
         assert_ne!(Institutions::step_with_budget(budget), Weight::zero());
+        assert_ne!(sp_io::storage::get(crate::migrations::PROGRESS), before);
         assert!(Institutions::ongoing());
     });
     ext.commit_all().unwrap();
@@ -1297,7 +1411,7 @@ fn entity_migration_founder_assignments_resume_after_state_commit() {
     let (person, current) = ext.execute_with(|| {
         let (person, _, current) = founder_fixture();
         Institutions::on_runtime_upgrade();
-        Institutions::step_with_budget(Weight::from_parts(20_000_000_000, 100_000));
+        Institutions::step_with_budget(Weight::from_parts(20_000_000_000, 1_000_000));
         assert!(Institutions::ongoing());
         (person, current)
     });
@@ -1930,7 +2044,13 @@ fn full_state_wasm_migration_replay() {
     use sp_core::traits::{CallContext, RuntimeCode, WrappedRuntimeCode};
     use sp_runtime::{traits::Header as _, StateVersion, Storage};
     use sp_state_machine::{Backend, IterArgs, OverlayedChanges, StateMachine};
-    use std::{borrow::Cow, collections::BTreeMap, io::Write, time::Instant};
+    use std::{
+        borrow::Cow,
+        cell::Cell,
+        collections::BTreeMap,
+        io::Write,
+        time::{Duration, Instant},
+    };
 
     type BackendState = sc_client_db::BenchmarkingState<BlakeTwo256>;
     let path = std::env::var_os("CITIZENCHAIN_FULL_SNAPSHOT").expect("需要完整最终状态");
@@ -2025,11 +2145,14 @@ fn full_state_wasm_migration_replay() {
     commit(&mut overlay);
     let mut executor =
         sc_executor::WasmExecutor::<sp_io::SubstrateHostFunctions>::builder().build();
+    // API耗时含执行器编译和宿主调用，单独排除测试签名、提交及归档。
+    let api_elapsed = Cell::new(Duration::ZERO);
     let invoke = |executor: &sc_executor::WasmExecutor<sp_io::SubstrateHostFunctions>,
                   overlay: &mut OverlayedChanges<BlakeTwo256>,
                   method: &str,
                   data: &[u8]| {
-        StateMachine::new(
+        let started = Instant::now();
+        let output = StateMachine::new(
             &backend,
             overlay,
             executor,
@@ -2040,7 +2163,9 @@ fn full_state_wasm_migration_replay() {
             CallContext::Offchain,
         )
         .execute()
-        .unwrap_or_else(|error| panic!("真实 Wasm API {method} 失败：{error:?}"))
+        .unwrap_or_else(|error| panic!("真实 Wasm API {method} 失败：{error:?}"));
+        api_elapsed.set(api_elapsed.get() + started.elapsed());
+        output
     };
     let version = sp_version::RuntimeVersion::decode_all(
         &mut invoke(&executor, &mut overlay, "Core_version", &[]).as_slice(),
@@ -2123,6 +2248,7 @@ fn full_state_wasm_migration_replay() {
         }
         backend.reset_read_write_count();
         backend.recorder().unwrap().reset();
+        api_elapsed.set(Duration::ZERO);
         let started = Instant::now();
         let header = Header::new(
             first + step,
@@ -2186,6 +2312,8 @@ fn full_state_wasm_migration_replay() {
         .unwrap();
         parent = finalized.hash();
         let (proof, delta) = commit(&mut overlay);
+        // 只统计区块执行与提交；归档全量枚举不是 Runtime 读取。
+        let counts = backend.read_write_count();
         let maximum = crate::configs::RuntimeBlockWeights::get().max_block;
         assert!(
             u64::from(proof) <= maximum.proof_size() / 4,
@@ -2216,7 +2344,6 @@ fn full_state_wasm_migration_replay() {
                 writer.write_all(b"\n").unwrap();
             }
         }
-        let counts = backend.read_write_count();
         if step == 0 {
             let vote_prefix = sp_io::hashing::twox_128(b"VotingEngine");
             let mut args = IterArgs::default();
@@ -2231,6 +2358,7 @@ fn full_state_wasm_migration_replay() {
         }
         measurements.push(serde_json::json!({
             "block": first + step, "micros": started.elapsed().as_micros(),
+            "wasm_api_micros": api_elapsed.get().as_micros(),
             "header": hex::encode(finalized.encode()),
             "proof_bytes": proof, "reads": counts.0, "repeat_reads": counts.1,
             "writes": counts.2, "repeat_writes": counts.3,

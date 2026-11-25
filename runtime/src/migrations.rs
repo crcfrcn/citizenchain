@@ -26,7 +26,6 @@ pub(crate) const PROGRESS: &[u8] = b":citizenchain:entity-migration:progress:v1"
 pub(crate) const RESULT: &[u8] = b":citizenchain:entity-migration:result:v1";
 const VERSION: u16 = 1;
 const OLD_CAPACITY: u32 = 1989;
-const BATCH_LIMIT: u32 = 128;
 const ACTIVE_CHECK_LIMIT: u32 = 512;
 const SEAT_BATCH: usize = 24;
 const MAX_LEGACY_ASSIGNMENT_BYTES: usize = 600_000;
@@ -1738,66 +1737,98 @@ impl Institutions {
         Ok(())
     }
 
-    fn row_weight(progress: &Progress, remaining: Weight) -> Option<Weight> {
+    /// 预读与完整处理分别计价。false表示只完成有界预读，游标不动，下块继续。
+    fn row_weight(progress: &Progress, remaining: Weight) -> Option<(Weight, bool)> {
         let table = progress.table;
         let db = RocksDbWeight::get();
-        if table == 2 || table == 3 {
-            // SCALE 向量头给出待核验人数。当键较大时预留一整次有界读取的预算。
-            let probe =
-                Weight::from_parts(900_000_000, 1_650_000).saturating_add(db.reads_writes(120, 4));
+        if table < PURGE {
+            // V0证明包含来源值；预读前先保留完整有界来源及路径空间。
+            // 不再把尚未发生的目标写入、人员查询一并当作预读门槛。
+            let probe = Weight::from_parts(150_000_000, MAX_ROW_BYTES as u64 + 65_536 + 1_024)
+                .saturating_add(db.reads(2));
             if !probe.all_lte(remaining) {
                 return None;
             }
             let (old, _, _) = names(table % 2 == 0);
-            let source = prefix(old, b"InstitutionRoleAssignments");
+            let name = TABLES[usize::from(table / 2)];
+            let source = prefix(old, name);
             let cursor = progress.cursor.as_ref().map(|key| key.as_slice());
             let Some(key) = next_key(&source, cursor) else {
-                return Some(Weight::from_parts(0, 8_192).saturating_add(db.reads(2)));
+                return Some((probe, true));
             };
             let mut head = [0; 5];
             let Some(size) = sp_io::storage::read(&key, &mut head, 0) else {
-                return Some(probe);
+                return Some((probe, true));
             };
-            let Ok(codec::Compact(count)) = codec::Compact::<u32>::decode(&mut head.as_slice())
-            else {
-                return Some(probe);
-            };
-            if size as usize > MAX_LEGACY_ASSIGNMENT_BYTES || count > OLD_CAPACITY {
-                return Some(probe);
+            let peek = Weight::from_parts(
+                150_000_000,
+                65_536u64
+                    .saturating_add(u64::from(size))
+                    .saturating_add(2 * key.len() as u64),
+            )
+            .saturating_add(db.reads(2));
+            if size as usize > MAX_ROW_BYTES {
+                return Some((probe, true));
             }
-            let people = u64::from(count.saturating_sub(progress.offset).min(SEAT_BATCH as u32));
-            return Some(
+            let cost = if name == b"InstitutionRoleAssignments" {
+                let Ok(codec::Compact(count)) = codec::Compact::<u32>::decode(&mut head.as_slice())
+                else {
+                    return Some((peek, true));
+                };
+                if size as usize > MAX_LEGACY_ASSIGNMENT_BYTES || count > OLD_CAPACITY {
+                    return Some((peek, true));
+                }
+                let people =
+                    u64::from(count.saturating_sub(progress.offset).min(SEAT_BATCH as u32));
                 Weight::from_parts(
                     150_000_000u64.saturating_add(20_000_000 * people),
-                    22_000u64
+                    8_192u64
                         .saturating_add(u64::from(size) * 2)
+                        .saturating_add(2 * key.len() as u64)
                         .saturating_add(u64::from(progress.offset) * 32)
                         .saturating_add(15_000 * people),
                 )
-                .saturating_add(db.reads_writes(20 + 4 * people, 4)),
-            );
-        }
-        Some(if table == END {
-            // 保留原PRC处理预留，补记由两席增至七席的五组机构/岗位/任职读取与写入。
-            // 不扩大每块四分之一预算；CPU预留按原两席处理量保守扩展至七席。
-            Weight::from_parts(2_100_000_000, 1_200_000).saturating_add(db.reads_writes(143, 69))
-        } else if table >= PURGE {
-            Weight::from_parts(120_000_000, 64_000).saturating_add(db.reads_writes(2, 2))
-        } else {
-            let (proof, reads) = match TABLES[usize::from(table / 2)] {
-                b"Institutions" => (65_536, 22),
-                b"InstitutionRolePermissions" => (52_000, 7),
-                b"InstitutionAccounts" => (32_000, 13),
-                b"AccountRegisteredCid" => (20_000, 9),
-                _ => (16_000, 8),
+                .saturating_add(db.reads_writes(20 + 4 * people, 4))
+            } else {
+                // 逐行值和键按实际编码长度双份预留；同一来源长度探测/取值
+                // 共享证明，附加路径按真实交叉核验种类预留，不按重复读取叠加。
+                let (paths, reads) = match name {
+                    b"Institutions" => (16_384u64, 24),
+                    b"InstitutionAccounts" => (8_192, 15),
+                    b"AccountRegisteredCid" => (4_096, 11),
+                    b"InstitutionRolePermissions" => (4_096, 9),
+                    _ => (4_096, 10),
+                };
+                Weight::from_parts(
+                    240_000_000,
+                    paths
+                        .saturating_add(u64::from(size) * 2)
+                        .saturating_add(2 * key.len() as u64),
+                )
+                .saturating_add(db.reads_writes(reads, 6))
             };
-            Weight::from_parts(240_000_000, proof).saturating_add(db.reads_writes(reads, 6))
-        })
+            return Some(if cost.all_lte(remaining) {
+                (cost, true)
+            } else {
+                (peek, false)
+            });
+        }
+        Some((
+            if table == END {
+                // 保留原PRC处理预留，补记由两席增至七席的五组机构/岗位/任职读取与写入。
+                // 不扩大每块四分之一预算；CPU预留按原两席处理量保守扩展至七席。
+                Weight::from_parts(2_100_000_000, 1_200_000)
+                    .saturating_add(db.reads_writes(143, 69))
+            } else {
+                Weight::from_parts(120_000_000, 64_000).saturating_add(db.reads_writes(2, 2))
+            },
+            true,
+        ))
     }
 
     pub(crate) fn step_with_budget(budget: Weight) -> Weight {
         let db = RocksDbWeight::get();
-        let base = Weight::from_parts(0, 4_096).saturating_add(db.reads_writes(1, 1));
+        let base = Weight::from_parts(0, 65_536).saturating_add(db.reads_writes(1, 1));
         if !base.all_lte(budget) {
             return Weight::zero();
         }
@@ -1805,14 +1836,18 @@ impl Institutions {
             return db.reads(1);
         };
         let mut used = base;
-        for _ in 0..BATCH_LIMIT {
-            let Some(cost) = Self::row_weight(&progress, budget.saturating_sub(used)) else {
+        loop {
+            let Some((cost, process)) = Self::row_weight(&progress, budget.saturating_sub(used))
+            else {
                 break;
             };
-            if !used.saturating_add(cost).all_lte(budget) {
+            if cost == Weight::zero() || !used.saturating_add(cost).all_lte(budget) {
                 break;
             }
             used = used.saturating_add(cost);
+            if !process {
+                break;
+            }
             let done = progress.table == END;
             let result: Result<(), DispatchError> = with_transaction(|| {
                 let step = if done {
