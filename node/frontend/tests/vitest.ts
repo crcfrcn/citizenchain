@@ -7,6 +7,8 @@ import { createRequire } from 'node:module';
 const { FLAT_FEE } = createRequire(import.meta.url)('../../../scripts/build.mjs');
 
 export default defineConfig({
+  // 测试根固定为前端包，避免从仓库根启动时在根目录生成测试缓存。
+  root: fileURLToPath(new URL('../', import.meta.url)),
   esbuild: { jsx: 'automatic' },
   define: { FLAT_FEE: JSON.stringify(FLAT_FEE) },
   resolve: { dedupe: ['react', 'react-dom'] },
