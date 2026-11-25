@@ -18,6 +18,7 @@ use sp_runtime::traits::Block as BlockT;
 
 /// 原生规则使用编译期类型的键，物理存储名由执行区块的真实元数据决定。
 /// 按稳定 pallet 编号定位前缀；不修改键后缀、SCALE 值或链状态，也不按版本猜测名称。
+#[derive(Clone)]
 pub struct RuntimeStorage {
     prefixes: Vec<([u8; 16], [u8; 16])>,
     entity_layouts: [Option<bool>; 2],
@@ -185,6 +186,16 @@ impl RuntimeStorage {
         match (primary, old) {
             (Some(bytes), Some(old)) => {
                 if key.get(16..32)
+                    == Some(sp_crypto_hashing::twox_128(b":__STORAGE_VERSION__:").as_slice())
+                {
+                    runtime::guard_entity_versions(public, &old, &bytes)
+                        .map_err(|e| format!("FRAME初始化实体版本键非法:{e:?}"))?;
+                    return Ok(Some(StorageRecord {
+                        bytes,
+                        legacy: false,
+                    }));
+                }
+                if key.get(16..32)
                     != Some(sp_crypto_hashing::twox_128(b"InstitutionRoleAssignments").as_slice())
                 {
                     return Err("迁移来源与目标记录冲突".into());
@@ -278,7 +289,16 @@ impl RuntimeStorage {
         let mut grouped = BTreeMap::<Vec<u8>, Vec<(&Vec<u8>, &Option<Vec<u8>>)>>::new();
         for (key, value) in raw {
             let parent_key = self.logical_key(key)?;
-            let post_key = post.logical_key(key)?;
+            // 完成块必须删除最后的来源键；完成态禁止的是残留/重写，不能拒绝本次真实删除。
+            let post_key = if value.is_none()
+                && self.migration == runtime::MigrationState::Running
+                && post.migration == runtime::MigrationState::Complete
+                && runtime::guard_retired_key(key)
+            {
+                parent_key.clone()
+            } else {
+                post.logical_key(key)?
+            };
             let logical = if parent_key != *key {
                 parent_key
             } else {
@@ -309,7 +329,12 @@ impl RuntimeStorage {
                     || records.len() != 2
                     || records.iter().filter(|(_, value)| value.is_some()).count() != 1)
             {
-                return Err("节点守卫存储键归属冲突".into());
+                return Err(format!(
+                    "节点守卫存储键归属冲突：逻辑前缀{}，来源{}个，已验证搬迁{}",
+                    hex::encode(&logical[..logical.len().min(32)]),
+                    records.len(),
+                    moved
+                ));
             }
             let before = self.read(&logical, &read_parent)?;
             let after = post.read(&logical, &read_post)?;

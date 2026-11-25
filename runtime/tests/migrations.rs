@@ -1051,6 +1051,43 @@ fn migration_guard_layout_uses_real_value_types_and_rejects_unknown_schema() {
 }
 
 #[test]
+fn migration_guard_entity_versions_accept_only_frame_initialized_targets() {
+    use frame_support::traits::BeforeAllRuntimeMigrations;
+    sp_io::TestExternalities::default().execute_with(|| {
+        AllPalletsWithSystem::before_all_runtime_migrations();
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        for (public, name) in [
+            (true, b"PublicEntity".as_slice()),
+            (false, b"PrivateEntity".as_slice()),
+        ] {
+            let initialized = sp_io::storage::get(&prefix(name, b":__STORAGE_VERSION__:")).unwrap();
+            assert_eq!(
+                crate::guard_entity_versions(public, &0u16.encode(), &initialized),
+                Ok(())
+            );
+            assert!(crate::guard_entity_versions(public, &[0], &initialized).is_err());
+            assert!(crate::guard_entity_versions(public, &0u16.encode(), &2u16.encode()).is_err());
+            assert!(crate::guard_entity_versions(public, &0u16.encode(), &[0]).is_err());
+        }
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+    });
+}
+
+#[test]
+fn migration_guard_grandpa_namespace_keeps_schema_changes_visible_and_rejects_unknown_tables() {
+    let key = prefix(b"GrandpaKeyChange", b"GrandpaKeyOwnerByKey");
+    let expected = prefix(b"GrandpaKey", b"GrandpaKeyOwnerByKey");
+    assert_eq!(
+        crate::guard_migration_target(&key),
+        Ok(Some(expected.to_vec()))
+    );
+    assert!(crate::guard_retired_key(&key));
+    assert!(!crate::guard_retired_key(&expected));
+    assert!(crate::guard_migration_target(&prefix(b"GrandpaKeyChange", b"Unknown")).is_err());
+    assert!(crate::guard_migration_target(&sp_io::hashing::twox_128(b"GrandpaKeyChange")).is_err());
+}
+
+#[test]
 fn migration_guard_phase_transition_only_advances_and_freezes_completion() {
     sp_io::TestExternalities::default().execute_with(|| {
         founder_fixture();

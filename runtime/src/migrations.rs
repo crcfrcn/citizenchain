@@ -117,11 +117,31 @@ pub fn guard_entity_names(public: bool) -> (&'static [u8], &'static [u8]) {
     (source, target)
 }
 
+/// FRAME在升级钩子前初始化目标版本；迁移中它可与尚未删除的来源版本共存。
+/// 仅接受所属模块声明的初始化版本，不把双版本例外扩展到任何业务记录。
+pub fn guard_entity_versions(
+    public: bool,
+    source: &[u8],
+    target: &[u8],
+) -> Result<(), DispatchError> {
+    let _: StorageVersion = decode(source)?;
+    let expected = if public {
+        <PublicEntity as frame_support::traits::GetStorageVersion>::in_code_storage_version()
+            .initialized()
+    } else {
+        <PrivateEntity as frame_support::traits::GetStorageVersion>::in_code_storage_version()
+            .initialized()
+    };
+    frame_support::ensure!(decode::<StorageVersion>(target)? == expected, invalid());
+    Ok(())
+}
+
 /// 迁移完成后禁止残留或重新写入的旧机构、管理员及已搬迁模块命名空间。
 pub fn guard_retired_key(key: &[u8]) -> bool {
-    renamed_pallets()
-        .iter()
-        .any(|(source, _, _)| key.starts_with(&sp_io::hashing::twox_128(source.as_bytes())))
+    key.starts_with(&sp_io::hashing::twox_128(OLD_GRANDPA))
+        || renamed_pallets()
+            .iter()
+            .any(|(source, _, _)| key.starts_with(&sp_io::hashing::twox_128(source.as_bytes())))
         || [true, false].into_iter().any(|public| {
             let (source, _, admin) = names(public);
             [source, admin]
@@ -132,6 +152,26 @@ pub fn guard_retired_key(key: &[u8]) -> bool {
 
 /// 返回迁移已声明来源键的唯一目标；机构来源中的未知表或短键拒绝解释。
 pub fn guard_migration_target(key: &[u8]) -> Result<Option<Vec<u8>>, DispatchError> {
+    // GRANDPA资料还会转换主键和值；这里只声明命名空间，不把它误作字节不变搬迁。
+    if key.starts_with(&sp_io::hashing::twox_128(OLD_GRANDPA)) {
+        frame_support::ensure!(
+            key.len() >= 32
+                && GRANDPA_TABLES
+                    .iter()
+                    .any(|table| key[16..32] == sp_io::hashing::twox_128(table)),
+            invalid()
+        );
+        return Ok(Some(
+            [
+                sp_io::hashing::twox_128(
+                    <crate::GrandpaKey as PalletInfoAccess>::name().as_bytes(),
+                )
+                .as_slice(),
+                &key[16..],
+            ]
+            .concat(),
+        ));
+    }
     for (source, target, _) in renamed_pallets() {
         if key.starts_with(&sp_io::hashing::twox_128(source.as_bytes())) {
             frame_support::ensure!(key.len() >= 32, invalid());

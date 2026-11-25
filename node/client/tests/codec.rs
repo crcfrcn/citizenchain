@@ -179,6 +179,50 @@ fn migration_views_enumerate_both_sources_and_reject_conflicts_retired_keys_and_
 }
 
 #[test]
+fn migration_completion_accepts_only_real_source_deletes_and_frame_version_initialization() {
+    let metadata = runtime::Runtime::metadata_at_version(16).unwrap();
+    let mut before = RuntimeStorage::from_metadata(metadata.as_slice()).unwrap();
+    before.migration = runtime::MigrationState::Running;
+    let mut after = RuntimeStorage::from_metadata(metadata.as_slice()).unwrap();
+    after.migration = runtime::MigrationState::Complete;
+    let source = nodedesktop::storage::prefix(b"PublicManage", b":__STORAGE_VERSION__:");
+    let target = nodedesktop::storage::prefix(b"PublicEntity", b":__STORAGE_VERSION__:");
+    let admin = nodedesktop::storage::prefix(b"PublicAdmins", b":__STORAGE_VERSION__:");
+    let state = BTreeMap::from([
+        (source.clone(), 0u16.encode()),
+        (target.clone(), 1u16.encode()),
+        (admin.clone(), 0u16.encode()),
+    ]);
+    let read = |key: &[u8]| Ok(state.get(key).cloned());
+    let record = before.read_raw(&target, read).unwrap().unwrap();
+    assert!(!record.legacy);
+    assert_eq!(record.bytes, 1u16.encode());
+    let raw = BTreeMap::from([
+        (source.clone(), None),
+        (target.clone(), Some(1u16.encode())),
+        (admin.clone(), None),
+    ]);
+    let changes = before.transition_changes(&after, &raw, read).unwrap();
+    assert!(
+        !changes.contains_key(&target),
+        "FRAME版本初始化不冒充机构业务写入"
+    );
+    assert_eq!(changes.get(&admin), Some(&None));
+    let rewrite = BTreeMap::from([(source.clone(), Some(0u16.encode()))]);
+    assert!(before.transition_changes(&after, &rewrite, read).is_err());
+    assert!(
+        after.transition_changes(&after, &raw, read).is_err(),
+        "完成后不得再触及旧来源"
+    );
+    for (old, new) in [(vec![0], 1u16.encode()), (0u16.encode(), 2u16.encode())] {
+        let bad = BTreeMap::from([(source.clone(), old), (target.clone(), new)]);
+        assert!(before
+            .read_raw(&target, |key| Ok(bad.get(key).cloned()))
+            .is_err());
+    }
+}
+
+#[test]
 fn truncate_chars_keeps_short_input_unchanged() {
     assert_eq!(truncate_chars("hello", 10), "hello");
 }

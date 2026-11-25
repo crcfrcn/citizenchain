@@ -149,6 +149,339 @@ fn runtime_storage_rejects_invalid_or_ambiguous_metadata() {
     assert_eq!(identity.key(&key, true), key);
 }
 
+/// 使用完整真实Wasm差量核对三阶段存储视图及永久事实；不把离线合成账户当作主链交易。
+/// 归档初始准备合并到首个差量；PoW、费用及签名执行仍由独立真实导入用例验证。
+#[test]
+#[ignore = "通过塔塔显式交付完成的Wasm归档、原状态和本轮候选"]
+fn replayed_migration_preserves_storage_views_and_permanent_facts() {
+    use codec::DecodeAll;
+    use sc_service::ChainSpec as _;
+    use sp_core::traits::{CodeExecutor as _, RuntimeCode, WrappedRuntimeCode};
+    use sp_runtime::traits::{Hash as _, Header as _};
+    use std::io::BufRead as _;
+    let input = |name| std::env::var_os(name).expect("需要明确交付真实排演材料");
+    let read_json = |name| {
+        serde_json::from_slice::<serde_json::Value>(&std::fs::read(input(name)).unwrap()).unwrap()
+    };
+    let snapshot = read_json("CITIZENCHAIN_FULL_SNAPSHOT");
+    let report = read_json("CITIZENCHAIN_REPLAY_REPORT");
+    assert_eq!(report["passed"], true);
+    assert_eq!(report["at"], snapshot["at"]);
+    assert_eq!(report["spec_version"], 8);
+    assert_eq!(report["transaction_version"], 7);
+    let bytes = |value: &serde_json::Value| {
+        let value = value.as_str().unwrap();
+        hex::decode(value.strip_prefix("0x").unwrap_or(value)).unwrap()
+    };
+    let mut state: BTreeMap<Vec<u8>, Vec<u8>> = snapshot["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| (bytes(&row[0]), bytes(&row[1])))
+        .collect();
+    assert_eq!(state.len(), snapshot["rows"].as_array().unwrap().len());
+    let version = sp_storage::StateVersion::try_from(
+        snapshot["version"]["stateVersion"].as_u64().unwrap() as u8,
+    )
+    .unwrap();
+    assert!(snapshot["children"].as_array().unwrap().is_empty());
+    let mut memory = sp_state_machine::new_in_mem::<sp_runtime::traits::BlakeTwo256>();
+    memory.insert(
+        [(
+            None,
+            state
+                .iter()
+                .map(|(key, value)| (key.clone(), Some(value.clone())))
+                .collect::<Vec<_>>(),
+        )],
+        version,
+    );
+    let root = *memory.root();
+    assert_eq!(root.as_bytes(), bytes(&snapshot["header"]["stateRoot"]));
+    let code = std::fs::read(input("CITIZENCHAIN_REPLAY_WASM")).unwrap();
+    assert_eq!(
+        hex::encode(sp_crypto_hashing::blake2_256(&code)),
+        report["wasm_hash"].as_str().unwrap()
+    );
+    let metadata = |code: &[u8]| {
+        let fetcher = WrappedRuntimeCode(code.into());
+        let code = RuntimeCode {
+            code_fetcher: &fetcher,
+            heap_pages: None,
+            hash: sp_crypto_hashing::blake2_256(code).to_vec(),
+        };
+        let executor = sc_executor::WasmExecutor::<sp_io::SubstrateHostFunctions>::default();
+        let (result, _) = executor.call(
+            &mut sp_state_machine::BasicExternalities::new_empty(),
+            &code,
+            "Metadata_metadata",
+            &[],
+            sp_core::traits::CallContext::Onchain { import: false },
+        );
+        sp_core::OpaqueMetadata::decode_all(&mut result.unwrap().as_slice()).unwrap()
+    };
+    let old_metadata = metadata(&state[sp_storage::well_known_keys::CODE]);
+    let new_metadata = metadata(&code);
+    let old_layout = RuntimeStorage::from_metadata(&old_metadata).unwrap();
+    let new_layout = RuntimeStorage::from_metadata(&new_metadata).unwrap();
+    let spec =
+        node::chain::ChainSpec::from_json_bytes(include_bytes!("../../citizenchain.json").to_vec())
+            .unwrap();
+    let reference = crate::guard::cid_lifecycle::GenesisReference::from_frozen(
+        &GenesisState::new(spec.as_storage_builder().build_storage().unwrap(), version).unwrap(),
+    )
+    .unwrap();
+    let lines =
+        std::io::BufReader::new(std::fs::File::open(input("CITIZENCHAIN_REPLAY_ARCHIVE")).unwrap())
+            .lines();
+    let mut count = 0usize;
+    let mut completed = false;
+    let mut last = None;
+    let first = u32::from_str_radix(
+        snapshot["header"]["number"]
+            .as_str()
+            .unwrap()
+            .trim_start_matches("0x"),
+        16,
+    )
+    .unwrap()
+        + 1;
+    for line in lines {
+        let row: serde_json::Value = serde_json::from_str(&line.unwrap()).unwrap();
+        if row["complete"] == true {
+            assert_eq!(row["wasm_hash"], report["wasm_hash"]);
+            assert_eq!(
+                row["last_hash"].as_str().unwrap(),
+                format!("{:#x}", last.unwrap())
+            );
+            completed = true;
+            continue;
+        }
+        assert!(!completed, "完成标记后不能追加状态");
+        let header = <Block as sp_runtime::traits::Block>::Header::decode_all(
+            &mut bytes(&row["header"]).as_slice(),
+        )
+        .unwrap();
+        assert_eq!(*header.number(), first + count as u32);
+        let body = row["body"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(&bytes)
+            .collect::<Vec<_>>();
+        assert!(has_user_transaction(body.len()));
+        assert_eq!(
+            sp_runtime::traits::BlakeTwo256::ordered_trie_root(body, version),
+            *header.extrinsics_root()
+        );
+        if let Some(parent) = last {
+            assert_eq!(*header.parent_hash(), parent);
+        } else {
+            assert_eq!(
+                format!("{:#x}", header.parent_hash()),
+                snapshot["at"].as_str().unwrap()
+            );
+        }
+        let mut raw: BTreeMap<Vec<u8>, Option<Vec<u8>>> = row["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pair| {
+                (
+                    bytes(&pair[0]),
+                    (!pair[1].is_null()).then(|| bytes(&pair[1])),
+                )
+            })
+            .collect();
+        if count == 0 {
+            let initial: BTreeMap<_, _> = row["state"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|pair| (bytes(&pair[0]), bytes(&pair[1])))
+                .collect();
+            // 保留实际差量中的同值写入；只补入离线基点的候选及合成账户准备差异。
+            for key in state.keys().chain(initial.keys()) {
+                if !raw.contains_key(key) && state.get(key) != initial.get(key) {
+                    raw.insert(key.clone(), initial.get(key).cloned());
+                }
+            }
+        }
+        let physical = |key: &[u8]| Ok(state.get(key).cloned());
+        let physical_post = |key: &[u8]| {
+            Ok(raw
+                .get(key)
+                .cloned()
+                .unwrap_or_else(|| state.get(key).cloned()))
+        };
+        let before = (if count == 0 { &old_layout } else { &new_layout })
+            .clone()
+            .with_state(physical)
+            .unwrap();
+        let after = new_layout.clone().with_state(physical_post).unwrap();
+        runtime::guard_migration_transition(
+            |key| state.get(key).cloned(),
+            |key| {
+                raw.get(key)
+                    .cloned()
+                    .unwrap_or_else(|| state.get(key).cloned())
+            },
+        )
+        .unwrap();
+        let delta = before
+            .transition_changes(&after, &raw, physical)
+            .unwrap_or_else(|e| {
+                panic!(
+                    "区块{} {:?}->{:?}存储视图失败：{e}",
+                    header.number(),
+                    before.migration(),
+                    after.migration()
+                )
+            });
+        let parent = |key: &[u8]| before.read(key, physical).unwrap();
+        let post = |key: &[u8]| after.read(key, physical_post).unwrap();
+        let parent_legacy = |key: &[u8]| {
+            before
+                .read_raw(key, physical)
+                .unwrap()
+                .is_some_and(|r| r.legacy)
+        };
+        let post_legacy = |key: &[u8]| {
+            after
+                .read_raw(key, physical_post)
+                .unwrap()
+                .is_some_and(|r| r.legacy)
+        };
+        crate::guard::genesis_pallet::check_transition(&delta, &parent, &post).unwrap();
+        crate::guard::cid_lifecycle::check_transition(
+            *header.number(),
+            &delta,
+            &parent,
+            &post,
+            &reference,
+        )
+        .unwrap();
+        let phase_changed = before.migration() != after.migration();
+        if phase_changed || crate::guard::cid_lifecycle::needs_full_check(&delta) {
+            let keys = state
+                .keys()
+                .map(|key| before.logical_key(key).unwrap())
+                .chain(delta.keys().cloned())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect::<Vec<_>>();
+            crate::guard::cid_lifecycle::check_full_state(&keys, &post, &reference).unwrap();
+        }
+        let vote_keys = delta
+            .contains_key(sp_storage::well_known_keys::CODE)
+            .then(|| {
+                state
+                    .keys()
+                    .map(|key| before.logical_key(key).unwrap())
+                    .chain(delta.keys().cloned())
+                    .filter(|key| {
+                        key.starts_with(&national_body_composition::storage_key::proposal_prefix())
+                            || key.starts_with(
+                                &national_body_composition::storage_key::threshold_prefix(),
+                            )
+                    })
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect::<Vec<_>>()
+            });
+        national_body_composition::check_transition_with_layout(
+            &delta,
+            &parent,
+            &post,
+            parent_legacy,
+            post_legacy,
+            before.migration() == runtime::MigrationState::Running
+                || after.migration() == runtime::MigrationState::Running,
+            vote_keys.as_deref(),
+        )
+        .unwrap();
+        memory.insert(
+            [(
+                None,
+                raw.iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect::<Vec<_>>(),
+            )],
+            version,
+        );
+        assert_eq!(
+            memory.root(),
+            header.state_root(),
+            "实际差量必须重算出逐块状态根"
+        );
+        for (key, value) in raw {
+            if let Some(value) = value {
+                state.insert(key, value);
+            } else {
+                state.remove(&key);
+            }
+        }
+        assert_eq!(state.get(sp_storage::well_known_keys::CODE), Some(&code));
+        if phase_changed && after.migration() == runtime::MigrationState::Complete {
+            assert!(
+                !state.keys().any(|key| runtime::guard_retired_key(key)),
+                "完成态不能残留旧来源"
+            );
+        }
+        last = Some(header.hash());
+        count += 1;
+        if phase_changed || count % 1000 == 0 {
+            eprintln!(
+                "节点存储与永久事实排演：区块{}，{:?}",
+                header.number(),
+                after.migration()
+            );
+        }
+    }
+    assert!(completed);
+    assert_eq!(count, report["blocks"].as_array().unwrap().len());
+    assert_eq!(
+        runtime::guard_migration_state(|key| state.get(key).cloned()).unwrap(),
+        runtime::MigrationState::Complete
+    );
+    let read = |key: &[u8]| Ok(state.get(key).cloned());
+    let layout = new_layout.with_state(read).unwrap();
+    let immutable = genesis_pallet::storage_key::citizens_declaration();
+    let physical = layout.key(&immutable, true);
+    let raw = BTreeMap::from([(physical.clone(), Some(state[&physical].clone()))]);
+    let delta = layout.transition_changes(&layout, &raw, read).unwrap();
+    assert!(
+        genesis_pallet::check_transition(&delta, &|key| layout.read(key, read).unwrap(), &|key| {
+            layout.read(key, read).unwrap()
+        })
+        .is_err(),
+        "完成后同值写入仍拒绝"
+    );
+    let retired = nodedesktop::storage::prefix(
+        runtime::guard_entity_names(true).0,
+        b":__STORAGE_VERSION__:",
+    );
+    assert!(layout
+        .transition_changes(
+            &layout,
+            &BTreeMap::from([(retired, Some(0u16.encode()))]),
+            read
+        )
+        .is_err());
+    let version = nodedesktop::storage::prefix(
+        runtime::guard_entity_names(true).1,
+        b":__STORAGE_VERSION__:",
+    );
+    assert!(layout
+        .clone()
+        .with_state(|key| if key == version {
+            Ok(Some(2u16.encode()))
+        } else {
+            read(key)
+        })
+        .is_err());
+}
+
 #[derive(Default)]
 pub(super) struct CountingImport {
     pub(super) imports: AtomicUsize,
