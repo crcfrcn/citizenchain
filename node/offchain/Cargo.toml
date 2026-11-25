@@ -1,3 +1,4 @@
+# 提供链下清算服务和签名功能。
 [package]
 name = "nodeoffchain"
 description = "CitizenChain nodeoffchain"

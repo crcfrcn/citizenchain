@@ -1,3 +1,4 @@
+# 提供提案查询、详情、计票和投票功能。
 [package]
 name = "nodeproposal"
 description = "CitizenChain nodeproposal"

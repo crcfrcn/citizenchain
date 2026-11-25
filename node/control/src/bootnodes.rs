@@ -100,7 +100,7 @@ fn node_key_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 pub fn genesis_bootnode_options() -> Result<Vec<GenesisBootnodeOption>, String> {
-    let options = crate::grandpa::load_institution_catalog()?
+    let options = sc_consensus_grandpa::key::local::load_institution_catalog()?
         .into_iter()
         .map(|entry| GenesisBootnodeOption {
             cid_short_name: entry.cid_short_name,

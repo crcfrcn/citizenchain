@@ -133,6 +133,10 @@ macro_rules! grandpa_log {
 	};
 }
 
+/// 节点密钥配置、治理换钥和生效收尾的唯一实现。
+#[path = "../key/mod.rs"]
+pub mod key;
+
 mod authorities;
 mod aux_schema;
 mod communication;

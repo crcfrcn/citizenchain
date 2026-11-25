@@ -11,7 +11,7 @@ use frame_metadata::META_RESERVED;
 use futures::FutureExt;
 use nodeclient::codec::decode_runtime_metadata;
 use nodeclient::network::LocalNetworkReader;
-use nodeclient::types::Service;
+use nodeclient::types::{FullBackend, FullClient, FullSelectChain};
 use nodemining::cpu::cpu_hashrate;
 use nodemining::cpu::start_cpu_miner;
 use nodemining::pow::POW_AUTHOR_KEY_TYPE;
@@ -1127,3 +1127,17 @@ pub mod testing;
 #[cfg(test)]
 #[path = "tests/performance.rs"]
 mod performance_tests;
+
+/// 节点部分服务装配类型；客户端、导入队列、交易池与最终性连接保持原样。
+pub type Service = sc_service::PartialComponents<
+    FullClient,
+    FullBackend,
+    FullSelectChain,
+    sc_consensus::DefaultImportQueue<Block>,
+    sc_transaction_pool::TransactionPoolHandle<Block, FullClient>,
+    (
+        sc_consensus_grandpa::GrandpaBlockImport<FullBackend, Block, FullClient, FullSelectChain>,
+        sc_consensus_grandpa::LinkHalf<Block, FullClient, FullSelectChain>,
+        Option<Telemetry>,
+    ),
+>;

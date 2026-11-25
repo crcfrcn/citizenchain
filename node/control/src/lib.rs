@@ -2,7 +2,6 @@
 
 pub mod bootnodes;
 pub mod documents;
-pub mod grandpa;
 pub mod identity;
 pub mod mode;
 pub mod network;

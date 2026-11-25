@@ -1,7 +1,7 @@
 //! 为节点服务测试提供部分服务装配和等待停止辅助。
 
 use crate::service::new_partial_inner;
-use nodeclient::types::Service;
+use crate::service::Service;
 
 use sc_service::error::Error as ServiceError;
 use sc_service::Configuration;

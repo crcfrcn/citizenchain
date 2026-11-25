@@ -1,3 +1,4 @@
+# 管理节点身份、网络、密码及运行控制。
 [package]
 name = "nodecontrol"
 description = "CitizenChain nodecontrol"
@@ -14,10 +15,10 @@ autotests = false
 workspace = true
 
 [dependencies]
+sc-consensus-grandpa = { workspace = true, default-features = true }
 blake2b_simd = "1"
 bs58 = "=0.5.1"
 codec = { workspace = true, default-features = true }
-ed25519-dalek = "=2.2.0"
 entitybase = { path = "../../runtime/entity/entitybase", default-features = true }
 hex = "=0.4.3"
 identity = { path = "../../runtime/misc/identity", default-features = true }

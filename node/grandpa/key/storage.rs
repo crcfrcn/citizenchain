@@ -1,6 +1,6 @@
 //! 持久化并清理待生效的GRANDPA密钥更换记录。
 
-use crate::types::PendingKeyChange;
+use crate::key::types::PendingKeyChange;
 
 use std::fs;
 use std::io::ErrorKind;
@@ -13,6 +13,7 @@ fn pending_state_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(nodedesktop::security::app_data_dir(app)?.join(PENDING_STATE_FILE))
 }
 
+/// 读取原待生效换钥状态，缺少记录时返回空状态。
 pub fn load_pending(app: &AppHandle) -> Result<Option<PendingKeyChange>, String> {
     let path = pending_state_path(app)?;
     let raw = match fs::read_to_string(&path) {
@@ -32,6 +33,7 @@ pub(crate) fn save_pending(app: &AppHandle, pending: &PendingKeyChange) -> Resul
         .map_err(|error| format!("保存 GRANDPA 换钥状态失败: {error}"))
 }
 
+/// 按原幂等规则清理待生效换钥状态记录。
 pub fn clear_pending(app: &AppHandle) -> Result<(), String> {
     match fs::remove_file(pending_state_path(app)?) {
         Ok(()) => Ok(()),

@@ -1,3 +1,4 @@
+# 提供Runtime升级校验、冷签和提案详情。
 [package]
 name = "nodeupgrade"
 description = "CitizenChain nodeupgrade"

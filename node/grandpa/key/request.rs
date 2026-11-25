@@ -1,17 +1,17 @@
 //! 管理本机密钥更换构建会话并生成冷签请求。
 
-use crate::proof::build_runtime_call;
-use crate::proof::decode_hex_32;
-use crate::proof::fetch_current_public_key;
-use crate::proof::fetch_current_set_id;
-use crate::proof::fetch_proof_nonce;
-use crate::proof::finalized_context;
-use crate::proof::signer_account_id;
-use crate::storage::clear_pending;
-use crate::storage::load_pending;
-use crate::storage::save_pending;
-use crate::types::GrandpaKeyChangeRequest;
-use crate::types::PendingKeyChange;
+use crate::key::proof::build_runtime_call;
+use crate::key::proof::decode_hex_32;
+use crate::key::proof::fetch_current_public_key;
+use crate::key::proof::fetch_current_set_id;
+use crate::key::proof::fetch_proof_nonce;
+use crate::key::proof::finalized_context;
+use crate::key::proof::signer_account_id;
+use crate::key::storage::clear_pending;
+use crate::key::storage::load_pending;
+use crate::key::storage::save_pending;
+use crate::key::types::GrandpaKeyChangeRequest;
+use crate::key::types::PendingKeyChange;
 
 use ed25519_dalek::Signer;
 
@@ -51,7 +51,7 @@ pub(crate) fn build_request_sync(
     if load_pending(app)?.is_some() {
         return Err("本机已有尚未完成的 GRANDPA 换钥流程".to_string());
     }
-    let cid_short_name = nodecontrol::grandpa::cid_short_name_for_cid(actor_cid_number)?;
+    let cid_short_name = crate::key::local::cid_short_name_for_cid(actor_cid_number)?;
     let (finalized_hash, finalized_number) = finalized_context()?;
     let genesis_hash = H256::from(nodeclient::signing::fetch_genesis_hash()?);
     let old_public_key = fetch_current_public_key(actor_cid_number, &finalized_hash)?;
@@ -76,9 +76,9 @@ pub(crate) fn build_request_sync(
     let new_signing_key = ed25519_dalek::SigningKey::from_bytes(&new_private_key);
     let new_public_key = new_signing_key.verifying_key().to_bytes();
     let local_kind = if emergency_recovery {
-        crate::types::LocalChangeKind::EmergencyRecovery
+        crate::key::types::LocalChangeKind::EmergencyRecovery
     } else {
-        crate::types::LocalChangeKind::RoutineRotation
+        crate::key::types::LocalChangeKind::RoutineRotation
     };
     let proof_payload = GrandpaKeyProofPayload {
         genesis_hash,
@@ -97,7 +97,7 @@ pub(crate) fn build_request_sync(
     let old_key_signature = if emergency_recovery {
         None
     } else {
-        Some(nodecontrol::grandpa::sign_rotation_proof(
+        Some(crate::key::local::sign_rotation_proof(
             app,
             &old_public_key,
             &digest,
@@ -133,7 +133,7 @@ pub(crate) fn build_request_sync(
     // 后台监视器仍能在证明过期后收口状态，不会留下无人管理的额外 gran 私钥。
     save_pending(app, &pending)?;
     if let Err(error) =
-        nodecontrol::grandpa::import_rotation_candidate(app, &new_private_key, &new_public_key)
+        crate::key::local::import_rotation_candidate(app, &new_private_key, &new_public_key)
     {
         let _ = clear_pending(app);
         return Err(error);
@@ -159,12 +159,12 @@ pub(crate) fn build_request_sync(
         proof_nonce,
         proof_expires_at,
         change_kind: match local_kind {
-            crate::types::LocalChangeKind::RoutineRotation => "routine_rotation",
-            crate::types::LocalChangeKind::EmergencyRecovery => "emergency_recovery",
+            crate::key::types::LocalChangeKind::RoutineRotation => "routine_rotation",
+            crate::key::types::LocalChangeKind::EmergencyRecovery => "emergency_recovery",
         }
         .to_string(),
     })
 }
 #[cfg(test)]
-#[path = "../tests/integration.rs"]
+#[path = "../tests/key/integration.rs"]
 mod tests;

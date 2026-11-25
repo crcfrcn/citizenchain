@@ -1,3 +1,4 @@
+# 提供机构身份、账户、任职和岗位功能。
 [package]
 name = "nodeinstitution"
 description = "CitizenChain nodeinstitution"

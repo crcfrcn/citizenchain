@@ -17,6 +17,14 @@ pub fn run_desktop() {
         .manage(AppState(Mutex::new(
             nodecontrol::state::RuntimeState::default(),
         )))
+        .manage(sc_consensus_grandpa::key::Host {
+            verify_password: nodecontrol::password::verify_device_login_password,
+            is_running: |app| {
+                nodecontrol::identity::current_status(app).map(|status| status.running)
+            },
+            start: |app| crate::lifecycle::start_node_blocking(app).map(|_| ()),
+            stop: |app| crate::lifecycle::stop_node_blocking(app).map(|_| ()),
+        })
         .invoke_handler(tauri::generate_handler![
             nodecontrol::identity::get_node_status,
             crate::lifecycle::start_node,
@@ -38,9 +46,9 @@ pub fn run_desktop() {
             nodecontrol::reward::set_reward_account,
             nodecontrol::reward::get_local_miner_ss58_address,
             nodecontrol::bootnodes::get_bootnode_key,
-            nodecontrol::grandpa::get_grandpa_key,
+            sc_consensus_grandpa::key::local::get_grandpa_key,
             crate::bootnodes::set_bootnode_key,
-            crate::grandpa::set_grandpa_key,
+            sc_consensus_grandpa::key::settings::set_grandpa_key,
             nodecontrol::bootnodes::get_genesis_bootnode_options,
             nodecontrol::rpc::get_chain_status,
             nodecontrol::identity::get_node_identity,
@@ -84,9 +92,9 @@ pub fn run_desktop() {
             nodeupgrade::commands::get_pow_difficulty_params,
             nodeupgrade::commands::build_propose_upgrade_request,
             nodeupgrade::commands::submit_propose_upgrade,
-            nodegrandpakey::commands::build_grandpa_key_change_request,
-            nodegrandpakey::commands::submit_grandpa_key_change,
-            nodegrandpakey::commands::get_grandpa_key_change_status,
+            sc_consensus_grandpa::key::commands::build_grandpa_key_change_request,
+            sc_consensus_grandpa::key::commands::submit_grandpa_key_change,
+            sc_consensus_grandpa::key::commands::get_grandpa_key_change_status,
             nodeproposal::commands::submit_vote,
             nodeproposal::commands::check_vote_status,
             nodeonchain::commands::get_wallets,
@@ -133,7 +141,7 @@ pub fn run_desktop() {
             let tls_error = nodedesktop::tls::prepare_desktop_rpc_tls().err();
             // 同步守护只读本机 RPC，等待节点启动后再按本机状态自检。
             nodecontrol::sync::start_sync_guard(app.handle().clone());
-            crate::rotation::start_monitor(app.handle().clone());
+            sc_consensus_grandpa::key::rotation::start_monitor(app.handle().clone());
 
             if let Some(error) = tls_error {
                 let app_state = app.state::<AppState>();

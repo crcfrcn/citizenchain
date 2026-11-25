@@ -197,7 +197,8 @@ fn start_node_with_policy(app: AppHandle, restart_existing: bool) -> Result<Node
             .ok()
             .filter(|value| !value.trim().is_empty());
         let rpc_port = nodedesktop::rpc::current_rpc_port();
-        let enable_grandpa_validator = nodecontrol::grandpa::prepare_grandpa_for_start(&app)?;
+        let enable_grandpa_validator =
+            sc_consensus_grandpa::key::local::prepare_grandpa_for_start(&app)?;
         let mining_threads = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(1);
@@ -274,7 +275,7 @@ fn start_node_with_policy(app: AppHandle, restart_existing: bool) -> Result<Node
         }
 
         // 验证 GRANDPA 配置。
-        if let Err(err) = nodecontrol::grandpa::verify_grandpa_after_start(&app) {
+        if let Err(err) = sc_consensus_grandpa::key::local::verify_grandpa_after_start(&app) {
             // 回滚：停止节点。
             let bad_handle = match app.state::<AppState>().0.lock() {
                 Ok(mut state) => {

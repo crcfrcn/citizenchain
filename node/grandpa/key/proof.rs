@@ -1,6 +1,6 @@
 //! 读取准确最终块上下文并构造GRANDPA更换持钥证明。
 
-use crate::request::COMMITTEE_ROLE_CODE;
+use crate::key::request::COMMITTEE_ROLE_CODE;
 use codec::DecodeAll;
 use codec::Encode;
 
@@ -8,6 +8,7 @@ use serde_json::Value;
 
 use sp_runtime::AccountId32;
 
+/// 严格读取32字节公开密钥或哈希。
 pub fn decode_hex_32(value: &str, field: &str) -> Result<[u8; 32], String> {
     let bytes = hex::decode(value.trim_start_matches("0x"))
         .map_err(|error| format!("{field} 十六进制无效: {error}"))?;
@@ -16,6 +17,7 @@ pub fn decode_hex_32(value: &str, field: &str) -> Result<[u8; 32], String> {
         .map_err(|_| format!("{field} 必须为 32 字节"))
 }
 
+/// 读取同一最终块的哈希和高度。
 pub fn finalized_context() -> Result<(String, u64), String> {
     let finalized_hash = nodeclient::query::fetch_finalized_head()?;
     let header = nodeclient::signing::rpc_post(
@@ -40,6 +42,7 @@ fn cid_scale(actor_cid_number: &str) -> Result<Vec<u8>, String> {
     Ok(actor_cid_number.as_bytes().to_vec().encode())
 }
 
+/// 在指定最终块读取机构当前GRANDPA公钥。
 pub fn fetch_current_public_key(
     actor_cid_number: &str,
     finalized_hash: &str,
@@ -85,6 +88,7 @@ pub(crate) fn fetch_current_set_id(finalized_hash: &str) -> Result<u64, String> 
     u64::decode_all(&mut bytes.as_slice()).map_err(|_| "GRANDPA set id SCALE 数据无效".to_string())
 }
 
+/// 在指定最终块读取当前GRANDPA权威集合。
 pub fn fetch_authorities(
     finalized_hash: &str,
 ) -> Result<sp_consensus_grandpa::AuthorityList, String> {
@@ -149,5 +153,5 @@ pub(crate) fn build_runtime_call(
 }
 
 #[cfg(test)]
-#[path = "../tests/unit.rs"]
+#[path = "../tests/key/unit.rs"]
 mod unit_tests;

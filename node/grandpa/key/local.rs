@@ -31,7 +31,9 @@ const STATUS_POLL_INTERVAL: Duration = Duration::from_millis(250);
 #[serde(rename_all = "camelCase")]
 /// 前端展示的 GRANDPA 私钥绑定状态。
 pub struct GrandpaKey {
+    /// 不向前端回传私钥，该字段保持原空值。
     pub key: Option<String>,
+    /// 所属机构的规范简称。
     pub cid_short_name: Option<String>,
 }
 
@@ -51,6 +53,7 @@ struct GrandpaKeystoreBackupEntry {
 }
 
 #[derive(Debug, Clone)]
+/// 在同次设置失败时恢复原本机密钥与元数据。
 pub struct GrandpaPersistedStateBackup {
     meta: Option<StoredGrandpaMeta>,
     keystore_files: Vec<GrandpaKeystoreBackupEntry>,
@@ -59,11 +62,16 @@ pub struct GrandpaPersistedStateBackup {
 #[derive(Debug, Clone)]
 /// 节点运行目录条目；机构简称只允许由 `CHINA_CB.cid_short_name` 派生，
 /// 节点目录不保存第二份名称或链上公钥副本。
-pub(crate) struct InstitutionCatalogEntry {
+pub struct InstitutionCatalogEntry {
+    /// 所属机构的规范简称。
     pub cid_short_name: String,
+    /// 节点原有角色。
     pub role: String,
+    /// 节点公开P2P标识。
     pub peer_id: String,
+    /// 所属机构完整CID。
     pub cid_number: String,
+    /// 节点原有RPC域名。
     pub domain: String,
 }
 
@@ -73,7 +81,9 @@ struct StoredInstitutionCatalogEntry {
     /// 权威节点角色：`nrc` | `prc` | `prb`
     #[serde(default)]
     pub role: String,
+    /// 节点公开P2P标识。
     pub peer_id: String,
+    /// 所属机构完整CID。
     pub cid_number: String,
     /// 引导节点域名（如 `nrcgch.crcfrcn.com`），用于远程 RPC 查询。
     #[serde(default)]
@@ -83,7 +93,7 @@ struct StoredInstitutionCatalogEntry {
 static INSTITUTION_CATALOG: OnceLock<Vec<InstitutionCatalogEntry>> = OnceLock::new();
 
 /// 获取权威节点清单（OnceLock 惰性初始化，编译期内嵌 JSON 只解析一次）。
-pub(crate) fn load_institution_catalog() -> Result<Vec<InstitutionCatalogEntry>, String> {
+pub fn load_institution_catalog() -> Result<Vec<InstitutionCatalogEntry>, String> {
     if let Some(catalog) = INSTITUTION_CATALOG.get() {
         return Ok(catalog.clone());
     }
@@ -175,6 +185,7 @@ fn load_grandpa_meta(app: &AppHandle) -> Result<Option<StoredGrandpaMeta>, Strin
     Ok(Some(record))
 }
 
+/// 原子保存本机GRANDPA机构与公钥元数据。
 pub fn save_grandpa_meta(
     app: &AppHandle,
     cid_short_name: Option<String>,
@@ -197,6 +208,7 @@ fn clear_grandpa_meta(app: &AppHandle) -> Result<(), String> {
     }
 }
 
+/// 为本次设置保存原元数据及keystore回滚快照。
 pub fn snapshot_grandpa_persisted_state(
     app: &AppHandle,
 ) -> Result<GrandpaPersistedStateBackup, String> {
@@ -235,6 +247,7 @@ fn remove_all_grandpa_keystore_files(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// 恢复本次设置前的原元数据和keystore。
 pub fn restore_grandpa_persisted_state(
     app: &AppHandle,
     backup: &GrandpaPersistedStateBackup,
@@ -258,6 +271,7 @@ pub fn restore_grandpa_persisted_state(
     Ok(())
 }
 
+/// 按原单钥设置规则写入GRANDPA私钥。
 pub fn write_grandpa_key_to_keystore(
     app: &AppHandle,
     private_hex: &str,
@@ -446,6 +460,7 @@ fn registered_owner(
     }
     Ok(Some(cid))
 }
+/// 通过同一最终块的公钥正反索引读取所属机构简称。
 pub fn cid_short_name_by_grandpa_public_key(public_key: &str) -> Result<Option<String>, String> {
     let at = rpc_post("chain_getFinalizedHead", serde_json::json!([]))?
         .as_str()
@@ -461,6 +476,7 @@ pub fn cid_short_name_by_grandpa_public_key(public_key: &str) -> Result<Option<S
     owner.map(|cid| cid_short_name_for_cid(&cid)).transpose()
 }
 
+/// 从给定Ed25519私钥计算对应公开密钥。
 pub fn grandpa_public_key_from_private_hex(key_hex: &str) -> Result<String, String> {
     let secret = decode_hex_32_strict(key_hex)
         .map_err(|_| "GRANDPA 私钥格式无效，应为 64 位十六进制".to_string())?;
@@ -519,6 +535,7 @@ fn wait_for_authority_role() -> Result<(), String> {
     ))
 }
 
+/// 按原元数据及keystore检查节点启动时的密钥状态。
 pub fn prepare_grandpa_for_start(app: &AppHandle) -> Result<bool, String> {
     let Some(meta) = load_grandpa_meta(app)? else {
         return Ok(false);
@@ -542,6 +559,7 @@ pub fn prepare_grandpa_for_start(app: &AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
+/// 核对启动后的权威角色及原密钥文件。
 pub fn verify_grandpa_after_start(app: &AppHandle) -> Result<(), String> {
     let Some(meta) = load_grandpa_meta(app)? else {
         return Ok(());
@@ -560,6 +578,7 @@ pub fn verify_grandpa_after_start(app: &AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+/// 返回当前本机GRANDPA配置状态，不返回私钥。
 pub fn get_grandpa_key(app: AppHandle) -> Result<GrandpaKey, String> {
     let meta = load_grandpa_meta(&app)?;
     let cid_short_name = meta.as_ref().and_then(|v| v.cid_short_name.clone());
@@ -588,5 +607,5 @@ pub fn get_grandpa_key(app: AppHandle) -> Result<GrandpaKey, String> {
     })
 }
 #[cfg(test)]
-#[path = "../tests/grandpa.rs"]
+#[path = "../tests/key/local.rs"]
 mod tests;

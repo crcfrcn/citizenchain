@@ -12,7 +12,7 @@ import { rolesApi } from "./roles";
 import { CreateMultisigTransferPage } from "../multisig/CreateProposalPage";
 import { SafetyFundProposalPage } from "../multisig/SafetyFundProposalPage";
 import { SweepProposalPage } from "../multisig/SweepProposalPage";
-import { GrandpaKeyChangePage } from "../grandpakey/GrandpaKeyChangePage";
+import { GrandpaKeyChangePage } from "../grandpa/GrandpaKeyChangePage";
 import { ProtocolUpgradeProposalPage } from "../upgrade/index";
 import type { RoleAccess, RoleSigner, InstitutionBalanceUpdate, InstitutionDetail } from "./council";
 import type { ProposalListItem } from "../proposal/types";

@@ -1,7 +1,7 @@
 // 验证GRANDPA状态、准备和提交IPC及失败不自动重放。
 
 import {beforeEach, expect, it, vi} from 'vitest';
-import {grandpaKeyChangeApi} from '../grandpakey/api';
+import {grandpaKeyChangeApi} from '../grandpa/api';
 const mocks=vi.hoisted(()=>({invoke:vi.fn()}));
 vi.mock('../client/tauri',()=>({invoke:mocks.invoke}));
 const api=grandpaKeyChangeApi as unknown as Record<string,(...args:unknown[])=>Promise<unknown>>;

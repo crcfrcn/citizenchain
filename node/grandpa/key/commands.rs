@@ -1,15 +1,16 @@
 //! 提供GRANDPA密钥更换请求、提交及状态查询的桌面命令。
 
-use crate::request::build_request_sync;
-use crate::request::build_sessions;
-use crate::storage::load_pending;
-use crate::storage::save_pending;
-use crate::types::GrandpaKeyChangeRequest;
-use crate::types::GrandpaKeyChangeStatus;
+use crate::key::request::build_request_sync;
+use crate::key::request::build_sessions;
+use crate::key::storage::load_pending;
+use crate::key::storage::save_pending;
+use crate::key::types::GrandpaKeyChangeRequest;
+use crate::key::types::GrandpaKeyChangeStatus;
 
 use tauri::AppHandle;
 
 #[tauri::command]
+/// 核对本机解锁及节点状态，构建原有换钥冷签请求。
 pub async fn build_grandpa_key_change_request(
     app: AppHandle,
     actor_cid_number: String,
@@ -18,8 +19,9 @@ pub async fn build_grandpa_key_change_request(
     unlock_password: String,
 ) -> Result<GrandpaKeyChangeRequest, String> {
     let unlock = nodedesktop::security::ensure_unlock_password(&unlock_password)?;
-    nodecontrol::password::verify_device_login_password(&app, unlock)?;
-    if !nodecontrol::identity::current_status(&app)?.running {
+    let host = crate::key::Host::get(&app)?;
+    (host.verify_password)(&app, unlock)?;
+    if !(host.is_running)(&app)? {
         return Err("节点未运行，无法构建 GRANDPA 换钥请求".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -35,6 +37,7 @@ pub async fn build_grandpa_key_change_request(
 }
 
 #[tauri::command]
+/// 验证冷签响应并提交原有换钥交易，保存交易回执。
 pub async fn submit_grandpa_key_change(
     app: AppHandle,
     request_id: String,
@@ -44,7 +47,8 @@ pub async fn submit_grandpa_key_change(
     sign_block_number: u64,
     response_json: String,
 ) -> Result<nodeclient::signing::VoteSubmitResult, String> {
-    if !nodecontrol::identity::current_status(&app)?.running {
+    let host = crate::key::Host::get(&app)?;
+    if !(host.is_running)(&app)? {
         return Err("节点未运行，无法提交 GRANDPA 换钥交易".to_string());
     }
     tauri::async_runtime::spawn_blocking(move || {
@@ -78,6 +82,7 @@ pub async fn submit_grandpa_key_change(
 }
 
 #[tauri::command]
+/// 读取本机待生效的换钥状态。
 pub fn get_grandpa_key_change_status(app: AppHandle) -> Result<GrandpaKeyChangeStatus, String> {
     let Some(pending) = load_pending(&app)? else {
         return Ok(GrandpaKeyChangeStatus {
@@ -96,8 +101,8 @@ pub fn get_grandpa_key_change_status(app: AppHandle) -> Result<GrandpaKeyChangeS
         new_public_key: Some(pending.new_public_key),
         change_kind: Some(
             match pending.change_kind {
-                crate::types::LocalChangeKind::RoutineRotation => "routine_rotation",
-                crate::types::LocalChangeKind::EmergencyRecovery => "emergency_recovery",
+                crate::key::types::LocalChangeKind::RoutineRotation => "routine_rotation",
+                crate::key::types::LocalChangeKind::EmergencyRecovery => "emergency_recovery",
             }
             .to_string(),
         ),

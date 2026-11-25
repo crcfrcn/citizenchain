@@ -1,3 +1,4 @@
+# 实现CPU/GPU挖矿及PoW验证。
 [package]
 name = "nodemining"
 description = "CitizenChain nodemining"

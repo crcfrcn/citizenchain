@@ -1,9 +1,9 @@
 //! 验证GRANDPA目录使用规范CID简称并拒绝重复名称字段。
 
-use crate::grandpa::cid_short_name_for_cid;
-use crate::grandpa::load_institution_catalog;
-use crate::grandpa::StoredGrandpaMeta;
-use crate::grandpa::INSTITUTION_CATALOG_SRC;
+use crate::key::local::cid_short_name_for_cid;
+use crate::key::local::load_institution_catalog;
+use crate::key::local::StoredGrandpaMeta;
+use crate::key::local::INSTITUTION_CATALOG_SRC;
 use primitives::cid::china::china_cb::CHINA_CB;
 use std::collections::HashSet;
 

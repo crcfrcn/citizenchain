@@ -1,3 +1,4 @@
+# 提供链查询、交易签名及客户端共享接口。
 [package]
 name = "nodeclient"
 description = "CitizenChain nodeclient"
@@ -31,13 +32,10 @@ rand = { workspace = true, default-features = true }
 runtime = { workspace = true }
 sc-client-api = { workspace = true, default-features = true }
 sc-consensus = { workspace = true, default-features = true }
-sc-consensus-grandpa = { workspace = true, default-features = true }
 sc-consensus-pow = { workspace = true, default-features = true }
 sc-executor = { workspace = true, default-features = true }
 sc-network = { workspace = true, default-features = true }
 sc-service = { workspace = true, default-features = true }
-sc-telemetry = { workspace = true, default-features = true }
-sc-transaction-pool = { workspace = true, default-features = true }
 sc-transaction-pool-api = { workspace = true, default-features = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, default-features = true }

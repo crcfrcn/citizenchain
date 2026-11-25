@@ -1,3 +1,4 @@
+# 提供钱包账户选择和链上转账功能。
 [package]
 name = "nodeonchain"
 description = "CitizenChain nodeonchain"

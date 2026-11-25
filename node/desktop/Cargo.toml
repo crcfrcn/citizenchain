@@ -1,3 +1,4 @@
+# 提供本机安全存储、证书和RPC公共能力。
 [package]
 name = "nodedesktop"
 description = "CitizenChain nodedesktop"

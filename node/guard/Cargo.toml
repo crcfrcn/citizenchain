@@ -1,3 +1,4 @@
+# 校验节点执行的宪法、制度及业务约束。
 [package]
 name = "nodeguard"
 description = "CitizenChain nodeguard"

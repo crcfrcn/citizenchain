@@ -12,7 +12,7 @@ use jsonrpsee::core::client::SubscriptionClientT;
 use jsonrpsee::RpcModule;
 use nodeclient::types::FullBackend;
 use nodeclient::types::FullClient;
-use nodeclient::types::Service;
+use crate::service::Service;
 use pallet_revive::evm::Account;
 use pallet_revive::evm::Bytes;
 use pallet_revive::evm::GenericTransaction;

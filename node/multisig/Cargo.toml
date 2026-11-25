@@ -1,3 +1,4 @@
+# 提供多签转账提案和冷签功能。
 [package]
 name = "nodemultisig"
 description = "CitizenChain nodemultisig"
