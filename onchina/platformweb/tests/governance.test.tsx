@@ -84,6 +84,7 @@ describe('独立治理页载荷及身份边界', () => {
 describe('治理独立页面真实DOM交互', () => {
     const browserTest = process.env.ONCHINA_TEST_DOM ? it : it.skip;
     async function mount(options: {
+        state?: GovernanceState;
         readonly?: boolean;
         failedRead?: boolean;
         delayedPasskey?: boolean;
@@ -114,7 +115,7 @@ describe('治理独立页面真实DOM交互', () => {
                     fail = false;
                     return new Response('unavailable', { status: 503 });
                 }
-                return new Response(JSON.stringify({ code: 0, data: state }));
+                return new Response(JSON.stringify({ code: 0, data: options.state ?? state }));
             }
             if (String(path).endsWith('/prepare'))
                 return new Response(JSON.stringify({ code: 0, data: { requestId: 'fixture-request', signRequest: 'fixture-request-code' } }));
@@ -149,6 +150,17 @@ describe('治理独立页面真实DOM交互', () => {
         const changeRole = () => React.act(async () => root.render(React.createElement(View, { auth: {...auth,roleCode:"OTHER"},cidNumber:state.cidNumber })));
         return { changeRole, changeSession, assertion, signChain, submit, fetcher, click, confirm, button, flush, unmount, releaseKey: () => releaseKey('fixture-assertion'), dispose: async () => { await unmount(); fetcher.mockRestore(); vi.doUnmock('../authentication/passkeyClient'); vi.doUnmock('../qr/useChainSign'); vi.doUnmock('../controls/notice'); dom.window.close(); vi.unstubAllGlobals(); } };
     }
+    browserTest('原生权限入口复用治理审阅，核对前不发链请求', async () => {
+        const c = await mount({ state: { ...state, policyAvailable: true, roles: [...state.roles, { ...role, roleCode: 'R_POLICY', roleName: '业务岗位' }] } });
+        try {
+            await c.click('权限');
+            expect(document.body.textContent).toContain('原生权限政策');
+            await c.click('核对变更');
+            expect(document.body.textContent).toContain('确认岗位原生权限政策');
+            expect(c.signChain).not.toHaveBeenCalled();
+            expect(c.fetcher.mock.calls.some(([path]) => String(path).endsWith('/prepare'))).toBe(false);
+        } finally { await c.dispose(); }
+    });
     browserTest('其它机构可读岗位，但没有写入口，读取不触发密钥认证', async () => {
         const c = await mount({ readonly: true });
         try {
@@ -393,4 +405,24 @@ it('人员CID年份接受规范u32边界，拒绝溢出、多余前导零和空�
     expect(()=>validateAssignments(state,role,[{personCid:`CN220-CTZN2-198805200-${year}`,termStart:0,termEnd:0}])).toThrow('CID');
   }
   expect(()=>validateAssignments({...state,moduleTag:'pub-mgmt'},role,[{personCid:'CN220-NATP2-198805200-10000',termStart:0,termEnd:0}])).toThrow('CID');
+});
+
+describe('原生政策和岗位属性接线', () => {
+    const dynamic = { ...role, roleCode: 'R_POLICY' };
+    const current: GovernanceState = { ...state, policyAvailable: true, roles: [dynamic, state.roles[1]] };
+    it('配置属性与目标任职同案，停用必须显式清空，固定岗位拒绝', () => {
+        const configuration = { mutation: 'CONFIGURE' as const, roleCode: dynamic.roleCode, termRequired: false, seats: 2, active: false };
+        expect(() => buildGovernance(current, { roleMutations: [configuration] }, 'GOV')).toThrow('清空');
+        expect(buildGovernance(current, { roleMutations: [configuration], assignmentChanges: [{ roleCode: dynamic.roleCode, assignments: [] }] }, 'GOV').roleMutations?.[0].active).toBe(false);
+        expect(() => buildGovernance(current, { roleMutations: [{ ...configuration, roleCode: 'LR' }] }, 'GOV')).toThrow('固定');
+        expect(() => buildGovernance({ ...current, policyAvailable: false }, { roleMutations: [{ ...configuration, active: true }] }, 'GOV')).toThrow('配置无效');
+    });
+    it('政策完整替换非空权限并绑定原指纹，拒绝混入人事及陈旧状态', () => {
+        const policy = { permissionChanges: [{ roleCode: dynamic.roleCode, permissions: dynamic.permissions }], threshold: 3, expectedStateHash: current.registrationStateHash };
+        expect(buildGovernance(current, { policy }, 'GOV').policy).toEqual(policy);
+        expect(() => buildGovernance(current, { policy: { ...policy, permissionChanges: [{ roleCode: dynamic.roleCode, permissions: [] }] } }, 'GOV')).toThrow('不能为空');
+        expect(() => buildGovernance(current, { policy: { ...policy, expectedStateHash: '0x' + 'cd'.repeat(32) } }, 'GOV')).toThrow('指纹');
+        expect(() => buildGovernance(current, { policy, assignmentChanges: [{ roleCode: dynamic.roleCode, assignments: [] }] }, 'GOV')).toThrow('人事');
+        expect(() => buildGovernance(current, { policy: { ...policy, threshold: 1 } }, 'GOV')).toThrow('阈值');
+    });
 });

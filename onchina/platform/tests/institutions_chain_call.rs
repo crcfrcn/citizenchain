@@ -97,3 +97,56 @@ fn account_lifecycle_calls_preserve_original_indices_and_values() {
     assert_eq!(close.call_data[..2], [31, 1]);
     assert!(runtime::RuntimeCall::decode_all(&mut close.call_data.as_slice()).is_ok());
 }
+
+#[test]
+fn policy_calls_and_configure_decode_with_actual_runtime_fields() {
+    for is_private in [false, true] {
+        let action = entitybase::InstitutionPolicyAction {
+            permission_changes: vec![entitybase::RolePermissionChange {
+                role_code: b"R_POLICY".to_vec(),
+                permissions: vec![entitybase::RolePermissionSpec {
+                    business_action_id: entitybase::BusinessActionId {
+                        module_tag: b"multisig".to_vec(),
+                        action_code: 0,
+                    },
+                    operation: entitybase::RolePermissionOperation::Propose,
+                }],
+            }],
+            threshold: Some(2),
+        };
+        let call = encode_propose_institution_policy(&ProposeInstitutionPolicyArgs {
+            is_private,
+            cid_number: b"fixture".to_vec(),
+            action,
+            proposer_role_code: b"R_GOV".to_vec(),
+            expected_state_hash: [9; 32],
+        });
+        assert_eq!(call.call_data[..2], [if is_private { 31 } else { 30 }, 11]);
+        let decoded = runtime::RuntimeCall::decode_all(&mut call.call_data.as_slice()).unwrap();
+        assert_eq!(decoded.encode(), call.call_data);
+        let configure = entitybase::InstitutionGovernanceAction {
+            role_mutations: vec![entitybase::InstitutionRoleMutation::Configure {
+                role_code: b"R_POLICY".to_vec(),
+                term_required: true,
+                seats: 2,
+                role_status: entitybase::InstitutionRoleStatus::Active,
+            }],
+            assignment_changes: vec![],
+            legal_representative_change: None,
+        };
+        let encoded = encode_propose_institution_governance(&ProposeInstitutionGovernanceArgs {
+            is_private,
+            cid_number: b"fixture".to_vec(),
+            governance_action: configure.encode(),
+            institution_code: *b"SFGY",
+            actor_cid_number: b"fixture".to_vec(),
+            proposer_role_code: b"R_GOV".to_vec(),
+        });
+        assert_eq!(
+            runtime::RuntimeCall::decode_all(&mut encoded.call_data.as_slice())
+                .unwrap()
+                .encode(),
+            encoded.call_data
+        );
+    }
+}

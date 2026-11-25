@@ -232,6 +232,7 @@ fn new_roles_require_positive_bounded_seats_and_exact_permission_operations() {
     let s = fixture();
     let mut create = crate::institutions::InstitutionRoleMutationInput {
         mutation: "CREATE".into(),
+        active: None,
         role_code: None,
         role_name: Some("新岗位".into()),
         term_required: false,
@@ -257,6 +258,7 @@ fn rename_cannot_change_capacity_permissions_or_fixed_legal_role() {
     let s = fixture();
     let mut mutation = crate::institutions::InstitutionRoleMutationInput {
         mutation: "RENAME".into(),
+        active: None,
         role_code: Some("R_EDIT".into()),
         role_name: Some("新名称".into()),
         term_required: false,
@@ -337,4 +339,44 @@ fn registration_cannot_replace_protected_legal_assignments() {
     }];
     assert!(crate::institutions::parse_role_action(&s, &[], &changes, true).is_err());
     assert!(crate::institutions::parse_role_action(&s, &[], &changes, false).is_ok());
+}
+
+#[test]
+fn ordinary_configure_preserves_or_explicitly_replaces_assignments_and_policy_is_nonempty() {
+    let s = fixture();
+    let mut configure = crate::institutions::InstitutionRoleMutationInput {
+        mutation: "CONFIGURE".into(),
+        role_code: Some("R_EDIT".into()),
+        role_name: None,
+        active: Some(false),
+        term_required: false,
+        seats: Some(2),
+        permissions: vec![],
+        assignments: vec![],
+    };
+    assert!(crate::institutions::parse_role_action(&s, &[configure.clone()], &[], false).is_err());
+    let clear = crate::institutions::InstitutionAssignmentChangeInput {
+        role_code: "R_EDIT".into(),
+        assignments: vec![],
+    };
+    assert!(
+        crate::institutions::parse_role_action(&s, &[configure.clone()], &[clear], false).is_ok()
+    );
+    assert!(crate::institutions::parse_role_action(&s, &[configure.clone()], &[], true).is_err());
+    configure.active = Some(true);
+    configure.role_code = Some("LR".into());
+    assert!(crate::institutions::parse_role_action(&s, &[configure], &[], false).is_err());
+    let mut input = crate::institutions::governance::InstitutionPolicyInput {
+        permission_changes: vec![],
+        threshold: Some(2),
+        expected_state_hash: format!("0x{}", hex::encode(s.state_hash())),
+    };
+    assert!(crate::institutions::governance::parse_policy_action(&s, &input).is_ok());
+    input
+        .permission_changes
+        .push(crate::institutions::governance::RolePolicyInput {
+            role_code: "R_EDIT".into(),
+            permissions: vec![],
+        });
+    assert!(crate::institutions::governance::parse_policy_action(&s, &input).is_err());
 }

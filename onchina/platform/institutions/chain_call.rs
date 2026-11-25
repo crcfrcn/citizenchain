@@ -8,6 +8,8 @@ pub const PUBLIC_MANAGE_PALLET_INDEX: u8 = 30;
 pub const PRIVATE_MANAGE_PALLET_INDEX: u8 = 31;
 /// 机构内部治理提案 call index。
 pub const PROPOSE_INSTITUTION_GOVERNANCE_CALL_INDEX: u8 = 8;
+/// 普通机构原生权限及共同阈值政策 call index。
+pub const PROPOSE_INSTITUTION_POLICY_CALL_INDEX: u8 = 11;
 /// 注册局登记机构岗位和人员任职 call index。
 pub const REGISTER_INSTITUTION_ROLES_CALL_INDEX: u8 = 9;
 /// 发起「新增机构自定义账户」提案 call index(公私权同为 7)。
@@ -29,6 +31,38 @@ pub struct ProposeInstitutionGovernanceArgs {
     pub actor_cid_number: Vec<u8>,
     /// 发起人当前任职的机构岗位码；runtime 据此校验业务提案权限。
     pub proposer_role_code: Vec<u8>,
+}
+
+/// 政策载荷复用Runtime共用类型；状态指纹绑定用户审阅的原机构状态。
+pub struct ProposeInstitutionPolicyArgs {
+    pub is_private: bool,
+    pub cid_number: Vec<u8>,
+    pub action: entitybase::InstitutionPolicyAction,
+    pub proposer_role_code: Vec<u8>,
+    pub expected_state_hash: [u8; 32],
+}
+
+/// call11字段顺序必须与实际Runtime一致，不夹带其他机构或独立管理员名单。
+pub fn encode_propose_institution_policy(args: &ProposeInstitutionPolicyArgs) -> ChainCall {
+    let pallet = if args.is_private {
+        PRIVATE_MANAGE_PALLET_INDEX
+    } else {
+        PUBLIC_MANAGE_PALLET_INDEX
+    };
+    let mut call_data = vec![pallet, PROPOSE_INSTITUTION_POLICY_CALL_INDEX];
+    call_data.extend(
+        (
+            &args.cid_number,
+            &args.action,
+            &args.proposer_role_code,
+            args.expected_state_hash,
+        )
+            .encode(),
+    );
+    ChainCall {
+        action: chain_action_code(pallet, PROPOSE_INSTITUTION_POLICY_CALL_INDEX),
+        call_data,
+    }
 }
 
 /// `register_institution_roles` 完整参数。

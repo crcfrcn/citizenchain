@@ -28,12 +28,13 @@ pub(crate) use accounts::{
 };
 pub use chain_call::{
     chain_action_code, encode_propose_add_institution_account, encode_propose_close_institution,
-    encode_propose_institution_governance, encode_register_institution_roles, ChainCall,
-    ProposeAddInstitutionAccountArgs, ProposeCloseInstitutionArgs,
-    ProposeInstitutionGovernanceArgs, RegisterInstitutionRolesArgs, PRIVATE_MANAGE_PALLET_INDEX,
+    encode_propose_institution_governance, encode_propose_institution_policy,
+    encode_register_institution_roles, ChainCall, ProposeAddInstitutionAccountArgs,
+    ProposeCloseInstitutionArgs, ProposeInstitutionGovernanceArgs, ProposeInstitutionPolicyArgs,
+    RegisterInstitutionRolesArgs, PRIVATE_MANAGE_PALLET_INDEX,
     PROPOSE_ADD_INSTITUTION_ACCOUNT_CALL_INDEX, PROPOSE_CLOSE_INSTITUTION_CALL_INDEX,
-    PROPOSE_INSTITUTION_GOVERNANCE_CALL_INDEX, PUBLIC_MANAGE_PALLET_INDEX,
-    REGISTER_INSTITUTION_ROLES_CALL_INDEX,
+    PROPOSE_INSTITUTION_GOVERNANCE_CALL_INDEX, PROPOSE_INSTITUTION_POLICY_CALL_INDEX,
+    PUBLIC_MANAGE_PALLET_INDEX, REGISTER_INSTITUTION_ROLES_CALL_INDEX,
 };
 pub(crate) use chain_multisig_info::{
     app_get_institution, app_list_accounts, app_search_institutions,

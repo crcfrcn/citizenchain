@@ -15,8 +15,13 @@ use sp_runtime::{
 
 use crate::{
     BusinessActionId, InstitutionAssignmentSource, InstitutionAssignmentStatus,
-    RolePermissionOperation,
+    InstitutionRoleStatus, RolePermissionOperation,
 };
+
+/// 普通机构政策扫描上限；任职总量另受实体的 MaxRoleEntries 限制。
+pub const MAX_POLICY_ROLES: u32 = 64;
+/// 单机构原生权限总量上限，覆盖原有单岗256项协议边界。
+pub const MAX_POLICY_PERMISSIONS: u32 = 256;
 
 /// Runtime与登记客户端共用的授权状态指纹；snapshot只含机构授权事实，余额不参与。
 /// 各方必须使用相同字段顺序和有序岗位集合，不读取或创建任何storage。
@@ -71,7 +76,7 @@ pub struct InstitutionRoleAssignmentChange {
 /// `UsedRoleCodes` 永久占用，不存在恢复或复用分支。
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, PartialEq, Eq)]
 pub enum InstitutionRoleMutation {
-    /// 创建新动态岗位，并原子写入不可变权限与初始任职。
+    /// 创建新动态岗位，并原子写入非空原生权限与初始任职。
     Create {
         role_name: Vec<u8>,
         term_required: bool,
@@ -86,6 +91,37 @@ pub enum InstitutionRoleMutation {
     },
     /// 删除现有动态岗位、权限和当前任职；岗位码永久不释放。
     Delete { role_code: Vec<u8> },
+    /// 调整普通动态岗位属性；任职变更必须在同一治理结果中满足目标属性。
+    #[codec(index = 3)]
+    Configure {
+        role_code: Vec<u8>,
+        term_required: bool,
+        seats: u32,
+        role_status: InstitutionRoleStatus,
+    },
+}
+
+/// 普通动态岗位的完整目标原生权限，不能以空集合隐式删除链上岗位。
+#[derive(Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, PartialEq, Eq)]
+pub struct RolePermissionChange {
+    pub role_code: Vec<u8>,
+    pub permissions: Vec<RolePermissionSpec>,
+}
+
+/// 机构自身治理的原生权限和共同阈值，不保存模块业务权限。
+#[derive(Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, PartialEq, Eq)]
+pub struct InstitutionPolicyAction {
+    pub permission_changes: Vec<RolePermissionChange>,
+    pub threshold: Option<u32>,
+}
+
+/// 内部投票冻结的政策目标及原机构状态指纹；不建立新的政策存储。
+#[derive(Encode, Decode, DecodeWithMemTracking, Clone, Debug, TypeInfo, PartialEq, Eq)]
+pub struct InstitutionPolicyProposal {
+    pub institution_code: InstitutionCode,
+    pub cid_number: Vec<u8>,
+    pub action: InstitutionPolicyAction,
+    pub expected_state_hash: [u8; 32],
 }
 
 /// 法定代表人公开信息目标变更。

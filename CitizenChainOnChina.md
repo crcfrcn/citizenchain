@@ -4,7 +4,7 @@
 
 ## 技术文档
 
-- [治理与链上中国](../tataconsole/work/Citizen/治理与链上中国.md)
+- [链上中国](../tataconsole/work/Citizen/链上中国.md)
 
 [公民链白皮书](CitizenChainWhitepaper.md)
 

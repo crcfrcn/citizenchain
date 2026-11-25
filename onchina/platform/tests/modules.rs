@@ -259,3 +259,65 @@ fn identifiers_reject_paths() {
         assert!(!valid_id(id));
     }
 }
+
+/// 首次随包初始化必须完整校验并原子提交；已有活动目录不能被新版本覆盖。
+#[cfg(unix)]
+#[test]
+fn bundled_modules_initialize_once_and_failed_copy_leaves_no_active_root() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = std::env::temp_dir().join(format!("onchina-bundle-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir(&root).unwrap();
+    let bundle = root.join("bundle");
+    let package = bundle.join("fixture");
+    std::fs::create_dir_all(package.join("frontend")).unwrap();
+    let mut description = test_support::fixture_description();
+    description.capabilities.clear();
+    description.workspaces.clear();
+    let executable = package.join("onchina-fixture");
+    std::fs::write(
+        &executable,
+        format!(
+            "#!/bin/sh\ncat <<'ONCHINA_TEST'\n{}\nONCHINA_TEST\n",
+            serde_json::to_string(&description).unwrap()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let header = format!(
+        "/*onchina:{}*/\n",
+        serde_json::json!({"id":"fixture","version":"1.0.0","interface_version":model::MODULE_INTERFACE_VERSION})
+    );
+    for name in ["module.js", "module.css"] {
+        std::fs::write(package.join("frontend").join(name), &header).unwrap();
+    }
+    let active = root.join("active");
+    initialize_modules(&active, Some(&bundle)).unwrap();
+    assert!(active.join("fixture/onchina-fixture").is_file());
+    std::fs::write(
+        active.join("fixture/frontend/module.js"),
+        "independent update",
+    )
+    .unwrap();
+    initialize_modules(&active, Some(&bundle)).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(active.join("fixture/frontend/module.js")).unwrap(),
+        "independent update"
+    );
+    // 来源校验失败必须清理本次临时根，不能发布可装载的半包。
+    std::fs::remove_file(package.join("frontend/module.css")).unwrap();
+    let failed = root.join("failed");
+    assert!(initialize_modules(&failed, Some(&bundle)).is_err());
+    assert!(!failed.exists());
+    assert!(!root.join(".failed-initializing").exists());
+    assert!(!std::fs::read_dir(&root).unwrap().any(|e| e
+        .unwrap()
+        .file_name()
+        .to_string_lossy()
+        .starts_with(".onchina-modules-")));
+    assert!(initialize_modules(Path::new("relative"), Some(&bundle)).is_err());
+    std::os::unix::fs::symlink(&bundle, root.join("linked")).unwrap();
+    assert!(initialize_modules(&root.join("other"), Some(&root.join("linked"))).is_err());
+    assert!(initialize_modules(&root.join("linked/nested"), Some(&bundle)).is_err());
+    assert!(!bundle.join("nested").exists());
+    std::fs::remove_dir_all(root).unwrap();
+}

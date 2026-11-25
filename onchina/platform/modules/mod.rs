@@ -154,14 +154,32 @@ impl ModuleCatalog {
             .unwrap_or_default()
     }
     pub fn capabilities(&self, code: &str) -> Option<capability::CapabilitySet> {
-        self.descriptions()
-            .iter()
-            .find_map(|m| m.capabilities.get(code).copied())
+        // 这里只合并页面可见能力；实际写入和链权仍由原业务接口独立核验。
+        let descriptions = self.descriptions();
+        let mut values = descriptions.iter().filter_map(|m| m.capabilities.get(code));
+        let mut merged = serde_json::to_value(values.next()?).ok()?;
+        for value in values {
+            for (key, enabled) in serde_json::to_value(value).ok()?.as_object()? {
+                if enabled.as_bool() == Some(true) {
+                    merged[key] = serde_json::Value::Bool(true);
+                }
+            }
+        }
+        serde_json::from_value(merged).ok()
     }
+    /// 默认工作台只决定首屏；同一机构还可以具有其它模块入口。
     pub fn workspace(&self, code: &str) -> Option<WorkspaceDeclaration> {
         self.descriptions()
             .iter()
             .find_map(|m| m.workspaces.get(code).cloned())
+    }
+    /// 类型声明提供适用入口，不替代准确机构、岗位及业务权限校验。
+    pub fn workspace_ids(&self, code: &str) -> Vec<String> {
+        self.descriptions()
+            .into_iter()
+            .filter(|m| m.workspaces.contains_key(code))
+            .map(|m| m.id)
+            .collect()
     }
     pub(crate) fn owner_of_purpose(&self, purpose: &str) -> Option<String> {
         self.descriptions()
@@ -292,6 +310,8 @@ impl ModuleCatalog {
         reserved: &[RouteDescription],
     ) -> Result<(), String> {
         let directory = module_directory()?;
+        let bundle = std::env::var_os("ONCHINA_BUNDLE_DIR").map(PathBuf::from);
+        initialize_modules(&directory, bundle.as_deref())?;
         if !directory.exists() {
             return Ok(());
         }
@@ -305,7 +325,6 @@ impl ModuleCatalog {
                 .as_str()
                 .to_string(),
         ]);
-        let mut capabilities = BTreeSet::new();
         let mut descriptions = tokio::task::JoinSet::new();
         let permits = Arc::new(tokio::sync::Semaphore::new(MODULE_CONCURRENCY));
         for entry in std::fs::read_dir(directory).map_err(|e| e.to_string())? {
@@ -356,11 +375,6 @@ impl ModuleCatalog {
                     .actions
                     .iter()
                     .any(|v| actions.contains(v))
-                || prepared
-                    .description
-                    .capabilities
-                    .keys()
-                    .any(|v| capabilities.contains(v))
             {
                 tracing::error!(module = %path.display(), "module route or ownership conflict");
                 continue;
@@ -368,7 +382,6 @@ impl ModuleCatalog {
             occupied.extend(keys);
             purposes.extend(prepared.description.purposes.iter().cloned());
             actions.extend(prepared.description.actions.iter().cloned());
-            capabilities.extend(prepared.description.capabilities.keys().cloned());
             let database_url = database_url.to_string();
             let permits = permits.clone();
             pending.spawn(async move {
@@ -522,6 +535,97 @@ impl ModuleCatalog {
         }
         Ok(())
     }
+}
+
+/// 随包来源只用于首次初始化；已有活动根是唯一运行来源，不补包或覆盖独立版本。
+fn initialize_modules(directory: &Path, bundle: Option<&Path>) -> Result<(), String> {
+    if !directory.is_absolute() || bundle.is_some_and(|path| !path.is_absolute()) {
+        return Err("module directories must be absolute".into());
+    }
+    if let Ok(metadata) = std::fs::symlink_metadata(directory) {
+        return if metadata.is_dir() && !metadata.file_type().is_symlink() {
+            Ok(())
+        } else {
+            Err("module root must be an actual directory".into())
+        };
+    }
+    let Some(bundle) = bundle else {
+        return Ok(());
+    };
+    let metadata = std::fs::symlink_metadata(bundle).map_err(|e| e.to_string())?;
+    if !metadata.is_dir()
+        || metadata.file_type().is_symlink()
+        || directory.starts_with(bundle)
+        || bundle.starts_with(directory)
+    {
+        return Err("bundle must be a separate actual directory".into());
+    }
+    let parent = directory.parent().ok_or("module root parent missing")?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let parent = parent.canonicalize().map_err(|e| e.to_string())?;
+    let actual_target = parent.join(directory.file_name().ok_or("module root name missing")?);
+    let bundle = bundle.canonicalize().map_err(|e| e.to_string())?;
+    if actual_target.starts_with(&bundle) || bundle.starts_with(&actual_target) {
+        return Err("bundle and activity roots overlap through their actual parents".into());
+    }
+    let lock = parent.join(format!(
+        ".{}-initializing",
+        directory
+            .file_name()
+            .ok_or("module root name missing")?
+            .to_string_lossy()
+    ));
+    std::fs::create_dir(&lock)
+        .map_err(|e| format!("module initialization already owned or unavailable: {e}"))?;
+    // 独立临时根与活动根同盘；完整校验后一次rename，失败只清理本次临时根。
+    let staging = parent.join(format!(".onchina-modules-{}", uuid::Uuid::new_v4()));
+    let result = (|| {
+        std::fs::create_dir(&staging).map_err(|e| e.to_string())?;
+        copy_module_files(&bundle, &staging)?;
+        let entries = std::fs::read_dir(&staging)
+            .map_err(|e| e.to_string())?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| e.to_string())?;
+        if entries.is_empty() {
+            return Err("module bundle is empty".into());
+        }
+        for entry in entries {
+            ModuleCatalog::prepare_one(&entry.path())?;
+        }
+        // 其他初始化者已提交时拒绝覆盖，不能替换已有活动模块。
+        if actual_target.try_exists().map_err(|e| e.to_string())? {
+            return Err("module root appeared during initialization".into());
+        }
+        std::fs::rename(&staging, &actual_target).map_err(|e| e.to_string())
+    })();
+    let cleanup = if result.is_err() && staging.exists() {
+        std::fs::remove_dir_all(&staging)
+            .map_err(|e| format!("module initialization cleanup failed: {e}"))
+    } else {
+        Ok(())
+    };
+    std::fs::remove_dir(&lock)
+        .map_err(|e| format!("module initialization lock cleanup failed: {e}"))?;
+    cleanup?;
+    result
+}
+
+/// 仅复制普通文件及真实目录，禁止通过链接逃逸随包来源。
+fn copy_module_files(source: &Path, target: &Path) -> Result<(), String> {
+    for entry in std::fs::read_dir(source).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let kind = entry.file_type().map_err(|e| e.to_string())?;
+        let destination = target.join(entry.file_name());
+        if kind.is_dir() {
+            std::fs::create_dir(&destination).map_err(|e| e.to_string())?;
+            copy_module_files(&entry.path(), &destination)?;
+        } else if kind.is_file() {
+            std::fs::copy(entry.path(), destination).map_err(|e| e.to_string())?;
+        } else {
+            return Err("module bundle contains a link or special file".into());
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn module_directory() -> Result<PathBuf, String> {
@@ -857,7 +961,11 @@ pub(crate) async fn internal_workspace(
         Ok(ctx) => ctx,
         Err(response) => return response,
     };
-    if let Err(response)=crate::authentication::login::validate_current_assignment(&state,&ctx).await {return response;}
+    if let Err(response) =
+        crate::authentication::login::validate_current_assignment(&state, &ctx).await
+    {
+        return response;
+    }
     let Some(local) = &state.modules.local else {
         return api_error(StatusCode::NOT_FOUND, 1004, "module endpoint unavailable");
     };
@@ -917,3 +1025,64 @@ mod tests;
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 #[path = "../tests/modules_test_support.rs"]
 pub mod test_support;
+
+#[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+mod composition_tests {
+    use super::*;
+
+    /// 两个真实HTTPS实例共享机构类型时，页面能力和入口同时保留。
+    #[tokio::test]
+    async fn same_institution_keeps_multiple_modules_and_instance_features() {
+        let first = test_support::https_fixture("first").await;
+        let second = test_support::https_fixture("second").await;
+        let catalog = ModuleCatalog::new(None);
+        for (fixture, caps) in [
+            (
+                &first,
+                capability::CapabilitySet {
+                    can_view_citizens: true,
+                    ..capability::EMPTY
+                },
+            ),
+            (
+                &second,
+                capability::CapabilitySet {
+                    can_view_education: true,
+                    ..capability::EMPTY
+                },
+            ),
+        ] {
+            let mut remotes = fixture.catalog.remotes.lock().unwrap();
+            let remote = Arc::get_mut(&mut remotes[0]).unwrap();
+            remote.description.capabilities.insert("FRG".into(), caps);
+            remote.description.workspaces.insert(
+                "FRG".into(),
+                WorkspaceDeclaration {
+                    kind: WorkspaceKind::Registry,
+                    sections: Vec::new(),
+                },
+            );
+            catalog.remotes.lock().unwrap().push(remotes[0].clone());
+        }
+        let caps = catalog.capabilities("FRG").unwrap();
+        assert!(caps.can_view_citizens && caps.can_view_education);
+        assert!(!caps.can_register_institutions && !caps.can_propose_legislation);
+        assert!(catalog.capabilities("NJD").is_none());
+        assert_eq!(catalog.workspace_ids("FRG"), vec!["first", "second"]);
+        assert!(catalog.workspace_ids("NJD").is_empty());
+        let workspace = crate::workspace::build_institution_workspace(
+            &catalog,
+            "FRG",
+            Some("测试机构"),
+            caps,
+            vec!["first".into(), "instance_feature".into()],
+        );
+        assert_eq!(
+            workspace.workspace_modules,
+            vec!["first", "instance_feature", "second"]
+        );
+        assert_eq!(workspace.workspace_kind, WorkspaceKind::Registry);
+        catalog.stop_all().unwrap();
+    }
+}

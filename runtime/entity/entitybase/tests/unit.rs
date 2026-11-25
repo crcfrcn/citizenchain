@@ -554,3 +554,47 @@ mod registration {
         assert_ne!(role, generate_registration_role_code(b"pri-mgmt", b"CID", 1, &[7; 32]));
     }
 }
+#[test]
+fn ordinary_policy_boundary_preserves_fixed_identities_and_rejects_non_institutions() {
+    use crate::business_action::is_ordinary_institution;
+    for code in ["CGOV", "SFLP"] {
+        let cid = primitives::cid::generator::generate_cid_number(
+            primitives::cid::generator::GenerateCidNumberInput {
+                public_key: "ordinary-policy-boundary",
+                p1: "0",
+                province_code: "GD",
+                province_name: "广东省",
+                city_code: "001",
+                city_name: "荔湾市",
+                year: 2026,
+                institution: code,
+            },
+        )
+        .unwrap();
+        let parts = primitives::cid::number::parse_cid_number_parts_bytes(cid.as_bytes()).unwrap();
+        assert!(is_ordinary_institution(parts.institution, cid.as_bytes()));
+        assert!(!is_ordinary_institution(*b"FRG\0", cid.as_bytes()));
+    }
+    for institution in primitives::governance_skeleton::fixed_institutions() {
+        assert!(!is_ordinary_institution(
+            institution.code,
+            institution.cid_number.as_bytes()
+        ));
+    }
+    for institution in primitives::institution_constraints::singleton_institutions() {
+        assert!(!is_ordinary_institution(
+            institution.code,
+            institution.cid_number.as_bytes()
+        ));
+    }
+    let foundation = primitives::cid::china::citizenchain::CITIZENCHAIN_FOUNDATION;
+    let code =
+        primitives::cid::number::parse_cid_number_parts_bytes(foundation.cid_number.as_bytes())
+            .unwrap()
+            .institution;
+    assert!(!is_ordinary_institution(
+        code,
+        foundation.cid_number.as_bytes()
+    ));
+    assert!(!is_ordinary_institution(*b"SFLP", b"invalid"));
+}

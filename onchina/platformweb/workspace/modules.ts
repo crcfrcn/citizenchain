@@ -165,28 +165,41 @@ export function moduleView<Props extends object>(id: string, name: string): Comp
   if (typeof value !== 'function') throw new Error('所需模块未装载');
   return value as ComponentType<Props>;
 }
-/** 已验证会话的实例级模块优先，其次使用模块声明的机构类工作台。 */
-function workspaceAsset(auth: AdminAuth): ModuleAsset | undefined {
-  const instance = assets.filter(asset => asset.workspace && auth.workspace?.workspace_modules.includes(asset.id));
-  const owned = instance.length ? instance : assets.filter(asset => asset.workspace && asset.institution_codes.includes(auth.institutionCode));
-  if (owned.length > 1) throw new Error('机构工作台模块归属冲突');
-  return owned[0];
+/** 实例入口排在前面；类型声明只提供页面入口，不能代替服务端业务授权。 */
+export function moduleEntries(auth: AdminAuth): ModuleAsset[] {
+  if (initializationError) return [];
+  const instanceIds = auth.workspace?.workspace_modules ?? [];
+  const available = assets.filter(asset => !failures.has(asset.id));
+  // 后端清单中实例入口在前、类型入口在后，不能被资源装载顺序覆盖。
+  const instance = available.filter(asset => instanceIds.includes(asset.id))
+    .sort((left, right) => instanceIds.indexOf(left.id) - instanceIds.indexOf(right.id));
+  const declared = available.filter(asset => !instanceIds.includes(asset.id)
+    && asset.institution_codes.includes(auth.institutionCode));
+  return [...instance, ...declared];
 }
 
-export function workspaceView<Props extends object>(auth: AdminAuth): ComponentType<Props> | null {
-  const asset = workspaceAsset(auth);
-  return asset?.workspace ? moduleView<Props>(asset.id, asset.workspace) : null;
+/** 默认工作台保持一个首屏；其它模块可以按准确标识单独选择。 */
+export function workspaceView<Props extends object>(auth: AdminAuth, id?: string): ComponentType<Props> | null {
+  const entries = moduleEntries(auth);
+  const workspaces = entries.filter(asset => asset.workspace);
+  if (!id && !auth.workspace && workspaces.length > 1) {
+    throw new Error('机构工作台缺少授权清单，无法解析归属冲突');
+  }
+  const asset = id ? entries.find(entry => entry.id === id) : workspaces[0];
+  const name = asset?.workspace ?? asset?.exports[0];
+  return asset && name ? moduleView<Props>(asset.id, name) : null;
 }
 
 export function resolveModuleLanding(auth: AdminAuth, id: string) {
-  if (!['registry', 'legislation', 'judicial', 'private'].includes(id)
-      || initializationError || failures.has(id) || !assets.some(asset => asset.id === id)) {
+  const asset = assets.find(entry => entry.id === id);
+  if (!asset || initializationError || failures.has(id)) {
     return 'unavailable';
   }
-  if (id === 'legislation') {
-    return auth.workspace?.workspace_kind === 'legislation' && auth.capabilities?.canViewLegislation
-      ? 'legislation'
-      : 'forbidden';
+  if (!moduleEntries(auth).some(entry => entry.id === id)) return 'forbidden';
+  // 既有立法容器的可见门保持；这里判断工作台类型，不按模块名称新增分支。
+  if (!asset.workspace && auth.workspace?.workspace_kind === 'legislation'
+      && !auth.capabilities?.canViewLegislation) {
+    return 'forbidden';
   }
-  return workspaceAsset(auth)?.id === id ? 'workspace' : 'forbidden';
+  return asset.workspace ? 'workspace' : 'embedded';
 }

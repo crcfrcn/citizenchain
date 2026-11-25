@@ -47,6 +47,8 @@ pub struct InstitutionRoleMutationInput {
     #[serde(default)]
     pub term_required: bool,
     pub seats: Option<u32>,
+    /// Configure必须明确目标状态；其他动作不能夹带此字段。
+    pub active: Option<bool>,
     #[serde(default)]
     pub permissions: Vec<InstitutionRolePermissionInput>,
     #[serde(default)]
@@ -66,6 +68,70 @@ pub(crate) struct PrepareInstitutionGovernanceInput {
     pub clear_legal_representative: bool,
     pub representative_family_name: Option<String>,
     pub representative_given_name: Option<String>,
+    /// 政策与岗位人事是互斥治理动作，复用同一准备入口和认证流程。
+    pub policy: Option<InstitutionPolicyInput>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct InstitutionPolicyInput {
+    #[serde(default)]
+    pub permission_changes: Vec<RolePolicyInput>,
+    pub threshold: Option<u32>,
+    pub expected_state_hash: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct RolePolicyInput {
+    pub role_code: String,
+    pub permissions: Vec<InstitutionRolePermissionInput>,
+}
+
+pub(crate) fn parse_policy_action(
+    snapshot: &roles::RegistrationSnapshot,
+    input: &InstitutionPolicyInput,
+) -> Result<entitybase::InstitutionPolicyAction, String> {
+    if !entitybase::business_action::is_ordinary_institution(
+        snapshot.institution.institution_code,
+        &snapshot.cid_number,
+    ) || input.threshold.is_some_and(|value| value < 2)
+        || (input.threshold.is_none() && input.permission_changes.is_empty())
+        || input.permission_changes.len()
+            > entitybase::institution_governance::MAX_POLICY_ROLES as usize
+    {
+        return Err("机构政策或阈值无效".into());
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut changes = Vec::new();
+    for change in &input.permission_changes {
+        if !change.role_code.starts_with("R_")
+            || !snapshot.roles.contains_key(change.role_code.as_bytes())
+            || !seen.insert(&change.role_code)
+            || change.permissions.is_empty()
+            || change.permissions.len()
+                > entitybase::institution_governance::MAX_POLICY_PERMISSIONS as usize
+        {
+            return Err("只能替换本机构动态岗位的非空原生权限".into());
+        }
+        let mut permissions = Vec::new();
+        let mut keys = std::collections::BTreeSet::new();
+        for value in &change.permissions {
+            let value = permission(value)?;
+            if !keys.insert(value.encode()) {
+                return Err("权限重复".into());
+            }
+            permissions.push(value);
+        }
+        changes.push(entitybase::RolePermissionChange {
+            role_code: change.role_code.as_bytes().to_vec(),
+            permissions,
+        });
+    }
+    Ok(entitybase::InstitutionPolicyAction {
+        permission_changes: changes,
+        threshold: input.threshold,
+    })
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -155,7 +221,8 @@ pub fn parse_role_action(
         let code = m.role_code.as_deref().unwrap_or_default().as_bytes();
         match m.mutation.as_str() {
             "CREATE" => {
-                if !code.is_empty()
+                if m.active.is_some()
+                    || !code.is_empty()
                     || m.role_name
                         .as_deref()
                         .is_none_or(|n| n.trim().is_empty() || n.len() > 128)
@@ -188,6 +255,7 @@ pub fn parse_role_action(
             }
             "RENAME" | "DELETE" => {
                 if !used.insert(code.to_vec())
+                    || m.active.is_some()
                     || !m.permissions.is_empty()
                     || !m.assignments.is_empty()
                     || m.seats.is_some()
@@ -226,20 +294,66 @@ pub fn parse_role_action(
                     });
                 }
             }
+            "CONFIGURE" => {
+                if registration
+                    || !entitybase::business_action::is_ordinary_institution(
+                        snapshot.institution.institution_code,
+                        &snapshot.cid_number,
+                    )
+                    || !code.starts_with(b"R_")
+                    || !used.insert(code.to_vec())
+                    || m.role_name.is_some()
+                    || !m.permissions.is_empty()
+                    || !m.assignments.is_empty()
+                    || m.active.is_none()
+                    || !matches!(m.seats, Some(n) if n > 0 && n <= snapshot.max_seats)
+                {
+                    return Err("只能配置本机构动态岗位的席位、任期和状态".into());
+                }
+                snapshot.roles.get(code).ok_or("岗位不存在")?;
+                output.push(entitybase::InstitutionRoleMutation::Configure {
+                    role_code: code.to_vec(),
+                    term_required: m.term_required,
+                    seats: m.seats.unwrap(),
+                    role_status: if m.active == Some(true) {
+                        entitybase::InstitutionRoleStatus::Active
+                    } else {
+                        entitybase::InstitutionRoleStatus::Inactive
+                    },
+                });
+            }
             _ => return Err("岗位操作无效".into()),
         }
     }
     let mut assignments = Vec::new();
     let mut keys = std::collections::BTreeSet::new();
     for c in changes {
-        let role = snapshot
+        let mut role = snapshot
             .roles
             .get(c.role_code.as_bytes())
-            .ok_or("任职岗位不存在")?;
+            .ok_or("任职岗位不存在")?
+            .clone();
+        for mutation in &output {
+            if let entitybase::InstitutionRoleMutation::Configure {
+                role_code,
+                term_required,
+                seats,
+                role_status,
+            } = mutation
+            {
+                if role_code == c.role_code.as_bytes() {
+                    role.term_required = *term_required;
+                    role.seats = *seats;
+                    role.role_status = *role_status;
+                }
+            }
+        }
         if !keys.insert(c.role_code.clone()) || c.assignments.len() > role.seats as usize {
             return Err("任职岗位重复或超过席位".into());
         }
-        if role.role_status != entitybase::InstitutionRoleStatus::Active
+        let configuring = output.iter().any(|mutation| matches!(mutation, entitybase::InstitutionRoleMutation::Configure { role_code, .. } if role_code == c.role_code.as_bytes()));
+        if (role.role_status != entitybase::InstitutionRoleStatus::Active
+            && (!configuring || !c.assignments.is_empty()))
             || used.contains(c.role_code.as_bytes())
                 && mutations
                     .iter()
@@ -295,6 +409,47 @@ pub fn parse_role_action(
             role_code: c.role_code.as_bytes().to_vec(),
             assignments: rows,
         });
+    }
+    // 未显式更换的任职也须满足目标属性；不能靠缩席或停用隐式丢弃人员。
+    for mutation in &output {
+        if let entitybase::InstitutionRoleMutation::Configure {
+            role_code,
+            term_required,
+            seats,
+            role_status,
+        } = mutation
+        {
+            if assignments
+                .iter()
+                .any(|change| &change.role_code == role_code)
+            {
+                continue;
+            }
+            let existing = snapshot
+                .assignments
+                .iter()
+                .find(|(code, _)| code == role_code)
+                .map(|(_, rows)| rows.as_slice())
+                .unwrap_or_default();
+            if existing.len() > *seats as usize
+                || (*role_status == entitybase::InstitutionRoleStatus::Inactive
+                    && !existing.is_empty())
+            {
+                return Err("目标岗位属性要求同案调整任职".into());
+            }
+            let targets = existing
+                .iter()
+                .map(|a| entitybase::InstitutionAssignmentTarget {
+                    person_cid: a.person_cid.clone(),
+                    term_start: a.term_start,
+                    term_end: a.term_end,
+                    assignment_source: a.assignment_source,
+                    assignment_source_ref: a.assignment_source_ref.clone(),
+                    assignment_status: a.assignment_status,
+                })
+                .collect::<Vec<_>>();
+            validate_terms(*term_required, &targets)?;
+        }
     }
     Ok((output, assignments))
 }
@@ -478,10 +633,16 @@ pub(crate) async fn prepare_institution_governance(
     headers: HeaderMap,
     Json(input): Json<PrepareInstitutionGovernanceInput>,
 ) -> axum::response::Response {
+    if input.policy.is_some() {
+        return prepare_policy(&state, &headers, &input).await;
+    }
     let result=async {
         let ctx=require_admin_any(&state,&headers)?;
         if input.cid_number!=ctx.institution_cid_number || input.proposer_role_code!=ctx.role_code {return Err(api_error(StatusCode::FORBIDDEN,1003,"只能使用当前所选机构和岗位"));}
         let snapshot=roles::fetch_registration_snapshot(&input.cid_number).await.map_err(read_error)?;
+        if input.role_mutations.iter().any(|m| m.mutation == "CONFIGURE") && !roles::supports_policy(&snapshot).await.map_err(read_error)? {
+            return Err(input_error("当前Runtime不支持岗位属性配置".into()));
+        }
         let identity=crate::chain_runtime::identity_from_binding_parts(&ctx.institution_code,Some(&ctx.institution_cid_number)).map_err(read_error)?;
         let view=crate::chain_runtime::FinalizedChainView::connect_at(Some(snapshot.block_hash)).await.map_err(read_error)?;
         let active=roles::fetch_active_assignments_at(&identity,&view,Some(&ctx.account_id)).await.map_err(read_error)?;
@@ -507,6 +668,60 @@ pub(crate) async fn prepare_institution_governance(
         let chain=encode_propose_institution_governance(&ProposeInstitutionGovernanceArgs{is_private:snapshot.owner==crate::chain_runtime::EntityPallet::Private,cid_number:input.cid_number.as_bytes().to_vec(),governance_action:action.encode(),institution_code:snapshot.institution.institution_code,actor_cid_number:ctx.institution_cid_number.as_bytes().to_vec(),proposer_role_code:ctx.role_code.as_bytes().to_vec()});
         let passkey=crate::authentication::passkey::require_passkey_assertion(&state,&headers,&ctx.account_id)?;
         build_chain_sign_output(&state,InstitutionChainSignRequest{account_id:&ctx.account_id,cid_number:&input.cid_number,purpose:PURPOSE_INSTITUTION_GOVERNANCE,call_data:chain.call_data,chain_action:chain.action,context:serde_json::json!({"cid_number":input.cid_number,"actor_cid_number":ctx.institution_cid_number,"actor_role_code":ctx.role_code,"op":"governance"})},&passkey).await
+    }.await;
+    match result {
+        Ok(data) => Json(ApiResponse {
+            code: 0,
+            message: "ok".into(),
+            data,
+        })
+        .into_response(),
+        Err(error) => error,
+    }
+}
+
+/// 原生政策沿用治理准备入口；原状态指纹必须与审阅时一致，不自动刷新签名内容。
+async fn prepare_policy(
+    state: &AppState,
+    headers: &HeaderMap,
+    input: &PrepareInstitutionGovernanceInput,
+) -> axum::response::Response {
+    let result = async {
+        let ctx = require_admin_any(state, headers)?;
+        if input.cid_number != ctx.institution_cid_number || input.proposer_role_code != ctx.role_code {
+            return Err(api_error(StatusCode::FORBIDDEN, 1003, "只能使用当前所选机构和岗位"));
+        }
+        if !input.role_mutations.is_empty() || !input.assignment_changes.is_empty() || input.clear_legal_representative
+            || input.representative_cid.is_some() || input.representative_family_name.is_some() || input.representative_given_name.is_some()
+        { return Err(input_error("政策不能夹带岗位人事变更".into())); }
+        let policy = input.policy.as_ref().ok_or_else(|| input_error("政策内容缺失".into()))?;
+        let snapshot = roles::fetch_registration_snapshot(&input.cid_number).await.map_err(read_error)?;
+        if !roles::supports_policy(&snapshot).await.map_err(read_error)? {
+            return Err(input_error("当前Runtime或机构不支持原生政策".into()));
+        }
+        let hash = policy.expected_state_hash.strip_prefix("0x").ok_or_else(|| input_error("状态指纹无效".into()))?;
+        let expected: [u8; 32] = hex::decode(hash).map_err(|_| input_error("状态指纹无效".into()))?.try_into().map_err(|_| input_error("状态指纹无效".into()))?;
+        if expected != snapshot.state_hash() {
+            return Err(api_error(StatusCode::CONFLICT, 1001, "机构状态已变化，请重新审阅"));
+        }
+        let identity = crate::chain_runtime::identity_from_binding_parts(&ctx.institution_code, Some(&ctx.institution_cid_number)).map_err(read_error)?;
+        let view = crate::chain_runtime::FinalizedChainView::connect_at(Some(snapshot.block_hash)).await.map_err(read_error)?;
+        let active = roles::fetch_active_assignments_at(&identity, &view, Some(&ctx.account_id)).await.map_err(read_error)?;
+        if !snapshot.governance_state(&active).map_err(read_error)?.proposer_roles.iter().any(|role| role.role_code == ctx.role_code) {
+            return Err(api_error(StatusCode::FORBIDDEN, 1003, "岗位没有治理发起权限"));
+        }
+        let action = parse_policy_action(&snapshot, policy).map_err(input_error)?;
+        let chain = super::encode_propose_institution_policy(&super::ProposeInstitutionPolicyArgs {
+            is_private: snapshot.owner == crate::chain_runtime::EntityPallet::Private,
+            cid_number: input.cid_number.as_bytes().to_vec(), action,
+            proposer_role_code: ctx.role_code.as_bytes().to_vec(), expected_state_hash: expected,
+        });
+        let passkey = crate::authentication::passkey::require_passkey_assertion(state, headers, &ctx.account_id)?;
+        build_chain_sign_output(state, InstitutionChainSignRequest {
+            account_id: &ctx.account_id, cid_number: &input.cid_number, purpose: PURPOSE_INSTITUTION_GOVERNANCE,
+            call_data: chain.call_data, chain_action: chain.action,
+            context: serde_json::json!({"cid_number":input.cid_number,"actor_cid_number":ctx.institution_cid_number,"actor_role_code":ctx.role_code,"op":"policy"}),
+        }, &passkey).await
     }.await;
     match result {
         Ok(data) => Json(ApiResponse {
@@ -580,6 +795,9 @@ pub(crate) async fn get_governance_state(
             Vec::new()
         };
         let mut data = snapshot.governance_state(&active).map_err(read_error)?;
+        data.policy_available = roles::supports_policy(&snapshot)
+            .await
+            .map_err(read_error)?;
         if matches!(ctx.institution_code.as_str(), "FRG" | "CREG") {
             let actor = crate::chain_runtime::identity_from_binding_parts(
                 &ctx.institution_code,

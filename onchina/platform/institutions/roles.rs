@@ -459,6 +459,8 @@ pub struct GovernanceRepresentative {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GovernanceState {
+    /// 真实目标Runtime是否提供普通机构政策；未升级时不展示可执行入口。
+    pub policy_available: bool,
     pub cid_number: String,
     pub block_hash: String,
     pub block_number: u32,
@@ -562,6 +564,7 @@ impl RegistrationSnapshot {
             })
             .collect();
         Ok(GovernanceState {
+            policy_available: false,
             cid_number: String::from_utf8_lossy(&self.cid_number).into_owned(),
             block_hash: format!("0x{}", hex::encode(self.block_hash)),
             block_number: self.block_number,
@@ -588,9 +591,40 @@ pub async fn fetch_governance_state(
     identity: &NodeInstitutionIdentity,
 ) -> Result<GovernanceState, String> {
     let view = FinalizedChainView::connect().await?;
-    registration_snapshot_at(&identity.cid_number, &view)
-        .await?
-        .governance_state(&[])
+    let snapshot = registration_snapshot_at(&identity.cid_number, &view).await?;
+    let mut state = snapshot.governance_state(&[])?;
+    state.policy_available = supports_policy(&snapshot).await?;
+    Ok(state)
+}
+
+/// 交易能力取该最终块上的Runtime元数据；状态读取仍使用原有父Runtime规则。
+pub(crate) async fn supports_policy(snapshot: &RegistrationSnapshot) -> Result<bool, String> {
+    if !entitybase::business_action::is_ordinary_institution(
+        snapshot.institution.institution_code,
+        &snapshot.cid_number,
+    ) {
+        return Ok(false);
+    }
+    let url = crate::chain_url::chain_ws_url()?;
+    let client = crate::chain_url::rpc_client(&url)
+        .await
+        .map_err(|e| e.to_string())?;
+    let rpc = subxt::backend::legacy::LegacyRpcMethods::<subxt::PolkadotConfig>::new(client);
+    let bytes = rpc
+        .state_get_metadata(Some(subxt::utils::H256(snapshot.block_hash)))
+        .await
+        .map_err(|e| e.to_string())?
+        .into_raw();
+    let metadata = subxt::Metadata::decode_all(&mut bytes.as_slice()).map_err(|e| e.to_string())?;
+    let index = if snapshot.owner == EntityPallet::Private {
+        31
+    } else {
+        30
+    };
+    Ok(metadata
+        .pallet_by_index(index)
+        .and_then(|p| p.call_variant_by_index(11))
+        .is_some_and(|call| call.name == "propose_institution_policy"))
 }
 #[cfg(test)]
 #[path = "../tests/institutions_roles_scale_contract_tests.rs"]

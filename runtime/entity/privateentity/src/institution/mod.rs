@@ -2,6 +2,7 @@
 
 pub mod governance;
 pub mod maintain;
+mod policy;
 pub mod role;
 pub mod types;
 

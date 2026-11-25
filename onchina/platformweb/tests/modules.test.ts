@@ -136,7 +136,8 @@ describe('模块前端装载与重启边界', () => {
       expect(context.loader.resolveModuleLanding(registry, 'registry')).toBe('workspace');
       expect(context.loader.resolveModuleLanding(registry, 'private')).toBe('forbidden');
       expect(context.loader.resolveModuleLanding(privateInstitution, 'private')).toBe('workspace');
-      expect(context.loader.resolveModuleLanding(legislature, 'legislation')).toBe('legislation');
+      // 此夹具声明了专属工作台，按声明分发，不再按模块名称返回专用标记。
+      expect(context.loader.resolveModuleLanding(legislature, 'legislation')).toBe('workspace');
       expect(context.loader.resolveModuleLanding(registry, 'legislation')).toBe('forbidden');
       expect(context.loader.resolveModuleLanding(registry, 'judicial')).toBe('unavailable');
       expect(context.loader.resolveModuleLanding(registry, 'https://other.example/')).toBe('unavailable');

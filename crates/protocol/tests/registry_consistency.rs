@@ -405,7 +405,7 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "071994dbdead808447d94754d61be5799f6b84c6d87caf05214b79e5314b5bc2",
+        "dcdaf867f977c48e27140c4fb40c08ec05def86ef1128648889158484a8d182e",
         "Dart 动作登记表必须匹配岗位和人员任职调用合同"
     );
 }
@@ -474,9 +474,10 @@ fn institution_registry_uses_entity_names_and_preserves_coordinates() {
         let expected = [
             (1, close),
             (6, "update_institution_info"),
-            (7, "add_institution_account"),
+            (7, "propose_add_institution_account"),
             (8, "propose_institution_governance"),
             (9, "register_institution_roles"),
+            (11, "propose_institution_policy"),
         ]
         .map(|(call, name)| ((index << 8) | call, name));
         assert_eq!(actual, expected);

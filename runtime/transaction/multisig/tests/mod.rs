@@ -238,7 +238,7 @@ impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestInstitut
     fn role_has_permission(
         role_subject: &entitybase::RoleSubject<Vec<u8>, Vec<u8>>,
         business_action_id: &entitybase::BusinessActionId<Vec<u8>>,
-        _operation: entitybase::RolePermissionOperation,
+        operation: entitybase::RolePermissionOperation,
     ) -> bool {
         let Some(code) = core::str::from_utf8(role_subject.cid_number.as_slice())
             .ok()
@@ -246,6 +246,17 @@ impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestInstitut
         else {
             return false;
         };
+        if role_subject.role_code.as_slice() == b"VACANT" {
+            return VACANT_ROLE.with(|flag| *flag.borrow())
+                && entitybase::business_action::is_ordinary_institution(
+                    code,
+                    &role_subject.cid_number,
+                )
+                && business_action_id.module_tag.as_slice() == crate::MODULE_TAG
+                && business_action_id.action_code
+                    == entitybase::business_action::ACTION_MULTISIG_TRANSFER
+                && operation == entitybase::RolePermissionOperation::Vote;
+        }
         role_subject.role_code.as_slice() == test_role_code(code)
             && business_action_id.module_tag.as_slice() == crate::MODULE_TAG
             && matches!(
@@ -285,10 +296,19 @@ impl entitybase::InstitutionRoleAuthorizationQuery<AccountId32> for TestInstitut
             cid_number: cid_number.to_vec(),
             role_code: test_role_code(code).to_vec(),
         };
-        Self::role_has_permission(&role_subject, business_action_id, operation)
-            .then_some(role_subject)
-            .into_iter()
-            .collect()
+        let mut roles: Vec<_> =
+            Self::role_has_permission(&role_subject, business_action_id, operation)
+                .then_some(role_subject)
+                .into_iter()
+                .collect();
+        let vacant = entitybase::RoleSubject {
+            cid_number: cid_number.to_vec(),
+            role_code: b"VACANT".to_vec(),
+        };
+        if Self::role_has_permission(&vacant, business_action_id, operation) {
+            roles.push(vacant);
+        }
+        roles
     }
 }
 
@@ -297,6 +317,7 @@ type ExtraAdminsByInstitution =
 type NamedAccountByInstitution = std::collections::BTreeMap<(Vec<u8>, Vec<u8>), AccountId32>;
 
 thread_local! {
+    static VACANT_ROLE: core::cell::RefCell<bool> = const { core::cell::RefCell::new(false) };
     static PROTECTED_ACCOUNT: core::cell::RefCell<Option<AccountId32>> = const { core::cell::RefCell::new(None) };
     static DENIED_SPEND_SOURCE: core::cell::RefCell<Option<AccountId32>> = const { core::cell::RefCell::new(None) };
     static EXTRA_ADMINS: core::cell::RefCell<ExtraAdminsByInstitution> =
@@ -497,6 +518,7 @@ impl pallet::Config for Test {
     type Currency = Balances;
     type InternalVoteEngine = internalvote::Pallet<Test>;
     type InstitutionRoleAuthorization = TestInstitutionRoleProvider;
+    type InstitutionRoleProvider = TestInstitutionRoleProvider;
     type InstitutionAsset = TestInstitutionAsset;
     type ProtectedSourceChecker = TestProtectedSourceChecker;
     type MaxRemarkLen = ConstU32<256>;
@@ -871,6 +893,7 @@ fn new_test_ext() -> sp_io::TestExternalities {
     .expect("balances should assimilate");
     let mut ext: sp_io::TestExternalities = storage.into();
     ext.execute_with(|| {
+        VACANT_ROLE.with(|flag| *flag.borrow_mut() = false);
         EXTRA_ADMINS.with(|admins| admins.borrow_mut().clear());
         INSTITUTION_THRESHOLDS.with(|thresholds| thresholds.borrow_mut().clear());
         INSTITUTION_ACCOUNTS.with(|accounts| accounts.borrow_mut().clear());
@@ -916,6 +939,86 @@ fn new_test_ext() -> sp_io::TestExternalities {
         let _ = dq;
     });
     ext
+}
+
+/// 普通机构基准和回归共用真实建案、投票及执行，不为计时复制转账实现。
+pub(crate) fn measure_ordinary_snapshot(count: u8) -> (u128, frame_support::weights::Weight) {
+    new_test_ext().execute_with(|| {
+        use entitybase::InstitutionRoleAuthorizationQuery;
+        VACANT_ROLE.with(|flag| *flag.borrow_mut() = true);
+        let account = institution_account_id();
+        let cid = test_cid_number();
+        let pairs = institution_pairs(count);
+        insert_active_institution_account(
+            &account,
+            pairs
+                .iter()
+                .map(|pair| pair.0.clone())
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap(),
+        );
+        let threshold = u32::from(count) / 2 + 1;
+        set_institution_threshold(PRIVATE_CODE, &cid, threshold);
+        let _ = Balances::deposit_creating(&account, 10_000);
+        let action = entitybase::BusinessActionId {
+            module_tag: crate::MODULE_TAG.to_vec(),
+            action_code: 0,
+        };
+        assert_eq!(
+            TestInstitutionRoleProvider::role_subjects_with_permission(
+                &cid,
+                &action,
+                entitybase::RolePermissionOperation::Vote
+            )
+            .len(),
+            2
+        );
+        let declared = Multisig::transfer_weight(&Some(cid.clone()));
+        let start = std::time::Instant::now();
+        assert_ok!(propose_transfer(
+            RuntimeOrigin::signed(pairs[0].0.clone()),
+            Some(cid.clone()),
+            account.clone(),
+            beneficiary_account_id(),
+            111,
+            Default::default()
+        ));
+        let elapsed = start.elapsed().as_nanos();
+        let id = last_proposal_id();
+        assert!(elapsed.saturating_mul(1000) <= u128::from(declared.ref_time()));
+        assert_eq!(
+            engingcore::ProposalVotePlans::<Test>::get(id)
+                .unwrap()
+                .voter_subjects
+                .len(),
+            1
+        );
+        assert_eq!(
+            engingcore::InstitutionTicketCountSnapshot::<Test>::get(id, &cid),
+            Some(u32::from(count))
+        );
+        assert_noop!(
+            Multisig::propose_transfer(
+                RuntimeOrigin::signed(pairs[0].0.clone()),
+                Some(cid),
+                Some(b"VACANT".to_vec().try_into().unwrap()),
+                account.clone(),
+                beneficiary_account_id(),
+                111,
+                Default::default()
+            ),
+            Error::<Test>::UnauthorizedAdmin
+        );
+        assert_ok!(cast_transfer_votes_n(
+            &pairs[1..],
+            threshold as usize - 1,
+            id
+        ));
+        assert_eq!(VotingEngine::proposals(id).unwrap().status, STATUS_EXECUTED);
+        assert_eq!(Balances::free_balance(account), 9_889);
+        (elapsed, declared)
+    })
 }
 
 mod cases;

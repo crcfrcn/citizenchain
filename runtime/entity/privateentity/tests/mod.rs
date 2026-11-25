@@ -332,23 +332,31 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
             .expect("assignments fit"),
     );
     let permissions = [
-        entitybase::RolePermissionOperation::Propose,
-        entitybase::RolePermissionOperation::Vote,
+        entitybase::business_action::ACTION_INSTITUTION_CLOSE,
+        entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
     ]
     .into_iter()
-    .map(|operation| entitybase::RoleBusinessPermission {
-        role_subject: entitybase::RoleSubject {
-            cid_number: cid_number.clone(),
-            role_code: role_code.clone(),
-        },
-        business_action_id: entitybase::BusinessActionId {
-            module_tag: crate::MODULE_TAG
-                .to_vec()
-                .try_into()
-                .expect("module tag fits"),
-            action_code: entitybase::business_action::ACTION_INSTITUTION_CLOSE,
-        },
-        operation,
+    .flat_map(|action| {
+        let role_code = &role_code;
+        [
+            entitybase::RolePermissionOperation::Propose,
+            entitybase::RolePermissionOperation::Vote,
+        ]
+        .into_iter()
+        .map(move |operation| entitybase::RoleBusinessPermission {
+            role_subject: entitybase::RoleSubject {
+                cid_number: cid_number.clone(),
+                role_code: role_code.clone(),
+            },
+            business_action_id: entitybase::BusinessActionId {
+                module_tag: crate::MODULE_TAG
+                    .to_vec()
+                    .try_into()
+                    .expect("module tag fits"),
+                action_code: action,
+            },
+            operation,
+        })
     })
     .collect::<Vec<_>>();
     pallet::InstitutionRolePermissions::<Test>::insert(

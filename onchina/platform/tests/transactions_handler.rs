@@ -189,6 +189,19 @@ async fn first_submit_and_safe_resubmit_share_registered_authorization() {
     assert!(recheck_business_submit_authorization(&host, &ctx, &builtin)
         .await
         .is_ok());
+    builtin.call_data = vec![30, 11];
+    assert!(recheck_business_submit_authorization(&host, &ctx, &builtin)
+        .await
+        .is_ok());
+    builtin.call_data = vec![31, 11];
+    assert_eq!(
+        recheck_business_submit_authorization(&host, &ctx, &builtin)
+            .await
+            .unwrap_err()
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    builtin.call_data = vec![30, 11];
     host.db.role_permissions.lock().unwrap()[0]
         .role_subject
         .role_code = b"OTHER".to_vec();
@@ -280,4 +293,39 @@ fn institution_write_allowlist_requires_exact_current_encoding_and_actor() {
         assert!(validate_institution_write(&call).is_err());
     }
     assert_eq!(validate_institution_write(&[48, 9, 0]).unwrap(), None);
+}
+
+#[test]
+fn policy_write_uses_exact_cid_role_and_rejects_empty_or_trailing_payloads() {
+    use codec::Encode;
+    let mut action = entitybase::InstitutionPolicyAction {
+        permission_changes: vec![],
+        threshold: Some(2),
+    };
+    let encode = |action: &entitybase::InstitutionPolicyAction| {
+        let mut call = vec![30, 11];
+        call.extend(
+            (
+                b"institution".to_vec(),
+                action,
+                b"R_GOV".to_vec(),
+                [7u8; 32],
+            )
+                .encode(),
+        );
+        call
+    };
+    let call = encode(&action);
+    assert_eq!(
+        validate_institution_write(&call).unwrap(),
+        Some((b"institution".to_vec(), b"R_GOV".to_vec()))
+    );
+    let mut trailing = call.clone();
+    trailing.push(0);
+    assert!(validate_institution_write(&trailing).is_err());
+    assert!(validate_institution_write(&call[..call.len() - 1]).is_err());
+    action.threshold = None;
+    assert!(validate_institution_write(&encode(&action)).is_err());
+    action.threshold = Some(0);
+    assert!(validate_institution_write(&encode(&action)).is_err());
 }

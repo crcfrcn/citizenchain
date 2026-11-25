@@ -81,7 +81,7 @@ export function GovernanceReview({ auth, state, draft, onClose, onSubmitted }: {
         try {
             const fresh = await getGovernanceState(auth, state.cidNumber);
             controller.signal.throwIfAborted();
-            const fingerprint = (s: GovernanceState) => JSON.stringify([s.roles, s.representative]);
+            const fingerprint = (s: GovernanceState) => JSON.stringify([s.registrationStateHash, s.governanceThreshold, s.policyAvailable, s.roles, s.representative]);
             if (fingerprint(fresh) !== fingerprint(state))
                 throw new Error('链上治理数据已变化，请刷新后重新核对');
             if (!governanceProposers(auth, fresh).some(role => role.roleCode === roleCode))

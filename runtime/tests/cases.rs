@@ -262,6 +262,14 @@ fn entity_metadata_preserves_pallet_and_call_indices() {
             .unwrap();
         assert_eq!(pallet.index, index);
         assert_eq!(pallet.storage.as_ref().unwrap().prefix, name);
+        for (name, value) in [("MaxPolicyRoles", 64u32), ("MaxPolicyPermissions", 256u32)] {
+            let constant = pallet
+                .constants
+                .iter()
+                .find(|constant| constant.name == name)
+                .unwrap();
+            assert_eq!(constant.value, codec::Encode::encode(&value));
+        }
     }
     assert!(metadata
         .pallets
@@ -276,7 +284,26 @@ fn entity_metadata_preserves_pallet_and_call_indices() {
         };
         let mut indices: Vec<_> = def.variants.iter().map(|variant| variant.index).collect();
         indices.sort_unstable();
-        assert_eq!(indices, [1, 6, 7, 8, 9]);
+        assert_eq!(indices, [1, 6, 7, 8, 9, 11]);
+        let policy = def
+            .variants
+            .iter()
+            .find(|variant| variant.index == 11)
+            .unwrap();
+        assert_eq!(policy.name, "propose_institution_policy");
+        assert_eq!(
+            policy
+                .fields
+                .iter()
+                .map(|field| field.name.unwrap())
+                .collect::<Vec<_>>(),
+            [
+                "cid_number",
+                "action",
+                "proposer_role_code",
+                "expected_state_hash"
+            ]
+        );
         assert_eq!(
             def.variants
                 .iter()
@@ -286,6 +313,511 @@ fn entity_metadata_preserves_pallet_and_call_indices() {
             "register_institution_roles"
         );
     }
+}
+
+#[test]
+fn ordinary_policy_and_transfer_use_real_native_permissions_and_common_threshold() {
+    use entitybase::{
+        business_action::*, InstitutionCapabilityPolicy, RolePermissionOperation as Op,
+    };
+    use frame_support::traits::Hooks;
+    use onchain::CallFeeRoute;
+    new_test_ext().execute_with(|| {
+        let cid = test_cid_number(&real_cid_number("native-policy-runtime", "SFLP", "0"));
+        privateentity::Institutions::<Runtime>::insert(
+            &cid,
+            privateentity::InstitutionInfo {
+                cid_full_name: b"Policy institution".to_vec().try_into().unwrap(),
+                cid_short_name: b"Policy".to_vec().try_into().unwrap(),
+                town_code: Default::default(),
+                legal_representative: None,
+                institution_code: *b"SFLP",
+                created_at: 1,
+            },
+        );
+        assert_ok!(PrivateEntity::store_default_legal_representative_role(&cid));
+        let wallets = (31..34)
+            .map(|n| AccountId::new([n; 32]))
+            .collect::<Vec<_>>();
+        let people = wallets
+            .iter()
+            .map(|wallet| fixture_person(wallet, "CTZN"))
+            .collect::<Vec<_>>();
+        privateentity::InstitutionGovernanceThresholds::<Runtime>::insert(&cid, 2);
+        let specifications = |tag: &[u8], action| {
+            [Op::Propose, Op::Vote]
+                .into_iter()
+                .map(|operation| entitybase::RolePermissionSpec {
+                    business_action_id: entitybase::BusinessActionId {
+                        module_tag: tag.to_vec(),
+                        action_code: action,
+                    },
+                    operation,
+                })
+                .collect::<Vec<_>>()
+        };
+        let mutations = [
+            ("Governance", MODULE_PRIVATE_MANAGE, 3),
+            ("Treasury", MODULE_MULTISIG, 0),
+        ]
+        .into_iter()
+        .map(
+            |(name, tag, action)| entitybase::InstitutionRoleMutation::Create {
+                role_name: name.as_bytes().to_vec(),
+                term_required: false,
+                seats: 3,
+                permissions: specifications(tag, action),
+                assignments: people
+                    .iter()
+                    .map(|person| entitybase::InstitutionAssignmentTarget {
+                        person_cid: person.to_vec(),
+                        term_start: 0,
+                        term_end: 0,
+                        assignment_source:
+                            entitybase::InstitutionAssignmentSource::InstitutionGovernance,
+                        assignment_source_ref: b"runtime-policy-fixture".to_vec(),
+                        assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+                    })
+                    .collect(),
+            },
+        )
+        .collect();
+        assert_ok!(PrivateEntity::apply_institution_governance_result(
+            entitybase::InstitutionGovernanceResult {
+                institution_code: *b"SFLP",
+                cid_number: cid.to_vec(),
+                proposal_id: 700,
+                role_mutations: mutations,
+                assignment_changes: vec![],
+                legal_representative_change: None,
+                result_source_ref: b"runtime-policy-fixture".to_vec(),
+            }
+        ));
+        let gov: privateentity::RoleCodeOf =
+            entitybase::generate_dynamic_role_code(privateentity::MODULE_TAG, &cid, 0, 700)
+                .try_into()
+                .unwrap();
+        let treasury: privateentity::RoleCodeOf =
+            entitybase::generate_dynamic_role_code(privateentity::MODULE_TAG, &cid, 1, 700)
+                .try_into()
+                .unwrap();
+        let mut accounts = Vec::new();
+        for name in [
+            primitives::account_derive::RESERVED_NAME_MAIN,
+            primitives::account_derive::RESERVED_NAME_FEE,
+        ] {
+            let (account, _) = PrivateEntity::derive_institution_account(&cid, name).unwrap();
+            let name: privateentity::pallet::AccountNameOf<Runtime> =
+                name.to_vec().try_into().unwrap();
+            privateentity::InstitutionAccounts::<Runtime>::insert(
+                &cid,
+                &name,
+                privateentity::InstitutionAccountInfo {
+                    account_id: account.clone(),
+                    initial_balance: 0,
+                    created_at: 1,
+                },
+            );
+            privateentity::AccountRegisteredCid::<Runtime>::insert(
+                &account,
+                privateentity::RegisteredInstitution {
+                    cid_number: cid.clone(),
+                    account_name: name,
+                },
+            );
+            accounts.push(account);
+        }
+        let main = accounts[0].clone();
+        let fee = accounts[1].clone();
+        assert_ok!(Balances::force_set_balance(
+            RuntimeOrigin::root(),
+            sp_runtime::MultiAddress::Id(main.clone()),
+            10_000
+        ));
+        assert_ok!(Balances::force_set_balance(
+            RuntimeOrigin::root(),
+            sp_runtime::MultiAddress::Id(fee.clone()),
+            1_000
+        ));
+        for wallet in &wallets {
+            assert_ok!(Balances::force_set_balance(
+                RuntimeOrigin::root(),
+                sp_runtime::MultiAddress::Id(wallet.clone()),
+                1_000
+            ));
+        }
+        let native = entitybase::BusinessActionId {
+            module_tag: MODULE_MULTISIG.to_vec(),
+            action_code: 0,
+        };
+        for operation in [Op::Propose, Op::Vote] {
+            assert!(RuntimeInstitutionCapabilityPolicy::allows(
+                &cid, &native, operation
+            ));
+        }
+        for tag in [
+            MODULE_RUNTIME_UPGRADE,
+            MODULE_RESOLUTION_ISSUANCE,
+            MODULE_CITIZEN_IDENTITY,
+        ] {
+            assert!(!RuntimeInstitutionCapabilityPolicy::allows(
+                &cid,
+                &entitybase::BusinessActionId {
+                    module_tag: tag.to_vec(),
+                    action_code: 0
+                },
+                Op::Propose
+            ));
+        }
+        for action_code in [1, 2] {
+            assert!(!RuntimeInstitutionCapabilityPolicy::allows(
+                &cid,
+                &entitybase::BusinessActionId {
+                    module_tag: MODULE_MULTISIG.to_vec(),
+                    action_code
+                },
+                Op::Propose
+            ));
+        }
+        let action = entitybase::InstitutionPolicyAction {
+            permission_changes: vec![],
+            threshold: Some(3),
+        };
+        let state = PrivateEntity::registration_state_hash(&cid).unwrap();
+        let policy = RuntimeCall::PrivateEntity(privateentity::Call::propose_institution_policy {
+            cid_number: cid.clone(),
+            action: action.clone(),
+            proposer_role_code: gov.clone(),
+            expected_state_hash: state,
+        });
+        assert_eq!(&codec::Encode::encode(&policy)[..2], &[31, 11]);
+        let wrong_role =
+            RuntimeCall::PrivateEntity(privateentity::Call::propose_institution_policy {
+                cid_number: cid.clone(),
+                action: action.clone(),
+                proposer_role_code: treasury.clone(),
+                expected_state_hash: state,
+            });
+        let wrong_entity =
+            RuntimeCall::PublicEntity(publicentity::Call::propose_institution_policy {
+                cid_number: cid.clone(),
+                action: action.clone(),
+                proposer_role_code: gov.clone(),
+                expected_state_hash: state,
+            });
+        for invalid in [wrong_role, wrong_entity] {
+            assert_eq!(
+                <RuntimeFeeRouter as CallFeeRoute<AccountId, RuntimeCall, Balance>>::fee_route(
+                    &wallets[0],
+                    &invalid
+                ),
+                primitives::fee_policy::FeeRoute::Reject
+            );
+        }
+        assert_eq!(
+            <RuntimeFeeRouter as CallFeeRoute<AccountId, RuntimeCall, Balance>>::fee_route(
+                &wallets[0],
+                &policy
+            ),
+            primitives::fee_policy::FeeRoute::Onchain {
+                transaction_amount: 0,
+                payer_account_id: fee.clone()
+            }
+        );
+        assert_ok!(PrivateEntity::propose_institution_policy(
+            RuntimeOrigin::signed(wallets[0].clone()),
+            cid.clone(),
+            action,
+            gov.clone(),
+            state
+        ));
+        let policy_id = VotingEngine::next_proposal_id() - 1;
+        assert_eq!(
+            internalvote::InternalThresholdSnapshot::<Runtime>::get(policy_id),
+            Some(2)
+        );
+        assert_ok!(InternalVote::cast(
+            RuntimeOrigin::signed(wallets[1].clone()),
+            policy_id,
+            internalvote::InternalVoteTicketClaim::InstitutionRole(gov.clone()),
+            true
+        ));
+        assert_eq!(
+            privateentity::InstitutionGovernanceThresholds::<Runtime>::get(&cid),
+            Some(2)
+        );
+        <VotingEngine as Hooks<u32>>::on_initialize(1);
+        assert_eq!(
+            VotingEngine::proposals(policy_id).unwrap().status,
+            engingcore::STATUS_EXECUTED
+        );
+        assert_eq!(
+            privateentity::InstitutionGovernanceThresholds::<Runtime>::get(&cid),
+            Some(3)
+        );
+        let destination = AccountId::new([99; 32]);
+        assert_ok!(Multisig::propose_transfer(
+            RuntimeOrigin::signed(wallets[0].clone()),
+            Some(cid.clone()),
+            Some(treasury.clone()),
+            main.clone(),
+            destination.clone(),
+            500,
+            Default::default()
+        ));
+        let transfer_id = VotingEngine::next_proposal_id() - 1;
+        assert_eq!(
+            internalvote::InternalThresholdSnapshot::<Runtime>::get(transfer_id),
+            Some(3)
+        );
+        for wallet in wallets.iter().skip(1) {
+            assert_ok!(InternalVote::cast(
+                RuntimeOrigin::signed(wallet.clone()),
+                transfer_id,
+                internalvote::InternalVoteTicketClaim::InstitutionRole(treasury.clone()),
+                true
+            ));
+        }
+        assert_eq!(
+            VotingEngine::proposals(transfer_id).unwrap().status,
+            engingcore::STATUS_PASSED
+        );
+        assert_eq!(Balances::free_balance(&main), 10_000);
+        <VotingEngine as Hooks<u32>>::on_initialize(1);
+        assert_eq!(
+            VotingEngine::proposals(transfer_id).unwrap().status,
+            engingcore::STATUS_EXECUTED
+        );
+        assert_eq!(Balances::free_balance(&main), 9_500);
+        assert_eq!(Balances::free_balance(&destination), 500);
+        assert_eq!(Balances::free_balance(&fee), 990);
+        let invalid = entitybase::InstitutionPolicyAction {
+            permission_changes: vec![entitybase::RolePermissionChange {
+                role_code: treasury.to_vec(),
+                permissions: specifications(MODULE_RUNTIME_UPGRADE, 0),
+            }],
+            threshold: None,
+        };
+        assert_noop!(
+            PrivateEntity::propose_institution_policy(
+                RuntimeOrigin::signed(wallets[0].clone()),
+                cid.clone(),
+                invalid,
+                gov,
+                PrivateEntity::registration_state_hash(&cid).unwrap()
+            ),
+            privateentity::Error::<Runtime>::InstitutionCapabilityDenied
+        );
+    });
+}
+
+#[test]
+fn policy_execution_and_maximum_creation_weights_fit_existing_runtime_budgets() {
+    let budget = RuntimeBlockWeights::get().max_block;
+    for weight in [
+        <publicentity::InternalVoteExecutor<Runtime> as engingcore::InternalVoteResultCallback>::execution_weight(),
+        <privateentity::InternalVoteExecutor<Runtime> as engingcore::InternalVoteResultCallback>::execution_weight(),
+    ] {assert!(weight.all_lte(VotingMaintenanceBudget::get()));}
+    let state=<publicentity::weights::SubstrateWeight<Runtime> as publicentity::weights::WeightInfo>::policy_state(64,256,1989,400);
+    let creation=<publicentity::weights::SubstrateWeight<Runtime> as publicentity::weights::WeightInfo>::propose_institution_governance()
+        .saturating_add(frame_support::weights::Weight::from_parts(state.ref_time()*3,state.proof_size()));
+    assert!(creation.all_lte(budget));
+    let normal = RuntimeBlockWeights::get()
+        .get(frame_support::dispatch::DispatchClass::Normal)
+        .max_total
+        .unwrap();
+    assert!(creation.all_lte(normal));
+}
+
+/// 原生实测使用SDK真实Trie证明；不把原生计时冒充WASM回归拟合。
+#[cfg(feature = "runtime-benchmarks")]
+#[test]
+fn policy_maximum_native_measurements_fit_declared_time_and_proof() {
+    use codec::Encode;
+    use frame_support::traits::Hooks;
+    for private in [false, true] {
+        let mut ext = new_test_ext();
+        let (caller, cid, role, action, state) = ext.execute_with(|| {
+            if private {
+                privateentity::benchmarks::policy_fixture::<Runtime>()
+            } else {
+                publicentity::benchmarks::policy_fixture::<Runtime>()
+            }
+        });
+        let declared = ext.execute_with(|| {
+            if private {
+                PrivateEntity::policy_weight(&cid, &action)
+            } else {
+                PublicEntity::policy_weight(&cid, &action)
+            }
+        });
+        ext.commit_all().unwrap();
+        let started = std::time::Instant::now();
+        let (result, proof) = ext.execute_and_prove(|| {
+            if private {
+                PrivateEntity::propose_institution_policy(
+                    RuntimeOrigin::signed(caller.clone()),
+                    cid.clone(),
+                    action.clone(),
+                    role.clone(),
+                    state,
+                )
+            } else {
+                PublicEntity::propose_institution_policy(
+                    RuntimeOrigin::signed(caller.clone()),
+                    cid.clone(),
+                    action.clone(),
+                    role.clone(),
+                    state,
+                )
+            }
+        });
+        let nanos = started.elapsed().as_nanos();
+        assert_ok!(result);
+        let bytes = proof.encoded_size() as u64;
+        assert!(nanos.saturating_mul(1000) <= u128::from(declared.ref_time()));
+        assert!(bytes <= declared.proof_size());
+        println!("policy_native private={private} operation=creation roles=64 permissions=256 assignments=1989 ns={nanos} proof={bytes} declared={declared:?}");
+        let id = ext.execute_with(|| {
+            let id = VotingEngine::next_proposal_id() - 1;
+            assert_ok!(VotingEngine::set_status_and_emit(
+                id,
+                engingcore::STATUS_PASSED
+            ));
+            id
+        });
+        ext.commit_all().unwrap();
+        let declared = if private {
+            <privateentity::InternalVoteExecutor<Runtime> as engingcore::InternalVoteResultCallback>::execution_weight()
+        } else {
+            <publicentity::InternalVoteExecutor<Runtime> as engingcore::InternalVoteResultCallback>::execution_weight()
+        };
+        let started = std::time::Instant::now();
+        let (_, proof) = ext.execute_and_prove(|| <VotingEngine as Hooks<u32>>::on_initialize(1));
+        let nanos = started.elapsed().as_nanos();
+        let bytes = proof.encoded_size() as u64;
+        ext.execute_with(|| {
+            assert_eq!(
+                VotingEngine::proposals(id).unwrap().status,
+                engingcore::STATUS_EXECUTED
+            )
+        });
+        assert!(nanos.saturating_mul(1000) <= u128::from(declared.ref_time()));
+        assert!(bytes <= declared.proof_size());
+        println!("policy_native private={private} operation=execution roles=64 permissions=256 assignments=1989 ns={nanos} proof={bytes} declared={declared:?}");
+    }
+}
+
+#[test]
+fn framework_preserves_existing_seven_assignments_for_the_same_citizen() {
+    let person = test_cid_number(
+        primitives::cid::china::citizenchain::LEGAL_REPRESENTATIVE_CITIZEN_CID_NUMBER.as_bytes(),
+    );
+    let wallet = AccountId::new(foundation_fixture_wallet());
+    let registrar = test_cid_number(
+        primitives::governance_skeleton::federal_registry_institution()
+            .cid_number
+            .as_bytes(),
+    );
+    let mut config = RuntimeGenesisConfig::default();
+    config.identity.initial_cid_bindings = vec![(person.clone(), wallet.clone(), registrar)];
+    sp_io::TestExternalities::new(config.build_storage().unwrap()).execute_with(|| {
+        // 创世正本保留五条；另外两条只在测试中构造已有运行态，不改生产来源实现。
+        let nrc = test_cid_number(CHINA_CB[0].cid_number.as_bytes());
+        let frg = test_cid_number(
+            primitives::governance_skeleton::federal_registry_institution()
+                .cid_number
+                .as_bytes(),
+        );
+        let province = primitives::cid::code::PROVINCE_CODE_INFOS
+            .iter()
+            .find(|province| province.province_name.contains("贵州"))
+            .unwrap();
+        let commissioner = primitives::governance_skeleton::province_commissioner_role_code(
+            province.province_code,
+        );
+        fixture_public_role_people(
+            &nrc,
+            primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER,
+            &[wallet.clone()],
+        );
+        fixture_public_role_people(&frg, &commissioner, &[wallet.clone()]);
+        let snapshot = codec::Encode::encode(&(
+            publicentity::InstitutionRoleAssignments::<Runtime>::iter().collect::<Vec<_>>(),
+            privateentity::InstitutionRoleAssignments::<Runtime>::iter().collect::<Vec<_>>(),
+        ));
+        let public = publicentity::InstitutionRoleAssignments::<Runtime>::iter()
+            .flat_map(|(cid, role, rows)| {
+                rows.into_iter()
+                    .filter(|row| row.person_cid == person)
+                    .map(move |_| (cid.clone(), role.clone()))
+            })
+            .collect::<Vec<_>>();
+        let private = privateentity::InstitutionRoleAssignments::<Runtime>::iter()
+            .flat_map(|(cid, role, rows)| {
+                rows.into_iter()
+                    .filter(|row| row.person_cid == person)
+                    .map(move |_| (cid.clone(), role.clone()))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!((public.len(), private.len()), (4, 3));
+        let actual = public
+            .into_iter()
+            .chain(private)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(actual.len(), 7);
+        let action = entitybase::InstitutionPolicyAction {
+            permission_changes: vec![],
+            threshold: Some(2),
+        };
+        for (cid, role) in [
+            (
+                nrc,
+                primitives::governance_skeleton::ROLE_CODE_COMMITTEE_MEMBER.to_vec(),
+            ),
+            (frg, commissioner),
+        ] {
+            assert_noop!(
+                PublicEntity::propose_institution_policy(
+                    RuntimeOrigin::signed(wallet.clone()),
+                    cid.clone(),
+                    action.clone(),
+                    role.try_into().unwrap(),
+                    PublicEntity::registration_state_hash(&cid).unwrap()
+                ),
+                publicentity::Error::<Runtime>::InstitutionPolicyDenied
+            );
+        }
+        let foundation = test_cid_number(
+            primitives::cid::china::citizenchain::CITIZENCHAIN_FOUNDATION
+                .cid_number
+                .as_bytes(),
+        );
+        assert_noop!(
+            PrivateEntity::propose_institution_policy(
+                RuntimeOrigin::signed(wallet.clone()),
+                foundation.clone(),
+                action,
+                primitives::institution_constraints::ROLE_CODE_LEGAL_REPRESENTATIVE
+                    .to_vec()
+                    .try_into()
+                    .unwrap(),
+                PrivateEntity::registration_state_hash(&foundation).unwrap()
+            ),
+            privateentity::Error::<Runtime>::InstitutionPolicyDenied
+        );
+        assert_eq!(
+            codec::Encode::encode(&(
+                publicentity::InstitutionRoleAssignments::<Runtime>::iter().collect::<Vec<_>>(),
+                privateentity::InstitutionRoleAssignments::<Runtime>::iter().collect::<Vec<_>>()
+            )),
+            snapshot
+        );
+        assert_eq!(
+            identity::AccountIdByCid::<Runtime>::get(&person),
+            Some(wallet)
+        );
+    });
 }
 
 #[test]

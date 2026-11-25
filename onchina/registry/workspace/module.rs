@@ -2,7 +2,6 @@
 
 use crate::*;
 use onchina::modules::model::{ModuleBusiness, ModuleDescription, ModuleRoute};
-pub(crate) const VERSION: &str = "1.0.0";
 #[derive(Default)]
 pub(crate) struct Module;
 use onchina::modules::capability::{CapabilitySet, EMPTY};
@@ -65,9 +64,7 @@ fn purposes() -> Vec<String> {
     ]
 }
 fn actions() -> Vec<String> {
-    vec![
-        "INSTITUTION_CREATE".into(),
-    ]
+    vec!["INSTITUTION_CREATE".into()]
 }
 
 #[async_trait::async_trait]
@@ -75,7 +72,7 @@ impl ModuleBusiness for Module {
     fn describe(&self) -> ModuleDescription {
         let mut description = modules::describe_module(
             "registry",
-            VERSION,
+            env!("CARGO_PKG_VERSION"),
             "frontend/Workspace.tsx",
             &["RegistryWorkspace", "RegistryView"],
             self.routes(),

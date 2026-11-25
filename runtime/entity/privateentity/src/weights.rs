@@ -10,6 +10,16 @@ use core::marker::PhantomData;
 
 /// FRAME实测权重接口。
 pub trait WeightInfo {
+    /// 普通政策的有界扫描、身份核验和写入预算；不是替代原基准的回归拟合。
+    fn policy_state(r: u32, p: u32, a: u32, n: u32) -> Weight {
+        Weight::from_parts(1_000_000_000_000, 8192)
+            .saturating_add(Weight::from_parts(20_000_000_000, 8192).saturating_mul(r.into()))
+            .saturating_add(Weight::from_parts(500_000_000, 512).saturating_mul(p.into()))
+            .saturating_add(Weight::from_parts(1_000_000_000, 2048).saturating_mul(a.into()))
+            .saturating_add(Weight::from_parts(10_000_000, 256).saturating_mul(n.into()))
+            .saturating_add(RocksDbWeight::get().reads_writes(u64::from(r)*6 + u64::from(a)*4 + 8, u64::from(r)*2 + 2))
+    }
+
     /// Conservative bound for actual-wallet roster replacement, old/new address histories,
     /// role signing-reference transfer, System sufficient references, acceptance verification and entity nonce update.
     /// No legacy initialization path exists. This is a safety envelope, not a new benchmark.

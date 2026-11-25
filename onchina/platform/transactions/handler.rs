@@ -294,22 +294,22 @@ async fn recheck_business_submit_authorization(
         ));
     }
     if builtin_purposes().contains(&session.purpose.as_str()) && state.modules.local.is_none() {
-        let (index, action) = match session.purpose.as_str() {
+        let (matches_call, action) = match session.purpose.as_str() {
             crate::institutions::PURPOSE_INSTITUTION_GOVERNANCE => (
-                8,
+                matches!(session.call_data.get(1), Some(8) | Some(11)),
                 entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
             ),
-            crate::institutions::PURPOSE_INSTITUTION_ADD_ACCOUNT => {
-                (7, entitybase::business_action::ACTION_INSTITUTION_CLOSE)
-            }
-            crate::institutions::PURPOSE_INSTITUTION_CLOSE_ACCOUNT => {
-                (1, entitybase::business_action::ACTION_INSTITUTION_CLOSE)
-            }
+            crate::institutions::PURPOSE_INSTITUTION_ADD_ACCOUNT => (
+                session.call_data.get(1) == Some(&7),
+                entitybase::business_action::ACTION_INSTITUTION_CLOSE,
+            ),
+            crate::institutions::PURPOSE_INSTITUTION_CLOSE_ACCOUNT => (
+                session.call_data.get(1) == Some(&1),
+                entitybase::business_action::ACTION_INSTITUTION_CLOSE,
+            ),
             _ => return Err(api_error(StatusCode::GONE, 1005, "未知机构业务")),
         };
-        if !matches!(session.call_data.first(), Some(30) | Some(31))
-            || session.call_data.get(1) != Some(&index)
-        {
+        if !matches!(session.call_data.first(), Some(30) | Some(31)) || !matches_call {
             return Err(api_error(
                 StatusCode::GONE,
                 1005,
@@ -319,7 +319,11 @@ async fn recheck_business_submit_authorization(
         return crate::authentication::login::validate_selected_permission(
             state,
             ctx,
-            None,
+            Some(if session.call_data.first() == Some(&30) {
+                entitybase::business_action::MODULE_PUBLIC_MANAGE
+            } else {
+                entitybase::business_action::MODULE_PRIVATE_MANAGE
+            }),
             Some(action),
         )
         .await;
@@ -852,6 +856,26 @@ fn validate_institution_write(call: &[u8]) -> Result<Option<(Vec<u8>, Vec<u8>)>,
     }
     let payload = call.get(2..).ok_or("机构调用损坏")?;
     let claim = match call.get(1) {
+        Some(11) => {
+            let (cid, action, role, _): (
+                Vec<u8>,
+                entitybase::InstitutionPolicyAction,
+                Vec<u8>,
+                [u8; 32],
+            ) = DecodeAll::decode_all(&mut &*payload).map_err(|_| "机构政策调用损坏")?;
+            if action.permission_changes.is_empty() && action.threshold.is_none() {
+                return Err("政策内容为空");
+            }
+            if action.threshold.is_some_and(|value| value < 2)
+                || action
+                    .permission_changes
+                    .iter()
+                    .any(|change| change.permissions.is_empty())
+            {
+                return Err("政策阈值或链上权限为空");
+            }
+            Some((cid, role))
+        }
         Some(8) => {
             let (_, action, actor, role): (
                 Vec<u8>,

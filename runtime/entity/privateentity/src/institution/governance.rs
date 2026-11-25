@@ -159,8 +159,21 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        let role_limit = if entitybase::business_action::is_ordinary_institution(
+            institution_code,
+            &cid_number,
+        ) {
+            entitybase::institution_governance::MAX_POLICY_ROLES.min(T::MaxRoleEntries::get())
+        } else {
+            T::MaxRoleEntries::get()
+        };
         let mut final_roles = InstitutionRoles::<T>::iter_prefix(&cid_number)
+            .take(role_limit as usize + 1)
             .collect::<BTreeMap<RoleCodeOf, InstitutionRoleOf<T>>>();
+        ensure!(
+            final_roles.len() <= role_limit as usize,
+            Error::<T>::TooManyGovernanceChanges
+        );
         let mut role_writes = BTreeMap::<RoleCodeOf, InstitutionRoleOf<T>>::new();
         let mut permission_writes = BTreeMap::<RoleCodeOf, RolePermissionsOf<T>>::new();
         let mut created_assignment_writes = BTreeMap::<RoleCodeOf, RoleAssignmentsOf<T>>::new();
@@ -290,6 +303,34 @@ impl<T: Config> Pallet<T> {
                         .map_err(|_| Error::<T>::InvalidRoleName)?;
                     role_writes.insert(role_code.clone(), role.clone());
                     final_roles.insert(role_code, role);
+                }
+                InstitutionRoleMutation::Configure {
+                    role_code,
+                    term_required,
+                    seats,
+                    role_status,
+                } => {
+                    let code: RoleCodeOf = role_code
+                        .try_into()
+                        .map_err(|_| Error::<T>::InvalidRoleCode)?;
+                    Self::ensure_policy_role(&cid_number, &code)?;
+                    ensure!(
+                        (1..=T::MaxRoleEntries::get()).contains(&seats),
+                        Error::<T>::FixedRoleSeatsMismatch
+                    );
+                    ensure!(
+                        !role_writes.contains_key(&code) && !role_deletes.contains(&code),
+                        Error::<T>::DuplicateGovernanceRoleChange
+                    );
+                    let mut role = final_roles
+                        .get(&code)
+                        .cloned()
+                        .ok_or(Error::<T>::AssignmentRoleNotFound)?;
+                    role.term_required = term_required;
+                    role.seats = seats;
+                    role.role_status = role_status;
+                    role_writes.insert(code.clone(), role.clone());
+                    final_roles.insert(code, role);
                 }
                 InstitutionRoleMutation::Delete { role_code } => {
                     ensure!(!role_code.is_empty(), Error::<T>::InvalidRoleCode);
@@ -528,6 +569,17 @@ impl<T: Config> Pallet<T> {
                     }
                 });
             }
+            if proposal_id.is_some()
+                && entitybase::business_action::is_ordinary_institution(
+                    institution_code,
+                    &cid_number,
+                )
+                && crate::pallet::InstitutionGovernanceThresholds::<T>::contains_key(&cid_number)
+            {
+                if let Err(error) = Self::ensure_configuration(&cid_number) {
+                    return TransactionOutcome::Rollback(Err(error));
+                }
+            }
             Self::deposit_event(crate::pallet::Event::<T>::InstitutionGovernanceApplied {
                 cid_number,
                 role_mutations: role_mutations_len,
@@ -714,6 +766,10 @@ impl<T: Config> Pallet<T> {
 
     /// 阈值来自显式机构配置，按有效岗位票据校验；不由管理员钱包人数推导。
     fn ensure_registration_configuration(cid: &CidNumberOf<T>) -> DispatchResult {
+        let info = Institutions::<T>::get(cid).ok_or(Error::<T>::InstitutionNotFound)?;
+        if entitybase::business_action::is_ordinary_institution(info.institution_code, cid) {
+            return Self::ensure_configuration(cid);
+        }
         let threshold = crate::pallet::InstitutionGovernanceThresholds::<T>::get(cid)
             .ok_or(Error::<T>::MissingInitialConfiguration)?;
         let action = entitybase::BusinessActionId {

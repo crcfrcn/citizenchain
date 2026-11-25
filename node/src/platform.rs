@@ -11,8 +11,7 @@ use nodedesktop::cid::{
     onchina_binary_path, platform_url, record_local_platform_address,
 };
 use serde::{Deserialize, Serialize};
-#[cfg(unix)]
-use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::path::Path;
@@ -104,10 +103,6 @@ fn capture_startup_events(stdout: std::process::ChildStdout, pid: u32, port: u16
     });
 }
 
-/// 清理旧进程后等待端口释放的次数。每次 200ms，总等待约 40 秒，覆盖模块退出收尾。
-#[cfg(unix)]
-const STALE_CLEANUP_ATTEMPTS: usize = 200;
-
 /// 当前平台在 `resources/postgres/<os>/` 下的子目录名。
 fn pg_os_subdir() -> &'static str {
     if cfg!(target_os = "windows") {
@@ -129,7 +124,39 @@ fn bundled_pg_bin_dir(resources: &Path) -> Option<PathBuf> {
     path.join(initdb).exists().then_some(path)
 }
 
-/// 把内嵌 PG / 内网 TLS / 前端产物 / china.sqlite / 链 RPC 的路径用环境变量传给 onchina。
+/// 只解析模块路径，不创建目录、扫描软件或安装模块。
+/// 随包来源只读；开发输入必须是绝对路径，未配置来源时不猜测工程位置。
+fn module_paths(
+    base: &Path,
+    resources: Option<&Path>,
+    module_dir: Option<OsString>,
+    bundle_dir: Option<OsString>,
+) -> Result<(PathBuf, Option<PathBuf>), String> {
+    if !base.is_absolute() || resources.is_some_and(|path| !path.is_absolute()) {
+        return Err("链上中国资源与数据根必须是绝对路径".into());
+    }
+    let (modules, bundle) = match resources {
+        Some(resources) => (
+            base.join("modules"),
+            Some(resources.join("onchina-bin").join("modules")),
+        ),
+        None => (
+            module_dir
+                .map(PathBuf::from)
+                .unwrap_or_else(|| base.join("modules")),
+            bundle_dir.map(PathBuf::from),
+        ),
+    };
+    if !modules.is_absolute() {
+        return Err("ONCHINA_MODULE_DIR 必须是非空绝对路径".into());
+    }
+    if bundle.as_ref().is_some_and(|path| !path.is_absolute()) {
+        return Err("ONCHINA_BUNDLE_DIR 必须是非空绝对路径".into());
+    }
+    Ok((modules, bundle))
+}
+
+/// 把只读资源、包外活动目录、既有数据库与安全链连接交付给宿主。
 ///
 /// 仅当随包 PostgreSQL 二进制确实存在(打包构建)才开内嵌 PG + HTTPS;
 /// 开发期(cargo build,无随包 PG)继承启动脚本中的数据库与 HTTPS 配置,不强行覆盖。
@@ -146,14 +173,28 @@ fn apply_onchina_env(app: &AppHandle, cmd: &mut Command) -> Result<(), String> {
         .ok_or_else(|| "桌面 RPC 证书尚未准备".to_string())?;
     cmd.env("ONCHAIN_LOCAL_RPC_CERTIFICATE", hex::encode(certificate));
 
-    // 只有**打包形态**(随包 PostgreSQL 官方二进制存在)才用随包资源路径覆盖
-    // china.sqlite / 前端产物 / 业务模块 / 内嵌 PG / TLS;开发期(cargo tauri dev,无随包 PG)这些全
-    // 由启动脚本 run.sh/clean-run.sh 的环境变量提供,节点启动入口不覆盖,避免拿占位资源
-    // 路径把 dev 配置盖掉。
-    let Some(res) = app.path().resource_dir().ok() else {
-        return Ok(());
-    };
-    let Some(pg_bin_dir) = bundled_pg_bin_dir(&res) else {
+    let resources = app.path().resource_dir().ok();
+    let pg_bin_dir = resources.as_deref().and_then(bundled_pg_bin_dir);
+    let base = nodedesktop::security::app_data_dir(app)?;
+    let (modules, bundle) = module_paths(
+        &base,
+        resources.as_deref().filter(|_| pg_bin_dir.is_some()),
+        std::env::var_os("ONCHINA_MODULE_DIR"),
+        std::env::var_os("ONCHINA_BUNDLE_DIR"),
+    )?;
+    // 活动根始终位于包外，不因缺少随包PG而跳过；模块内容只归OnChina管理。
+    cmd.env("ONCHINA_MODULE_DIR", modules);
+    match bundle {
+        Some(bundle) => {
+            cmd.env("ONCHINA_BUNDLE_DIR", bundle);
+        }
+        None => {
+            cmd.env_remove("ONCHINA_BUNDLE_DIR");
+        }
+    }
+
+    // 沿用打包PG检测；开发期数据库、TLS及前端资源继续由显式环境配置。
+    let (Some(res), Some(pg_bin_dir)) = (resources, pg_bin_dir) else {
         return Ok(());
     };
     cmd.env("ONCHINA_CHINA_DB", res.join("china.sqlite"));
@@ -161,15 +202,9 @@ fn apply_onchina_env(app: &AppHandle, cmd: &mut Command) -> Result<(), String> {
         "ONCHINA_FRONTEND_DIST",
         res.join("onchina-frontend").join("dist"),
     );
-    cmd.env(
-        "ONCHINA_MODULE_DIR",
-        res.join("onchina-bin").join("modules"),
-    );
     cmd.env("ONCHINA_EMBEDDED_PG", "1");
     cmd.env("ONCHINA_PG_BIN_DIR", &pg_bin_dir);
-    if let Ok(base) = nodedesktop::security::app_data_dir(app) {
-        apply_data_dir_env(&base, cmd);
-    }
+    apply_data_dir_env(&base, cmd);
     Ok(())
 }
 
@@ -298,150 +333,6 @@ fn reap_finished_child(child: &mut Option<Child>) {
     }
 }
 
-#[cfg(unix)]
-fn command_stdout(program: &str, args: &[String]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    Some(String::from_utf8_lossy(&output.stdout).to_string())
-}
-
-#[cfg(unix)]
-fn pids_from_stdout(stdout: &str) -> BTreeSet<u32> {
-    stdout
-        .lines()
-        .filter_map(|line| line.trim().parse::<u32>().ok())
-        .filter(|pid| *pid != std::process::id())
-        .collect()
-}
-
-#[cfg(unix)]
-fn listener_pids_on_onchina_port(port: u16) -> BTreeSet<u32> {
-    let port = format!("-iTCP:{port}");
-    command_stdout(
-        "lsof",
-        &[
-            "-nP".to_string(),
-            "-t".to_string(),
-            port,
-            "-sTCP:LISTEN".to_string(),
-        ],
-    )
-    .map(|stdout| pids_from_stdout(&stdout))
-    .unwrap_or_default()
-}
-
-#[cfg(unix)]
-fn onchina_named_pids() -> BTreeSet<u32> {
-    command_stdout("pgrep", &["-x".to_string(), "onchina".to_string()])
-        .map(|stdout| pids_from_stdout(&stdout))
-        .unwrap_or_default()
-}
-
-#[cfg(unix)]
-fn process_command(pid: u32) -> String {
-    command_stdout(
-        "ps",
-        &[
-            "-p".to_string(),
-            pid.to_string(),
-            "-o".to_string(),
-            "comm=".to_string(),
-            "-o".to_string(),
-            "args=".to_string(),
-        ],
-    )
-    .unwrap_or_default()
-}
-
-#[cfg(unix)]
-fn is_onchina_process(pid: u32) -> bool {
-    process_command(pid)
-        .split_whitespace()
-        .any(|part| part == "onchina" || part.ends_with("/onchina"))
-}
-
-#[cfg(unix)]
-fn signal_pid(pid: u32, signal: &str) {
-    let _ = Command::new("kill")
-        .arg(signal)
-        .arg(pid.to_string())
-        .status();
-}
-
-#[cfg(unix)]
-fn stale_onchina_processes(port: u16) -> BTreeSet<u32> {
-    let mut pids = onchina_named_pids();
-    for pid in listener_pids_on_onchina_port(port) {
-        if is_onchina_process(pid) {
-            pids.insert(pid);
-        }
-    }
-    pids
-}
-
-#[cfg(unix)]
-fn foreign_onchina_port_listeners(port: u16) -> Vec<u32> {
-    listener_pids_on_onchina_port(port)
-        .into_iter()
-        .filter(|pid| !is_onchina_process(*pid))
-        .collect()
-}
-
-#[cfg(unix)]
-fn wait_until_no_stale_onchina_processes(port: u16) -> Result<(), String> {
-    for _ in 0..STALE_CLEANUP_ATTEMPTS {
-        let foreign_port_pids = foreign_onchina_port_listeners(port);
-        if !foreign_port_pids.is_empty() {
-            return Err(format!(
-                "链上中国平台端口 {port} 已被非 OnChina 进程占用,pid={foreign_port_pids:?}"
-            ));
-        }
-        if stale_onchina_processes(port).is_empty() {
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    Err(format!(
-        "旧链上中国平台进程仍未退出,pid={:?}",
-        stale_onchina_processes(port)
-    ))
-}
-
-/// 启动前清理旧 OnChina 孤儿进程。
-///
-/// 节点桌面端只持有“本次启动出来”的 child handle；如果上一次节点异常退出，
-/// OnChina 可能留成 PPID=1 的孤儿进程并继续占用产品声明的固定端口。这里在用户点击“启动”
-/// 时先按进程名和固定端口清理旧 OnChina，避免新进程连到陈旧数据库连接池后崩溃。
-#[cfg(unix)]
-fn clean_stale_onchina_processes_before_start(port: u16) -> Result<(), String> {
-    let foreign_port_pids = foreign_onchina_port_listeners(port);
-    if !foreign_port_pids.is_empty() {
-        return Err(format!(
-            "链上中国平台端口 {port} 已被非 OnChina 进程占用,pid={foreign_port_pids:?}"
-        ));
-    }
-
-    let pids = stale_onchina_processes(port);
-    if pids.is_empty() {
-        return Ok(());
-    }
-
-    for pid in &pids {
-        signal_pid(*pid, "-TERM");
-    }
-    // 等待宿主自行回收模块；超时拒绝重启，不强杀宿主后留下仍占用文件的模块。
-    wait_until_no_stale_onchina_processes(port)?;
-    eprintln!("[onchina] 已清理旧链上中国平台进程 pid={pids:?}");
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn clean_stale_onchina_processes_before_start(_port: u16) -> Result<(), String> {
-    Ok(())
-}
-
 /// 返回由本节点桌面端拉起的 onchina 子进程是否仍在运行。
 pub(crate) fn is_onchina_running() -> bool {
     let mut guard = match ONCHINA_CHILD.lock() {
@@ -469,7 +360,7 @@ pub(crate) fn start_onchina(app: &AppHandle) -> Result<(), String> {
         return Ok(());
     }
     let deployment = deployment(app)?;
-    clean_stale_onchina_processes_before_start(deployment.port)?;
+    // 只拥有本次子进程；端口占用由宿主启动失败反馈，不按名称终止其他实例。
     if let Ok(mut error) = ONCHINA_ERROR.lock() {
         *error = None;
     }
@@ -560,8 +451,8 @@ pub struct OnChinaPlatformState {
     modules: Vec<String>,
 }
 
-// 保留公信 HTTPS 与域名 SNI，连接到当前宿主回传的监听地址。
-fn onchina_health_modules(app: &AppHandle, address: SocketAddr) -> Result<Vec<String>, String> {
+/// 健康信息只识别宿主及原四个公开快捷入口，不消费模块SDK版本或私有安装清单。
+fn parse_health_modules(bytes: &[u8]) -> Result<Vec<String>, String> {
     #[derive(Deserialize)]
     struct HealthModule {
         id: String,
@@ -569,7 +460,9 @@ fn onchina_health_modules(app: &AppHandle, address: SocketAddr) -> Result<Vec<St
 
     #[derive(Deserialize)]
     struct HealthData {
+        service: String,
         status: String,
+        module_id: Option<String>,
         modules: Vec<HealthModule>,
     }
 
@@ -579,6 +472,26 @@ fn onchina_health_modules(app: &AppHandle, address: SocketAddr) -> Result<Vec<St
         data: HealthData,
     }
 
+    let payload: HealthResponse =
+        serde_json::from_slice(bytes).map_err(|_| "链上中国健康检查响应无效".to_string())?;
+    if payload.code != 0
+        || payload.data.service != "onchina"
+        || payload.data.status != "UP"
+        || payload.data.module_id.is_some()
+    {
+        return Err("链上中国平台健康检查未通过".into());
+    }
+    Ok(payload
+        .data
+        .modules
+        .into_iter()
+        .map(|module| module.id)
+        .filter(|id| is_onchina_shortcut(id))
+        .collect())
+}
+
+// 保留公信 HTTPS 与域名 SNI，连接到当前宿主回传的监听地址。
+fn onchina_health_modules(app: &AppHandle, address: SocketAddr) -> Result<Vec<String>, String> {
     let deployment = deployment(app)?;
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_millis(900))
@@ -595,18 +508,10 @@ fn onchina_health_modules(app: &AppHandle, address: SocketAddr) -> Result<Vec<St
     if !response.status().is_success() {
         return Err("链上中国健康检查状态无效".to_string());
     }
-    let payload = response
-        .json::<HealthResponse>()
+    let bytes = response
+        .bytes()
         .map_err(|_| "链上中国健康检查响应无效".to_string())?;
-    if payload.code != 0 || payload.data.status != "UP" {
-        return Err("链上中国平台健康检查未通过".to_string());
-    }
-    Ok(payload
-        .data
-        .modules
-        .into_iter()
-        .map(|module| module.id)
-        .collect())
+    parse_health_modules(&bytes)
 }
 
 fn current_state(app: &AppHandle) -> OnChinaPlatformState {
@@ -671,16 +576,19 @@ pub(crate) async fn get_onchina_platform(app: AppHandle) -> Result<OnChinaPlatfo
         .map_err(|_| "查询链上中国状态失败".into())
 }
 
+fn is_onchina_shortcut(module_id: &str) -> bool {
+    matches!(
+        module_id,
+        "registry" | "legislation" | "judicial" | "private"
+    )
+}
+
 fn onchina_module_entry(
     mut base: reqwest::Url,
     module_id: &str,
     modules: &[String],
 ) -> Result<reqwest::Url, String> {
-    if !matches!(
-        module_id,
-        "registry" | "legislation" | "judicial" | "private"
-    ) || !modules.iter().any(|id| id == module_id)
-    {
+    if !is_onchina_shortcut(module_id) || !modules.iter().any(|id| id == module_id) {
         return Err("所选链上中国模块未就绪".into());
     }
     base.query_pairs_mut().append_pair("module", module_id);

@@ -5,6 +5,11 @@
 use super::*;
 
 #[test]
+fn ordinary_transfer_skips_empty_roles_without_changing_people_or_threshold() {
+    measure_ordinary_snapshot(3);
+}
+
+#[test]
 fn nonempty_remark_fee_rolls_back_after_withdrawal_then_charges_once_on_retry() {
     use frame_support::traits::LockableCurrency;
     new_test_ext().execute_with(|| {

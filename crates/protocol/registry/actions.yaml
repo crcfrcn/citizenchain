@@ -678,7 +678,7 @@
   kind: chain_call
   qr_kind: sign_request
   pallet: PublicEntity
-  call: add_institution_account
+  call: propose_add_institution_account
   decoder: add_public_institution_account
   hash_only_allowed: false
   signing_category: chain_tx
@@ -726,6 +726,23 @@
     - actor_role_code
     - fee_payer_description
 
+- action_key: propose_public_institution_policy
+  action_code: 0x1e0b
+  action_label_zh: 发起公权机构原生政策
+  kind: chain_call
+  qr_kind: sign_request
+  pallet: PublicEntity
+  call: propose_institution_policy
+  decoder: propose_public_institution_policy
+  hash_only_allowed: false
+  signing_category: chain_tx
+  required_fields:
+    - cid_number
+    - governance_detail
+    - proposer_role_code
+    - expected_state_hash
+    - fee_payer_description
+
 - action_key: propose_close_private_institution
   action_code: 0x1f01
   action_label_zh: 发起关闭私权机构
@@ -765,7 +782,7 @@
   kind: chain_call
   qr_kind: sign_request
   pallet: PrivateEntity
-  call: add_institution_account
+  call: propose_add_institution_account
   decoder: add_private_institution_account
   hash_only_allowed: false
   signing_category: chain_tx
@@ -811,6 +828,23 @@
     - initial_threshold
     - actor_cid_number
     - actor_role_code
+    - fee_payer_description
+
+- action_key: propose_private_institution_policy
+  action_code: 0x1f0b
+  action_label_zh: 发起私权机构原生政策
+  kind: chain_call
+  qr_kind: sign_request
+  pallet: PrivateEntity
+  call: propose_institution_policy
+  decoder: propose_private_institution_policy
+  hash_only_allowed: false
+  signing_category: chain_tx
+  required_fields:
+    - cid_number
+    - governance_detail
+    - proposer_role_code
+    - expected_state_hash
     - fee_payer_description
 
 - action_key: set_address_catalog_version

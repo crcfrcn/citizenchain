@@ -33,9 +33,9 @@ pub use business_action::{
 pub use institution_governance::{
     InstitutionAssignmentTarget, InstitutionGovernanceAction, InstitutionGovernanceProposal,
     InstitutionGovernanceResult, InstitutionGovernanceResultHandler,
-    InstitutionLegalRepresentativeChange, InstitutionRoleAssignmentChange, InstitutionRoleMutation,
-    InstitutionRoleRegistration,
-    RolePermissionSpec,
+    InstitutionLegalRepresentativeChange, InstitutionPolicyAction, InstitutionPolicyProposal,
+    InstitutionRoleAssignmentChange, InstitutionRoleMutation, InstitutionRoleRegistration,
+    RolePermissionChange, RolePermissionSpec,
 };
 pub use institution_role::{
     generate_dynamic_role_code, AuthorizationSubject, BusinessActionId, InstitutionAssignment,

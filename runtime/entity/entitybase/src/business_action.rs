@@ -88,6 +88,22 @@ pub const ACTION_SET_ADDRESS: u32 = 3;
 pub const ACTION_REMOVE_ADDRESS: u32 = 4;
 pub const ACTION_REGISTER_INSTITUTION: u32 = 0;
 
+/// 普通机构自治边界：真实法人CID，排除既有固定治理、国家单例、FSC和基金会。
+/// 固定岗位、阈值及FRG分组继续使用原制度，不随普通政策调整。
+pub fn is_ordinary_institution(institution_code: InstitutionCode, cid_number: &[u8]) -> bool {
+    let Ok(parts) = primitives::cid::number::parse_cid_number_parts_bytes(cid_number) else {
+        return false;
+    };
+    parts.institution == institution_code
+        && (primitives::cid::code::is_public_legal_code(&institution_code)
+            || primitives::cid::code::is_private_legal_code(&institution_code))
+        && institution_code != FSC
+        && fixed_institution_by_identity(institution_code, cid_number).is_none()
+        && primitives::institution_constraints::singleton_by_identity(institution_code, cid_number)
+            .is_none()
+        && !is_citizenchain_foundation_identity(institution_code, cid_number)
+}
+
 /// 不带机构主体的固定权限模板；创世写入时由 entity 补齐准确 CID 和岗位码。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FixedRolePermissionSpec {

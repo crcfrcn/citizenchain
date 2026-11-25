@@ -2,7 +2,6 @@
 
 use crate::*;
 use onchina::modules::model::{ModuleBusiness, ModuleDescription, ModuleRoute};
-pub(crate) const VERSION: &str = "1.0.0";
 #[derive(Default)]
 pub(crate) struct Module;
 fn declaration(
@@ -35,7 +34,7 @@ impl ModuleBusiness for Module {
     fn describe(&self) -> ModuleDescription {
         let mut description = modules::describe_module(
             "private",
-            VERSION,
+            env!("CARGO_PKG_VERSION"),
             "frontend/Workspace.tsx",
             &["PrivateInstitutionWorkspace"],
             self.routes(),

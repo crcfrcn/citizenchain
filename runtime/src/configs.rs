@@ -877,6 +877,33 @@ fn institution_account_onchain_route(
     institution_onchain_route(who, cid_number, role_code)
 }
 
+/// 政策代付同时核验该实体的治理发起权，防止其它有效岗位消耗机构操作费。
+fn institution_policy_route(
+    who: &AccountId,
+    cid: &[u8],
+    role: &[u8],
+    module: &[u8],
+) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
+    let subject = entitybase::RoleSubject {
+        cid_number: cid.to_vec(),
+        role_code: role.to_vec(),
+    };
+    let action = entitybase::BusinessActionId {
+        module_tag: module.to_vec(),
+        action_code: entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
+    };
+    if RuntimeInstitutionRoleAuthorization::is_authorized(
+        who,
+        &subject,
+        &action,
+        RolePermissionOperation::Propose,
+    ) {
+        institution_charge(cid)
+    } else {
+        primitives::fee_policy::FeeRoute::Reject
+    }
+}
+
 fn proposal_operation_route(
     who: &AccountId, proposal_id: u128,
 ) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
@@ -953,6 +980,28 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
             ) | RuntimeCall::PrivateEntity(
                 privateentity::pallet::Call::propose_institution_governance { actor_cid_number, proposer_role_code, .. },
             ) => institution_onchain_route(who, actor_cid_number, proposer_role_code),
+            RuntimeCall::PublicEntity(publicentity::pallet::Call::propose_institution_policy {
+                cid_number,
+                proposer_role_code,
+                ..
+            }) => institution_policy_route(
+                who,
+                cid_number,
+                proposer_role_code,
+                publicentity::MODULE_TAG,
+            ),
+            RuntimeCall::PrivateEntity(
+                privateentity::pallet::Call::propose_institution_policy {
+                    cid_number,
+                    proposer_role_code,
+                    ..
+                },
+            ) => institution_policy_route(
+                who,
+                cid_number,
+                proposer_role_code,
+                privateentity::MODULE_TAG,
+            ),
             RuntimeCall::PublicEntity(
                 publicentity::pallet::Call::propose_add_institution_account { cid_number, proposer_role_code, .. },
             ) | RuntimeCall::PrivateEntity(
@@ -1714,7 +1763,7 @@ impl identity::BenchmarkHelper<AccountId, identity::pallet::SignatureOf<Runtime>
 // 查询校验人员的有效任职及岗位的具体业务权限。
 
 /// 完整 CID 的顶层业务能力策略：固定机构、注册局与立法业务各走共享目录，
-/// 其它普通机构仍只开放自身治理和账户生命周期；顶层允许不授予岗位权限。
+/// 普通机构开放自身治理、账户生命周期和原生转账；顶层允许不授予岗位权限。
 pub struct RuntimeInstitutionCapabilityPolicy;
 
 impl entitybase::InstitutionCapabilityPolicy for RuntimeInstitutionCapabilityPolicy {
@@ -1768,6 +1817,14 @@ impl entitybase::InstitutionCapabilityPolicy for RuntimeInstitutionCapabilityPol
                 business_action_id.action_code,
                 operation,
             )
+        {
+            return true;
+        }
+        if entitybase::business_action::is_ordinary_institution(parts.institution, cid_number)
+            && business_action_id.module_tag.as_slice()
+                == entitybase::business_action::MODULE_MULTISIG
+            && business_action_id.action_code
+                == entitybase::business_action::ACTION_MULTISIG_TRANSFER
         {
             return true;
         }
@@ -2211,6 +2268,7 @@ impl multisig::Config for Runtime {
     type Currency = Balances;
     type InternalVoteEngine = InternalVote;
     type InstitutionRoleAuthorization = RuntimeInstitutionRoleAuthorization;
+    type InstitutionRoleProvider = RuntimeInstitutionRoleProvider;
     type InstitutionAsset = RuntimeInstitutionAsset;
     type ProtectedSourceChecker = RuntimeProtectedSourceChecker;
     type MaxRemarkLen = ConstU32<256>;

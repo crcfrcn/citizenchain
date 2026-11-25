@@ -364,6 +364,67 @@ pub fn grant_close_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCo
     role_code
 }
 
+pub fn grant_governance_role(cid_number: &pallet::CidNumberOf<Test>) -> crate::RoleCodeOf {
+    let role_code: crate::RoleCodeOf = b"TEST_GOVERNANCE_ROLE"
+        .to_vec()
+        .try_into()
+        .expect("role fits");
+    let role = entitybase::InstitutionRole {
+        cid_number: cid_number.clone(),
+        role_code: role_code.clone(),
+        role_name: account_name("机构治理岗位".as_bytes()),
+        term_required: false,
+        role_status: entitybase::InstitutionRoleStatus::Active,
+        seats: 2,
+    };
+    pallet::InstitutionRoles::<Test>::insert(cid_number, &role_code, role);
+    let assignments = (0..2)
+        .map(admin)
+        .map(|wallet| entitybase::InstitutionAssignment {
+            cid_number: cid_number.clone(),
+            person_cid: fixture_person(&wallet, "CTZN"),
+            role_code: role_code.clone(),
+            term_start: 0,
+            term_end: 0,
+            assignment_source: entitybase::InstitutionAssignmentSource::InstitutionGovernance,
+            assignment_source_ref: BoundedVec::default(),
+            assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+        })
+        .collect::<Vec<_>>();
+    pallet::InstitutionRoleAssignments::<Test>::insert(
+        cid_number,
+        &role_code,
+        crate::institution::role::RoleAssignmentsOf::<Test>::try_from(assignments)
+            .expect("assignments fit"),
+    );
+    let permissions = [
+        entitybase::RolePermissionOperation::Propose,
+        entitybase::RolePermissionOperation::Vote,
+    ]
+    .into_iter()
+    .map(|operation| entitybase::RoleBusinessPermission {
+        role_subject: entitybase::RoleSubject {
+            cid_number: cid_number.clone(),
+            role_code: role_code.clone(),
+        },
+        business_action_id: entitybase::BusinessActionId {
+            module_tag: crate::MODULE_TAG
+                .to_vec()
+                .try_into()
+                .expect("module tag fits"),
+            action_code: entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
+        },
+        operation,
+    })
+    .collect::<Vec<_>>();
+    pallet::InstitutionRolePermissions::<Test>::insert(
+        cid_number,
+        &role_code,
+        BoundedVec::try_from(permissions).expect("permissions fit"),
+    );
+    role_code
+}
+
 pub struct TestInstitutionCapabilityPolicy;
 impl entitybase::InstitutionCapabilityPolicy for TestInstitutionCapabilityPolicy {
     fn allows(

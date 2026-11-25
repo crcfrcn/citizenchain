@@ -5,7 +5,7 @@
 ## 技术文档
 
 - [公民链与节点](../tataconsole/work/Citizen/公民链与节点.md)
-- [治理与链上中国](../tataconsole/work/Citizen/治理与链上中国.md)
+- [链上中国](../tataconsole/work/Citizen/链上中国.md)
 
 [公民链白皮书](CitizenChainWhitepaper.md)
 

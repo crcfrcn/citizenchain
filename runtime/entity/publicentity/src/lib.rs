@@ -3,7 +3,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 /// 模块标识前缀，用于在 ProposalData 中区分不同业务模块，防止跨模块误解码。
-/// 长度 8 字节（`b"pub-mgmt"`）；admins 模块 / citizenwallet / citizenapp 三方解码必须保持一致。
+/// 长度 8 字节（`b"pub-mgmt"`）；实体、钱包及协议消费者的解码必须保持一致。
 pub const MODULE_TAG: &[u8] = b"pub-mgmt";
 
 pub use pallet::*;
@@ -48,8 +48,9 @@ pub use traits::{
 pub use entitybase::{
     InstitutionAssignment, InstitutionAssignmentSource, InstitutionAssignmentStatus,
     InstitutionGovernanceAction, InstitutionGovernanceProposal, InstitutionGovernanceResult,
-    InstitutionRole, InstitutionRoleAuthorizationQuery, InstitutionRoleMutation,
-    InstitutionRoleStatus, InstitutionRoleRegistration, LegalRepresentative, RolePermissionOperation, RolePermissionSpec,
+    InstitutionPolicyAction, InstitutionPolicyProposal, InstitutionRole,
+    InstitutionRoleAuthorizationQuery, InstitutionRoleMutation, InstitutionRoleRegistration,
+    InstitutionRoleStatus, LegalRepresentative, RolePermissionOperation, RolePermissionSpec,
 };
 pub use institution::role::{
     InstitutionAssignmentOf, InstitutionAssignmentsOf, InstitutionRoleOf,
@@ -213,7 +214,7 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// 机构岗位不可变业务权限；岗位改名不得改写本表。
+    /// 机构岗位原生业务权限；岗位改名不改变权限，普通政策可原子替换。
     #[pallet::storage]
     #[pallet::getter(fn institution_role_permissions)]
     pub type InstitutionRolePermissions<T: Config> = StorageDoubleMap<
@@ -227,7 +228,7 @@ pub mod pallet {
     >;
 
     /// 每个机构单调递增的动态岗位码 nonce。
-    /// 名册成功写入也推进此单调nonce，使并发人员资料变更进入登记状态指纹。
+    /// 仅分配新动态岗位时推进；权限、任职及阈值直接参与机构状态指纹。
     #[pallet::storage]
     #[pallet::getter(fn institution_role_nonce)]
     pub type InstitutionRoleNonce<T: Config> =
@@ -377,6 +378,19 @@ pub mod pallet {
             proposal_id: u128,
             cid_number: CidNumberOf<T>,
         },
+        /// 政策已建案，不代表表决通过或执行完成。
+        InstitutionPolicyProposed {
+            proposal_id: u128,
+            cid_number: CidNumberOf<T>,
+            proposer_account_id: T::AccountId,
+        },
+        /// 原生权限及共同阈值已在同一存储事务内应用。
+        InstitutionPolicyApplied {
+            proposal_id: u128,
+            cid_number: CidNumberOf<T>,
+            permission_changes: u32,
+            threshold: u32,
+        },
     }
 
     #[pallet::error]
@@ -525,9 +539,9 @@ pub mod pallet {
         RoleHasNoAssignment,
         /// 一组岗位任职记录超过机构处理上限。
         TooManyInstitutionAssignments,
-        /// 治理结果目标不是机构主账户或与机构码不匹配。
+        /// 治理结果的机构CID或机构码不匹配。
         InvalidAssignmentResultInstitution,
-        /// 治理结果没有管理员或包含重复管理员。
+        /// 保留既有治理错误编码；现行任职按人员CID校验。
         InvalidAssignmentResultAdmins,
         /// 任职人数违反岗位定义或协议要求的席位范围。
         FixedRoleSeatsMismatch,
@@ -555,7 +569,7 @@ pub mod pallet {
         NonMemberAdminForbidden,
         /// 机构治理提案载荷为空或不能解码。
         InvalidInstitutionGovernanceAction,
-        /// 动态岗位必须至少绑定一项不可变业务权限。
+        /// 动态链上岗位必须至少绑定一项真实原生权限。
         RolePermissionsEmpty,
         /// 岗位权限字段或模块标签非法。
         InvalidRolePermission,
@@ -571,7 +585,7 @@ pub mod pallet {
         RoleCodeGenerationExhausted,
         /// 签名前读取的机构状态已变化，须刷新后重签。
         StaleRegistrationState,
-        /// 登记仅接收钱包维护4或不含法代变更的纯岗位配置1。
+        /// 保留退役登记动作的错误编码；现行登记直接使用岗位与任职载荷。
         InvalidRegistrationAction,
         /// 已初始化机构不得由登记接口重置阈值。
         AlreadyInitialized,
@@ -581,6 +595,10 @@ pub mod pallet {
         RegistrationRoleChangeDenied,
         /// 人员 CID 类型或当前钱包绑定不符合任职条件。
         InvalidAssignmentPerson,
+        /// 固定机构或非动态岗位不能通过普通原生政策修改。
+        InstitutionPolicyDenied,
+        /// 政策签名固定的原机构状态已变化，禁止重定向执行。
+        StalePolicyState,
     }
 
     /// 提案操作类型标记：存储在 ProposalData 的第一个字节。
@@ -590,6 +608,22 @@ pub mod pallet {
     /// 新增账户提案:仅用于 ProposalData 内部 finalizer 路由,与投票授权用的
     /// BusinessActionId(复用 `ACTION_INSTITUTION_CLOSE` 账户生命周期能力)相互正交。
     pub const ACTION_ADD_ACCOUNT: u8 = 4;
+    /// 普通原生政策业务载荷，旧分支编码保持不变。
+    pub const ACTION_POLICY: u8 = 5;
+
+    #[pallet::extra_constants]
+    impl<T: Config> Pallet<T> {
+        /// 普通机构岗位总量，包含固定LR；固定机构仍按其原制度。
+        #[pallet::constant_name(MaxPolicyRoles)]
+        fn max_policy_roles() -> u32 {
+            entitybase::institution_governance::MAX_POLICY_ROLES.min(T::MaxRoleEntries::get())
+        }
+        /// 普通机构原生权限总量，不包含任何OnChina本地权限。
+        #[pallet::constant_name(MaxPolicyPermissions)]
+        fn max_policy_permissions() -> u32 {
+            entitybase::institution_governance::MAX_POLICY_PERMISSIONS
+        }
+    }
 
     #[pallet::call]
     impl<T: Config> Pallet<T> {
@@ -650,7 +684,7 @@ pub mod pallet {
         /// 本机构指定岗位任职人发起机构内部治理提案。
         ///
         /// 本入口只允许治理 `actor_cid_number == cid_number` 的本机构；注册局替
-        /// 目标机构登记管理员集合必须走 `register_institution_roles`。
+        /// 目标机构登记岗位与任职必须走 `register_institution_roles`。
         #[pallet::call_index(8)]
         #[pallet::weight(Pallet::<T>::governance_weight(&cid_number, &action))]
         #[allow(clippy::too_many_arguments)]
@@ -720,6 +754,25 @@ pub mod pallet {
             )
         }
 
+        /// 本机构以原岗位选民和原阈值批准原生权限及共同阈值目标。
+        #[pallet::call_index(11)]
+        #[pallet::weight(Pallet::<T>::policy_weight(&cid_number, &action))]
+        pub fn propose_institution_policy(
+            origin: OriginFor<T>,
+            cid_number: CidNumberOf<T>,
+            action: InstitutionPolicyAction,
+            proposer_role_code: RoleCodeOf,
+            expected_state_hash: [u8; 32],
+        ) -> DispatchResult {
+            Self::do_propose_institution_policy(
+                ensure_signed(origin)?,
+                cid_number,
+                action,
+                proposer_role_code,
+                expected_state_hash,
+            )
+        }
+
         // call_index(4) 已永久废弃：拒绝和执行失败清理由 engingcore 终态回调完成。
     }
 
@@ -759,7 +812,16 @@ pub mod pallet {
         // publicentity 的机构地址只走 derive_institution_account。
 
         /// 按最大岗位选民数与本案投票岗位数预留建案权重。
-        pub fn governance_weight(cid: &CidNumberOf<T>, _action: &InstitutionGovernanceAction) -> Weight {
+        pub fn governance_weight(
+            cid: &CidNumberOf<T>,
+            action: &InstitutionGovernanceAction,
+        ) -> Weight {
+            if Institutions::<T>::get(cid).is_some_and(|info| {
+                entitybase::business_action::is_ordinary_institution(info.institution_code, cid)
+            }) {
+                return <T as Config>::WeightInfo::propose_institution_governance()
+                    .saturating_add(Self::policy_state_weight(cid, action.encoded_size() as u32));
+            }
             let business = BusinessActionId {
                 module_tag: crate::MODULE_TAG.to_vec(),
                 action_code: entitybase::business_action::ACTION_INSTITUTION_GOVERNANCE,
@@ -771,15 +833,31 @@ pub mod pallet {
                 .saturating_add(engingcore::Pallet::<T>::frozen_snapshot_weight(T::MaxRoleEntries::get(), subjects))
         }
 
-        fn ensure_governance_action_valid(
-            action: &InstitutionGovernanceAction,
-        ) -> DispatchResult {
-            let InstitutionGovernanceAction { role_mutations, assignment_changes, legal_representative_change } = action;
-            ensure!(!role_mutations.is_empty() || !assignment_changes.is_empty() || legal_representative_change.is_some(), Error::<T>::GovernanceResultEmpty);
-            let people = role_mutations.iter().filter_map(|mutation| match mutation {
-                InstitutionRoleMutation::Create { assignments, .. } => Some(assignments),
-                _ => None,
-            }).chain(assignment_changes.iter().map(|change| &change.assignments)).flatten();
+        fn ensure_governance_action_valid(action: &InstitutionGovernanceAction) -> DispatchResult {
+            ensure!(
+                action.encoded_size()
+                    <= <T as engingcore::Config>::MaxProposalDataLen::get() as usize,
+                Error::<T>::TooManyGovernanceChanges
+            );
+            let InstitutionGovernanceAction {
+                role_mutations,
+                assignment_changes,
+                legal_representative_change,
+            } = action;
+            ensure!(
+                !role_mutations.is_empty()
+                    || !assignment_changes.is_empty()
+                    || legal_representative_change.is_some(),
+                Error::<T>::GovernanceResultEmpty
+            );
+            let people = role_mutations
+                .iter()
+                .filter_map(|mutation| match mutation {
+                    InstitutionRoleMutation::Create { assignments, .. } => Some(assignments),
+                    _ => None,
+                })
+                .chain(assignment_changes.iter().map(|change| &change.assignments))
+                .flatten();
             for target in people {
                 ensure!(target.assignment_source == InstitutionAssignmentSource::InstitutionGovernance, Error::<T>::InvalidAssignmentSource);
                 ensure!(Self::has_person_binding(&target.person_cid), Error::<T>::InvalidAssignmentPerson);
@@ -879,6 +957,26 @@ pub mod pallet {
                     &business_action_id,
                     RolePermissionOperation::Vote,
                 );
+
+            let voter_roles = if Institutions::<T>::get(
+                CidNumberOf::<T>::try_from(cid_number.to_vec())
+                    .map_err(|_| Error::<T>::InvalidCidNumber)?,
+            )
+            .is_some_and(|info| {
+                entitybase::business_action::is_ordinary_institution(
+                    info.institution_code,
+                    cid_number,
+                )
+            }) {
+                voter_roles
+                    .into_iter()
+                    .filter(|role| {
+                        !Self::snapshot_role_persons(cid_number, &role.role_code).is_empty()
+                    })
+                    .collect()
+            } else {
+                voter_roles
+            };
 
             let owner: BoundedVec<
                 u8,
@@ -1001,7 +1099,7 @@ pub mod pallet {
 
 // ──── InstitutionMultisigQuery 实现:对 multisig-transfer / runtime config 暴露查询 ────
 //
-// 输入任意机构账户(主/费用/自创),直接以账户地址读取 admins 模块 账户。
+// 输入机构账户，通过实体账户正反向索引解析唯一机构CID。
 // 再按 Institutions[cid_number].institution_code 读取机构码。这条路径保证
 // 机构账户只使用公权/私权法人机构码,不再把机构账户错误塞到 PMUL。
 
@@ -1151,6 +1249,26 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
                     }
                     return Ok(ProposalExecutionOutcome::Executed);
                 }
+                ACTION_POLICY => {
+                    let Ok(proposal) =
+                        InstitutionPolicyProposal::decode_all(&mut &raw[tag.len() + 1..])
+                    else {
+                        return Ok(ProposalExecutionOutcome::FatalFailed);
+                    };
+                    let result = with_transaction(|| {
+                        match Pallet::<T>::execute_policy_proposal(proposal_id, proposal) {
+                            Ok(()) => TransactionOutcome::Commit(Ok(())),
+                            Err(error) => TransactionOutcome::Rollback(Err(error)),
+                        }
+                    });
+                    return Ok(match result {
+                        Ok(()) => ProposalExecutionOutcome::Executed,
+                        Err(error) if error == Error::<T>::StalePolicyState.into() => {
+                            ProposalExecutionOutcome::FatalFailed
+                        }
+                        Err(_) => ProposalExecutionOutcome::RetryableFailed,
+                    });
+                }
                 ACTION_GOVERNANCE => {
                     let Ok(proposal) = InstitutionGovernanceProposal::decode_all(&mut &raw[tag.len() + 1..]) else {
                         return Ok(ProposalExecutionOutcome::FatalFailed);
@@ -1196,15 +1314,21 @@ impl<T: pallet::Config> InternalVoteResultCallback for InternalVoteExecutor<T> {
 
     fn execution_weight() -> frame_support::weights::Weight {
         use crate::weights::WeightInfo;
-        <T as crate::pallet::Config>::WeightInfo::propose_institution_governance()
-            .max(<T as crate::pallet::Config>::WeightInfo::governance_names())
-            .max(<T as crate::pallet::Config>::WeightInfo::add_institution_account())
-            .max(<T as crate::pallet::Config>::WeightInfo::propose_close_public_institution())
-            // Execution may declare an entire zero-balance account batch.
-            .saturating_add(
-                <T::OnAccountRegistered as Get<Weight>>::get()
-                    .saturating_mul(T::MaxInstitutionAccounts::get() as u64),
-            )
+        <T as crate::pallet::Config>::WeightInfo::policy_state(
+            entitybase::institution_governance::MAX_POLICY_ROLES,
+            entitybase::institution_governance::MAX_POLICY_PERMISSIONS,
+            T::MaxRoleEntries::get(),
+            <T as engingcore::Config>::MaxProposalDataLen::get().saturating_add(255) / 256,
+        )
+        .max(<T as crate::pallet::Config>::WeightInfo::propose_institution_governance())
+        .max(<T as crate::pallet::Config>::WeightInfo::governance_names())
+        .max(<T as crate::pallet::Config>::WeightInfo::add_institution_account())
+        .max(<T as crate::pallet::Config>::WeightInfo::propose_close_public_institution())
+        // Execution may declare an entire zero-balance account batch.
+        .saturating_add(
+            <T::OnAccountRegistered as Get<Weight>>::get()
+                .saturating_mul(T::MaxInstitutionAccounts::get() as u64),
+        )
     }
 
     fn terminal_weight() -> frame_support::weights::Weight {

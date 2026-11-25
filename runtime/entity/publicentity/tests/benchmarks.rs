@@ -48,8 +48,11 @@ struct Fixture<T: Config> {
     people: Vec<FixturePerson<T::AccountId>>,
 }
 fn prepare<T: BenchmarkSetup>() -> Fixture<T> {
+    prepare_institution::<T>(T::registry())
+}
+
+fn prepare_institution<T: Config>(registry: Registry<T::AccountId>) -> Fixture<T> {
     frame_system::Pallet::<T>::set_block_number(1u32.into());
-    let registry = T::registry();
     let province = core::str::from_utf8(&registry.province).unwrap();
     let city = core::str::from_utf8(&registry.city).unwrap();
     let number = primitives::cid::generator::generate_cid_number(
@@ -168,7 +171,7 @@ struct RegistrationFixture<T: Config> {
     work: (u32, u32, u32, u32),
 }
 
-/// 钱包先独立登记，n为准确名册规模，a为每岗任职规模；首次是首次岗位配置。
+/// 钱包先独立登记，n为准确名册规模，a为每岗任职上限；首次是首次岗位配置。
 /// 校准时必须使用work的真实计数，而非把r*p/r*a误当作单个p/a。
 fn registration_fixture<T: BenchmarkSetup>(
     n: u32,
@@ -180,6 +183,8 @@ fn registration_fixture<T: BenchmarkSetup>(
 ) -> RegistrationFixture<T> {
     let mut f = prepare::<T>();
     assert!(n.max(a) <= T::MaxRoleEntries::get() && r < T::MaxRoleEntries::get());
+    // a是每岗上限，实际总任职不能超过机构统一边界；work记录真实计数。
+    let a = a.min(T::MaxRoleEntries::get() / r);
     let people = f.people.into_iter().take(n.max(a) as usize).collect::<Vec<_>>();
     if operation {
         // 两个R_岗位均按登记引用生成，只属于基准临时状态，不引入固定业务岗位。
@@ -466,6 +471,7 @@ fn registration_fixture<T: BenchmarkSetup>(
     }
 }
 fn verify_registration<T: Config>(cid: &CidNumberOf<T>, _n: u32, r: u32, p: u32, a: u32) {
+    let a = a.min(T::MaxRoleEntries::get() / r);
     assert_eq!(
         InstitutionGovernanceThresholds::<T>::get(cid),
         Some(r.saturating_mul(a) / 2 + 1)
@@ -540,9 +546,209 @@ pub fn measure_operation_registration<T: BenchmarkSetup>(
     (elapsed, f.work)
 }
 
+/// 最大有效政策夹具；只有runtime-benchmarks暴露，生产不增加写入入口。
+pub fn policy_fixture<T: BenchmarkSetup>() -> (
+    T::AccountId,
+    CidNumberOf<T>,
+    crate::RoleCodeOf,
+    entitybase::InstitutionPolicyAction,
+    [u8; 32],
+) {
+    // 政策只治理本机构，不执行登记，不创建或借用注册局权限。
+    let mut f = prepare_institution::<T>(Registry {
+        caller: account("unused-registrar", 0, 0),
+        cid: Vec::new(),
+        role: Vec::new(),
+        province: b"GD".to_vec(),
+        city: b"001".to_vec(),
+    });
+    let old = f.role.clone();
+    let code: crate::RoleCodeOf =
+        entitybase::generate_dynamic_role_code(crate::MODULE_TAG, &f.cid, 0, 700)
+            .try_into()
+            .unwrap();
+    let mut role = InstitutionRoles::<T>::take(&f.cid, &old).unwrap();
+    role.role_code = code.clone();
+    role.role_name = vec![b'G'; T::MaxAccountNameLength::get() as usize]
+        .try_into()
+        .unwrap();
+    let mut assignments = InstitutionRoleAssignments::<T>::take(&f.cid, &old);
+    for assignment in &mut assignments {
+        assignment.role_code = code.clone();
+        assignment.assignment_source_ref = vec![b'r'; 128].try_into().unwrap();
+    }
+    InstitutionRolePermissions::<T>::remove(&f.cid, &old);
+    InstitutionRoles::<T>::insert(&f.cid, &code, role);
+    InstitutionRoleAssignments::<T>::insert(&f.cid, &code, assignments);
+    f.role = code;
+    Pallet::<T>::store_default_legal_representative_role(&f.cid).unwrap();
+    let count =
+        entitybase::institution_governance::MAX_POLICY_ROLES.min(T::MaxRoleEntries::get()) - 1;
+    let legal: crate::RoleCodeOf = b"LR".to_vec().try_into().unwrap();
+    let mut budget = entitybase::institution_governance::MAX_POLICY_PERMISSIONS
+        - InstitutionRolePermissions::<T>::get(&f.cid, &legal).len() as u32;
+    let mut changes = Vec::new();
+    for index in 0..count {
+        let code: crate::RoleCodeOf = entitybase::generate_dynamic_role_code(
+            crate::MODULE_TAG,
+            &f.cid,
+            u64::from(index),
+            700,
+        )
+        .try_into()
+        .unwrap();
+        if index > 0 {
+            let mut name = alloc::format!("Native {index:02}").into_bytes();
+            name.resize(T::MaxAccountNameLength::get() as usize, b'R');
+            InstitutionRoles::<T>::insert(
+                &f.cid,
+                &code,
+                InstitutionRole {
+                    cid_number: f.cid.clone(),
+                    role_code: code.clone(),
+                    role_name: name.try_into().unwrap(),
+                    term_required: false,
+                    role_status: InstitutionRoleStatus::Active,
+                    seats: 1,
+                },
+            );
+        }
+        UsedRoleCodes::<T>::insert(&f.cid, &code, true);
+        // 预留其余岗位各两项治理权限；固定LR权限同样计入总量。
+        let size = budget.saturating_sub((count - index - 1) * 2).min(6);
+        let permissions = [
+            (crate::MODULE_TAG, 3),
+            (crate::MODULE_TAG, 2),
+            (entitybase::business_action::MODULE_MULTISIG, 0),
+        ]
+        .into_iter()
+        .flat_map(|(tag, action_code)| {
+            [
+                RolePermissionOperation::Propose,
+                RolePermissionOperation::Vote,
+            ]
+            .map(|operation| entitybase::RolePermissionSpec {
+                business_action_id: BusinessActionId {
+                    module_tag: tag.to_vec(),
+                    action_code,
+                },
+                operation,
+            })
+        })
+        .take(size as usize)
+        .collect::<Vec<_>>();
+        budget -= permissions.len() as u32;
+        let stored = permissions
+            .iter()
+            .map(|spec| RoleBusinessPermission {
+                role_subject: RoleSubject {
+                    cid_number: f.cid.clone(),
+                    role_code: code.clone(),
+                },
+                business_action_id: BusinessActionId {
+                    module_tag: spec
+                        .business_action_id
+                        .module_tag
+                        .clone()
+                        .try_into()
+                        .unwrap(),
+                    action_code: spec.business_action_id.action_code,
+                },
+                operation: spec.operation,
+            })
+            .collect::<Vec<_>>();
+        let stored: crate::RolePermissionsOf<T> = stored.try_into().unwrap();
+        InstitutionRolePermissions::<T>::insert(&f.cid, &code, stored);
+        changes.push(entitybase::RolePermissionChange {
+            role_code: code.to_vec(),
+            permissions,
+        });
+    }
+    InstitutionRoleNonce::<T>::insert(&f.cid, u64::from(count));
+    Pallet::<T>::ensure_configuration(&f.cid).unwrap();
+    let state = Pallet::<T>::registration_state_hash(&f.cid).unwrap();
+    (
+        f.caller,
+        f.cid,
+        f.role,
+        entitybase::InstitutionPolicyAction {
+            permission_changes: changes,
+            threshold: None,
+        },
+        state,
+    )
+}
+
 #[benchmarks(where T:BenchmarkSetup)]
 mod benchmarks {
     use super::*;
+
+    #[benchmark]
+    fn propose_institution_policy() {
+        let (caller, cid, role, action, state) = policy_fixture::<T>();
+        #[extrinsic_call]
+        _(RawOrigin::Signed(caller), cid, action, role, state);
+    }
+
+    #[benchmark(extra)]
+    fn policy_execution() {
+        use frame_support::traits::Hooks;
+        let (caller, cid, role, action, state) = policy_fixture::<T>();
+        Pallet::<T>::propose_institution_policy(
+            RawOrigin::Signed(caller).into(),
+            cid,
+            action,
+            role,
+            state,
+        )
+        .unwrap();
+        let id = engingcore::Pallet::<T>::next_proposal_id() - 1;
+        engingcore::Pallet::<T>::set_status_and_emit(id, engingcore::STATUS_PASSED).unwrap();
+        #[block]
+        {
+            <engingcore::Pallet<T> as Hooks<frame_system::pallet_prelude::BlockNumberFor<T>>>::on_initialize(frame_system::Pallet::<T>::block_number());
+        }
+        assert_eq!(
+            engingcore::Pallet::<T>::proposals(id).unwrap().status,
+            engingcore::STATUS_EXECUTED
+        );
+    }
+
+    #[benchmark(extra)]
+    fn governance_configure_execution() {
+        use frame_support::traits::Hooks;
+        let (caller, cid, role, _, _) = policy_fixture::<T>();
+        let seats = T::MaxRoleEntries::get();
+        let action = entitybase::InstitutionGovernanceAction {
+            role_mutations: vec![entitybase::InstitutionRoleMutation::Configure {
+                role_code: role.to_vec(),
+                term_required: false,
+                seats,
+                role_status: InstitutionRoleStatus::Active,
+            }],
+            assignment_changes: vec![],
+            legal_representative_change: None,
+        };
+        Pallet::<T>::propose_institution_governance(
+            RawOrigin::Signed(caller).into(),
+            cid.clone(),
+            action,
+            cid.to_vec(),
+            role,
+        )
+        .unwrap();
+        let id = engingcore::Pallet::<T>::next_proposal_id() - 1;
+        engingcore::Pallet::<T>::set_status_and_emit(id, engingcore::STATUS_PASSED).unwrap();
+        #[block]
+        {
+            <engingcore::Pallet<T> as Hooks<frame_system::pallet_prelude::BlockNumberFor<T>>>::on_initialize(frame_system::Pallet::<T>::block_number());
+        }
+        assert_eq!(
+            engingcore::Pallet::<T>::proposals(id).unwrap().status,
+            engingcore::STATUS_EXECUTED
+        );
+    }
+
     #[benchmark]
     fn update_institution_info() {
         let f = prepare::<T>();
@@ -563,7 +769,7 @@ mod benchmarks {
     #[benchmark]
     fn register_institution_roles(
         n: Linear<2, 1989>,
-        r: Linear<1, 64>,
+        r: Linear<1, 63>,
         p: Linear<2, 4>,
         a: Linear<2, 1989>,
     ) {
@@ -584,7 +790,7 @@ mod benchmarks {
     #[benchmark(extra)]
     fn registration_existing(
         n: Linear<2, 1989>,
-        r: Linear<1, 64>,
+        r: Linear<1, 63>,
         p: Linear<2, 4>,
         a: Linear<2, 1989>,
     ) {
@@ -608,7 +814,7 @@ mod benchmarks {
     #[benchmark(extra)]
     fn registration_operation(
         n: Linear<2, 1989>,
-        r: Linear<1, 64>,
+        r: Linear<1, 63>,
         p: Linear<2, 4>,
         a: Linear<2, 1989>,
     ) {
@@ -762,6 +968,20 @@ mod benchmarks {
     #[cfg(test)]
     mod registration_fixture_tests {
         use super::*;
+        #[test]
+        fn native_policy_benchmark_fixtures_execute_full_dispatch() {
+            use frame_benchmarking::BenchmarkingSetup;
+            for case in 0..3 {
+                crate::tests::new_test_ext().execute_with(|| {
+                match case {
+                    0 => <propose_institution_policy as BenchmarkingSetup<crate::tests::Test>>::unit_test_instance(&propose_institution_policy, &[]),
+                    1 => <policy_execution as BenchmarkingSetup<crate::tests::Test>>::unit_test_instance(&policy_execution, &[]),
+                    _ => <governance_configure_execution as BenchmarkingSetup<crate::tests::Test>>::unit_test_instance(&governance_configure_execution, &[]),
+                }.unwrap();
+            });
+            }
+        }
+
         #[test]
         fn registration_benchmark_fixture_executes_verified_dispatch() {
             use frame_benchmarking::{BenchmarkParameter, BenchmarkingSetup};

@@ -10,6 +10,14 @@ use core::marker::PhantomData;
 
 /// FRAME实测权重接口。
 pub trait WeightInfo {
+    /// 普通机构真实岗位选民扫描和绑定核验的保守附加预算。
+    fn institution_snapshot(roles: u32, people: u32) -> Weight {
+        Weight::from_parts(100_000_000_000, 8192)
+            .saturating_add(Weight::from_parts(20_000_000_000, 8192).saturating_mul(roles.into()))
+            .saturating_add(Weight::from_parts(1_000_000_000, 2048).saturating_mul(people.into()))
+            .saturating_add(RocksDbWeight::get().reads(u64::from(roles)*4+u64::from(people)*4))
+    }
+
     fn propose_transfer() -> Weight;
     fn propose_safety_fund_transfer() -> Weight;
     fn propose_sweep_to_main() -> Weight;

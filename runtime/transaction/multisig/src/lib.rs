@@ -132,6 +132,9 @@ pub mod pallet {
             Self::AccountId,
         >;
 
+        /// 机构有效人员快照，只读复用现有提供器，不解释模块业务权限。
+        type InstitutionRoleProvider: engingcore::InstitutionRoleProvider<Self::AccountId>;
+
         /// 资金白名单检查器。
         type InstitutionAsset: primitives::institution_asset::InstitutionAsset<Self::AccountId>;
 
@@ -309,7 +312,7 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {
         /// 发起多签资金账户转账提案。
         #[pallet::call_index(0)]
-        #[pallet::weight(<T as pallet::Config>::WeightInfo::propose_transfer())]
+        #[pallet::weight(Pallet::<T>::transfer_weight(&actor_cid_number))]
         pub fn propose_transfer(
             origin: OriginFor<T>,
             actor_cid_number: Option<CidNumber>,
@@ -626,6 +629,41 @@ pub mod pallet {
     }
 
     impl<T: Config> Pallet<T> {
+        /// 普通机构的额外选民读取和绑定校验由本调用显式预留。
+        pub fn transfer_weight(cid: &Option<CidNumber>) -> frame_support::weights::Weight {
+            use engingcore::InstitutionRoleProvider as _;
+            use entitybase::InstitutionRoleAuthorizationQuery as _;
+            let base = <T as Config>::WeightInfo::propose_transfer();
+            let Some(cid) = cid else {
+                return base;
+            };
+            let Ok(parts) = primitives::cid::number::parse_cid_number_parts_bytes(cid) else {
+                return base;
+            };
+            if !entitybase::business_action::is_ordinary_institution(parts.institution, cid) {
+                return base;
+            }
+            let action = entitybase::BusinessActionId {
+                module_tag: crate::MODULE_TAG.to_vec(),
+                action_code: entitybase::business_action::ACTION_MULTISIG_TRANSFER,
+            };
+            let roles = T::InstitutionRoleAuthorization::role_subjects_with_permission(
+                cid,
+                &action,
+                entitybase::RolePermissionOperation::Vote,
+            );
+            let persons = roles.iter().fold(0u32, |n, role| {
+                n.saturating_add(
+                    T::InstitutionRoleProvider::active_persons_for_role(cid, &role.role_code).len()
+                        as u32,
+                )
+            });
+            base.saturating_add(<T as Config>::WeightInfo::institution_snapshot(
+                roles.len() as u32,
+                persons,
+            ))
+        }
+
         fn decode_institution_account(raw: &[u8; 32]) -> Result<T::AccountId, Error<T>> {
             decode_raw_account::<T>(raw).ok_or(Error::<T>::InstitutionAccountDecodeFailed)
         }
@@ -694,12 +732,28 @@ pub mod pallet {
                 ),
                 Error::<T>::UnauthorizedAdmin
             );
+            let ordinary = primitives::cid::number::parse_cid_number_parts_bytes(cid_number)
+                .is_ok_and(|parts| {
+                    entitybase::business_action::is_ordinary_institution(
+                        parts.institution,
+                        cid_number,
+                    )
+                });
             let voter_subjects = T::InstitutionRoleAuthorization::role_subjects_with_permission(
                 cid_number,
                 &action_id,
                 RolePermissionOperation::Vote,
             )
             .into_iter()
+            .filter(|role| {
+                use engingcore::InstitutionRoleProvider as _;
+                !ordinary
+                    || !T::InstitutionRoleProvider::active_persons_for_role(
+                        cid_number,
+                        &role.role_code,
+                    )
+                    .is_empty()
+            })
             .map(|role| {
                 Ok(AuthorizationSubject::Institution(RoleSubject {
                     cid_number: CidNumber::try_from(role.cid_number)

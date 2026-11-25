@@ -11,6 +11,13 @@ use sp_runtime::traits::SaturatedConversion;
 
 use crate::{BalanceOf, Call, Config, Pallet, CHINA_CB};
 
+#[cfg(test)]
+#[test]
+fn ordinary_snapshot_native_measurement_preserves_declared_bound() {
+    let (nanos, declared) = crate::tests::measure_ordinary_snapshot(64);
+    println!("multisig_native operation=creation people=64 ns={nanos} declared={declared:?}");
+}
+
 fn decode_account<T: Config>(raw: [u8; 32]) -> T::AccountId {
     T::AccountId::decode(&mut &raw[..]).expect("benchmark account must decode")
 }

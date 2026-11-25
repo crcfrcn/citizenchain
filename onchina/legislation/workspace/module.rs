@@ -2,7 +2,6 @@
 
 use crate::*;
 use onchina::modules::model::{ModuleBusiness, ModuleDescription, ModuleRoute};
-pub(crate) const VERSION: &str = "1.0.0";
 #[derive(Default)]
 pub(crate) struct Module;
 use self::category::{legislation_role, LegislationRole};
@@ -49,7 +48,7 @@ impl ModuleBusiness for Module {
     fn describe(&self) -> ModuleDescription {
         modules::describe_module(
             "legislation",
-            VERSION,
+            env!("CARGO_PKG_VERSION"),
             "frontend/legislation_index.ts",
             &["LegislationView", "DisplayScreen"],
             self.routes(),

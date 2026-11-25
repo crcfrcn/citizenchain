@@ -51,8 +51,24 @@ fn workspace_title(
 pub fn own_institution_sections(_capabilities: CapabilitySet) -> Vec<WorkspaceSection> {
     vec![
         section(WorkspaceSectionKind::Operations, "操作", Vec::new()),
-        section(WorkspaceSectionKind::Display, "显示", vec![action("view_institution_profile".to_string(), "本机构信息", true)]),
-        section(WorkspaceSectionKind::Records, "记录", vec![action("view_operation_records".to_string(), "操作记录", false)]),
+        section(
+            WorkspaceSectionKind::Display,
+            "显示",
+            vec![action(
+                "view_institution_profile".to_string(),
+                "本机构信息",
+                true,
+            )],
+        ),
+        section(
+            WorkspaceSectionKind::Records,
+            "记录",
+            vec![action(
+                "view_operation_records".to_string(),
+                "操作记录",
+                false,
+            )],
+        ),
     ]
 }
 
@@ -62,13 +78,22 @@ pub fn build_institution_workspace(
     institution_code: &str,
     cid_short_name: Option<&str>,
     capabilities: CapabilitySet,
-    workspace_modules: Vec<WorkspaceModule>,
+    mut workspace_modules: Vec<WorkspaceModule>,
 ) -> InstitutionWorkspace {
     let workspace_kind = workspace_kind_for(catalog, institution_code);
     let workspace_sections = catalog
         .workspace(institution_code)
         .map(|w| w.sections)
         .unwrap_or_else(|| own_institution_sections(capabilities));
+    // 宿主汇总已装载入口；业务进程的local实现不是宿主安装目录。
+    // 实例级业务标识保留原职责，默认工作台不再独占宿主模块清单。
+    if catalog.local.is_none() {
+        for id in catalog.workspace_ids(institution_code) {
+            if !workspace_modules.contains(&id) {
+                workspace_modules.push(id);
+            }
+        }
+    }
     InstitutionWorkspace {
         workspace_kind,
         workspace_title: workspace_title(workspace_kind, cid_short_name, institution_code),

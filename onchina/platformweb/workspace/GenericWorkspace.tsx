@@ -9,25 +9,28 @@ import { InstitutionDetailNavLayout } from './DetailLayout';
 import { Empty } from 'antd';
 import type { AdminAuth } from '../authentication/types';
 import { AccountManageSection } from '../accounts/AccountManageSection';
-import { moduleView } from './modules';
-const LegislationView = (props: { auth: AdminAuth }) => { const View = moduleView<{ auth: AdminAuth }>('legislation', 'LegislationView'); return <View {...props} />; };
+import { moduleEntries, moduleView, resolveModuleLanding } from './modules';
 import { OwnInstitutionInfoPanel } from '../institutions/InfoPanel';
 import { WorkspaceShell } from './WorkspaceShell';
 
 export type GenericWorkspaceProps = {
   auth: AdminAuth;
-  focusLegislation?: boolean;
+  requestedModule?: string | null;
 };
 
-function GenericOperations({ auth, focusLegislation }: GenericWorkspaceProps) {
-  // 账户管理归本机构在册管理员;立法与表决仅在后端开放能力位时叠加显示。
-  const legislation = auth.capabilities?.canViewLegislation ? <LegislationView auth={auth} /> : null;
-  return <InstitutionDetailNavLayout initialActiveKey={focusLegislation?'legislation':'accounts'} items={[
+function GenericOperations({ auth, requestedModule }: GenericWorkspaceProps) {
+  // 通用账户及岗位入口保留；内嵌业务页由实际模块声明提供，不编入模块名单。
+  const pages = moduleEntries(auth).filter(asset => !asset.workspace
+    && resolveModuleLanding(auth, asset.id) === 'embedded').map(asset => {
+    const View = moduleView<{ auth: AdminAuth }>(asset.id, asset.exports[0]);
+    return { key: `module:${asset.id}`, label: asset.id, content: <View auth={auth} /> };
+  });
+  return <InstitutionDetailNavLayout initialActiveKey={requestedModule ? `module:${requestedModule}` : 'accounts'} items={[
     {key:'accounts',label:'账户管理',content:<AccountManageSection auth={auth}/>},
     {key:'roles',label:'岗位管理',content:<RolesView auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'assignments',label:'任职管理',content:<AssignmentsView auth={auth} cidNumber={auth.institutionCidNumber}/>},
     {key:'representative',label:'法定代表人',content:<RepresentativeView auth={auth} cidNumber={auth.institutionCidNumber}/>},
-    ...(legislation?[{key:'legislation',label:'立法业务',content:legislation}]:[]),
+    ...pages,
   ]}/>;
 }
 
@@ -39,13 +42,13 @@ function GenericRecords() {
   return <Empty description="暂无记录" />;
 }
 
-export function GenericWorkspace({ auth, focusLegislation }: GenericWorkspaceProps) {
+export function GenericWorkspace({ auth, requestedModule }: GenericWorkspaceProps) {
   const workspace = auth.workspace;
   if (!workspace) return null;
   return (
     <WorkspaceShell
       workspace={workspace}
-      operations={<GenericOperations auth={auth} focusLegislation={focusLegislation} />}
+      operations={<GenericOperations auth={auth} requestedModule={requestedModule} />}
       display={<GenericDisplay auth={auth} />}
       records={<GenericRecords />}
     />

@@ -6,14 +6,15 @@ import { passkeySubmitHeaders } from '../authentication/security';
 export type InstitutionRolePermissionInput = { moduleTag: string; actionCode: number; operation: 'PROPOSE' | 'VOTE' };
 export type InstitutionGovernanceAssignmentTargetInput = { personCid: string; termStart: number; termEnd: number };
 export type InstitutionGovernanceAssignmentChangeInput = { roleCode: string; assignments: InstitutionGovernanceAssignmentTargetInput[] };
-export type InstitutionGovernanceRoleMutationInput = { mutation: 'CREATE' | 'RENAME' | 'DELETE'; roleCode?: string; roleName?: string; termRequired?: boolean; seats?: number; permissions?: InstitutionRolePermissionInput[]; assignments?: InstitutionGovernanceAssignmentTargetInput[] };
-export type PrepareInstitutionGovernanceInput = { cidNumber: string; proposerRoleCode: string; roleMutations?: InstitutionGovernanceRoleMutationInput[]; assignmentChanges?: InstitutionGovernanceAssignmentChangeInput[]; representativeCid?: string | null; clearLegalRepresentative?: boolean; representativeFamilyName?: string; representativeGivenName?: string };
+export type InstitutionGovernanceRoleMutationInput = { mutation: 'CREATE' | 'RENAME' | 'DELETE' | 'CONFIGURE'; roleCode?: string; roleName?: string; active?: boolean; termRequired?: boolean; seats?: number; permissions?: InstitutionRolePermissionInput[]; assignments?: InstitutionGovernanceAssignmentTargetInput[] };
+export type InstitutionPolicyInput = { permissionChanges: { roleCode: string; permissions: GovernancePermission[] }[]; threshold?: number; expectedStateHash: string };
+export type PrepareInstitutionGovernanceInput = { cidNumber: string; proposerRoleCode: string; roleMutations?: InstitutionGovernanceRoleMutationInput[]; assignmentChanges?: InstitutionGovernanceAssignmentChangeInput[]; representativeCid?: string | null; clearLegalRepresentative?: boolean; representativeFamilyName?: string; representativeGivenName?: string; policy?: InstitutionPolicyInput };
 export type PrepareInstitutionChainOutput = { requestId: string; cidNumber: string; chainAction: number; callDataHex: string; signRequest: string; expiresAt: number };
 export type GovernancePermission = InstitutionRolePermissionInput;
 export type GovernanceAssignment = InstitutionGovernanceAssignmentTargetInput & { active: boolean; effective: boolean; sourceLabel: string; sourceRef: string };
 export type GovernanceRole = { roleCode: string; roleName: string; termRequired: boolean; seats: number; active: boolean; fixed: boolean; assignmentLocked: boolean; minAssignments: number; maxAssignments: number; permissions: GovernancePermission[]; assignments: GovernanceAssignment[] };
 export type RoleChoice = { roleCode: string; roleName: string };
-export type GovernanceState = { cidNumber: string; blockHash: string; blockNumber: number; currentDay: number; moduleTag: string; legalRoleCode: string; maxSeats: number; roles: GovernanceRole[]; representative: { familyName: string; givenName: string; personCid: string } | null; registrationStateHash: string; governanceThreshold: number | null; registrationRoles: RoleChoice[]; proposerRoles: RoleChoice[] };
+export type GovernanceState = { policyAvailable?: boolean; cidNumber: string; blockHash: string; blockNumber: number; currentDay: number; moduleTag: string; legalRoleCode: string; maxSeats: number; roles: GovernanceRole[]; representative: { familyName: string; givenName: string; personCid: string } | null; registrationStateHash: string; governanceThreshold: number | null; registrationRoles: RoleChoice[]; proposerRoles: RoleChoice[] };
 export type GovernanceChanges = Omit<PrepareInstitutionGovernanceInput, 'cidNumber' | 'proposerRoleCode'>;
 export type InstitutionRegistrationInput = { cidNumber: string; expectedStateHash: string; actorRoleCode: string; initialThreshold?: number; roleMutations?: InstitutionGovernanceRoleMutationInput[]; assignmentChanges?: InstitutionGovernanceAssignmentChangeInput[] };
 export type InstitutionRegistrationDraft = { initialRoles?: InstitutionGovernanceRoleMutationInput[]; initialThreshold?: number; assignments?: InstitutionGovernanceAssignmentChangeInput[] };
@@ -26,7 +27,7 @@ export function getGovernanceState(auth: AdminAuth, cidNumber: string): Promise<
   return pending;
 }
 export async function prepareInstitutionGovernance(auth: AdminAuth, input: PrepareInstitutionGovernanceInput, signal?: AbortSignal): Promise<PrepareInstitutionChainOutput> {
-  const fields = ['cidNumber', 'proposerRoleCode', 'roleMutations', 'assignmentChanges', 'representativeCid', 'clearLegalRepresentative', 'representativeFamilyName', 'representativeGivenName'];
+  const fields = ['cidNumber', 'proposerRoleCode', 'roleMutations', 'assignmentChanges', 'representativeCid', 'clearLegalRepresentative', 'representativeFamilyName', 'representativeGivenName', 'policy'];
   if (Object.keys(input).some(key => !fields.includes(key))) throw new Error('管理员钱包和名单动作已停用');
   const rows=[...(input.assignmentChanges??[]).flatMap(c=>c.assignments),...(input.roleMutations??[]).flatMap(m=>m.assignments??[])];
   if(rows.some(a=>!a.personCid||Object.keys(a).some(key=>!['personCid','termStart','termEnd'].includes(key)))) throw new Error('任职只接受人员CID和任期');
@@ -54,27 +55,60 @@ export function validateAssignments(state: GovernanceState, role: Pick<Governanc
   }
 }
 export function buildGovernance(state: GovernanceState, changes: GovernanceChanges, proposerRoleCode: string): PrepareInstitutionGovernanceInput {
-  const fields = ['roleMutations', 'assignmentChanges', 'representativeCid', 'clearLegalRepresentative', 'representativeFamilyName', 'representativeGivenName'];
+  const fields = ['roleMutations', 'assignmentChanges', 'representativeCid', 'clearLegalRepresentative', 'representativeFamilyName', 'representativeGivenName', 'policy'];
   if (Object.keys(changes).some(key => !fields.includes(key))) throw new Error('此页面不接收管理员钱包或名单');
   if (!proposerRoleCode) throw new Error('请选择发起岗位');
+  const checkPermissions = (values: GovernancePermission[]) => {
+    if (!values.length) throw new Error('链上岗位权限不能为空');
+    const keys = new Set<string>();
+    for (const p of values) {
+      const key = `${p.moduleTag}:${p.actionCode}:${p.operation}`;
+      if (!p.moduleTag || new TextEncoder().encode(p.moduleTag).length > 32 || !Number.isInteger(p.actionCode) || p.actionCode < 0 || p.actionCode > 0xffffffff || !['PROPOSE', 'VOTE'].includes(p.operation) || keys.has(key)) throw new Error('权限无效或重复');
+      keys.add(key);
+    }
+  };
+  if (changes.policy) {
+    const p = changes.policy;
+    if (!state.policyAvailable || changes.roleMutations?.length || changes.assignmentChanges?.length || changes.representativeCid || changes.clearLegalRepresentative || changes.representativeFamilyName || changes.representativeGivenName) throw new Error('当前政策不可用或夹带人事变更');
+    if (p.expectedStateHash !== state.registrationStateHash || !/^0x[0-9a-f]{64}$/i.test(p.expectedStateHash)) throw new Error('政策状态指纹已变化');
+    if (p.threshold !== undefined && (!Number.isInteger(p.threshold) || p.threshold < 2 || p.threshold > 0xffffffff)) throw new Error('共同阈值无效');
+    if (!p.permissionChanges.length && p.threshold === undefined) throw new Error('没有政策变更');
+    const codes = new Set<string>();
+    for (const c of p.permissionChanges) {
+      if (!state.roles.some(r => r.roleCode === c.roleCode && !r.fixed && r.roleCode.startsWith('R_')) || codes.has(c.roleCode)) throw new Error('政策岗位无效或重复');
+      codes.add(c.roleCode); checkPermissions(c.permissions);
+    }
+    return { cidNumber: state.cidNumber, proposerRoleCode, policy: p };
+  }
   const used = new Set<string>();
   for (const m of changes.roleMutations ?? []) {
     if (m.mutation === 'CREATE') {
-      if (m.roleCode || !m.roleName?.trim() || !m.permissions?.length || !Number.isInteger(m.seats) || m.seats! < 1 || m.seats! > state.maxSeats) throw new Error('新岗位须填写名称、正整数席位及权限，岗位码由链生成');
+      if (m.active !== undefined || m.roleCode || !m.roleName?.trim() || !m.permissions?.length || !Number.isInteger(m.seats) || m.seats! < 1 || m.seats! > state.maxSeats) throw new Error('新岗位须填写名称、正整数席位及权限，岗位码由链生成');
       validateAssignments(state, { termRequired: !!m.termRequired, minAssignments: 0, maxAssignments: m.seats! }, m.assignments ?? []);
-      const keys = new Set<string>();
-      for (const p of m.permissions) { const key = `${p.moduleTag}:${p.actionCode}:${p.operation}`; if (!p.moduleTag || !Number.isInteger(p.actionCode) || p.actionCode < 0 || !['PROPOSE', 'VOTE'].includes(p.operation) || keys.has(key)) throw new Error('权限无效或重复'); keys.add(key); }
+      checkPermissions(m.permissions);
     } else {
-      const role = state.roles.find(r => r.roleCode === m.roleCode && r.active); if (!role || role.fixed || used.has(role.roleCode)) throw new Error('固定、重复或无效岗位不可改写'); used.add(role.roleCode);
-      if (m.permissions || m.assignments || m.seats !== undefined || m.termRequired !== undefined) throw new Error('既有岗位只允许改名或删除');
-      if (m.mutation === 'RENAME' && !m.roleName?.trim()) throw new Error('岗位名称不能为空');
+      const role = state.roles.find(r => r.roleCode === m.roleCode && (r.active || m.mutation === 'CONFIGURE'));
+      if (!role || role.fixed || used.has(role.roleCode)) throw new Error('固定、重复或无效岗位不可改写');
+      used.add(role.roleCode);
+      if (m.mutation === 'CONFIGURE') {
+        if (!state.policyAvailable || !role.roleCode.startsWith('R_') || typeof m.active !== 'boolean' || typeof m.termRequired !== 'boolean' || !Number.isInteger(m.seats) || m.seats! < 1 || m.seats! > state.maxSeats || m.roleName !== undefined || m.permissions !== undefined || m.assignments !== undefined) throw new Error('岗位属性配置无效');
+        const rows = changes.assignmentChanges?.find(c => c.roleCode === role.roleCode)?.assignments ?? role.assignments;
+        if (!m.active && rows.length) throw new Error('停用岗位必须同案清空任职');
+        validateAssignments(state, { termRequired: m.termRequired, minAssignments: 0, maxAssignments: m.seats! }, rows);
+      } else {
+        if (m.active !== undefined || m.permissions || m.assignments || m.seats !== undefined || m.termRequired !== undefined) throw new Error('既有岗位只允许改名或删除');
+        if (m.mutation === 'RENAME' && !m.roleName?.trim()) throw new Error('岗位名称不能为空');
+      }
     }
   }
   const changed = new Set<string>();
   for (const c of changes.assignmentChanges ?? []) {
-    const role = state.roles.find(r => r.roleCode === c.roleCode && r.active); if (!role || changed.has(c.roleCode)) throw new Error('任职岗位无效或重复'); changed.add(c.roleCode);
+    const role = state.roles.find(r => r.roleCode === c.roleCode);
+    const config = changes.roleMutations?.find(m => m.mutation === 'CONFIGURE' && m.roleCode === c.roleCode);
+    if (!role || (!role.active && !config) || changed.has(c.roleCode) || changes.roleMutations?.some(m => m.mutation === 'DELETE' && m.roleCode === c.roleCode)) throw new Error('任职岗位无效或重复');
+    changed.add(c.roleCode);
     if (role.assignmentLocked && !(c.roleCode === state.legalRoleCode && (changes.representativeCid || changes.clearLegalRepresentative))) throw new Error('专属任职须使用所属业务入口');
-    validateAssignments(state, role, c.assignments);
+    validateAssignments(state, config ? { termRequired: !!config.termRequired, minAssignments: 0, maxAssignments: config.seats! } : role, c.assignments);
   }
   if (!changes.roleMutations?.length && !changes.assignmentChanges?.length && !changes.representativeCid && !changes.clearLegalRepresentative) throw new Error('没有治理变更');
   return { cidNumber: state.cidNumber, proposerRoleCode, ...changes };
