@@ -414,3 +414,118 @@ fn frozen_institution_identity_is_read_from_original_records_and_cannot_be_delet
         Err(GuardError::GenesisInstitutionDeleted)
     );
 }
+
+#[test]
+fn institution_layout_conversion_keeps_genesis_identity_rules() {
+    let cid = primitives::cid::generator::generate_cid_number(
+        primitives::cid::generator::GenerateCidNumberInput {
+            public_key: "guard-layout-identity",
+            p1: "1",
+            province_code: "GD",
+            province_name: "广东省",
+            city_code: "001",
+            city_name: "荔湾市",
+            year: 2026,
+            institution: "SFGQ",
+        },
+    )
+    .unwrap()
+    .into_bytes();
+    let mut record = private_record();
+    record.created_at = 0;
+    record.legal_representative = Some(entitybase::LegalRepresentative {
+        family_name: b"fixture".to_vec(),
+        given_name: b"person".to_vec(),
+        person_cid: citizen_cid_number("layout-identity"),
+    });
+    let representative = record.legal_representative.as_ref().unwrap();
+    // 夹具准确保留旧账户字段，但节点生产代码只调用Runtime所属解码器。
+    let legacy = (
+        &record.cid_full_name,
+        &record.cid_short_name,
+        &record.town_code,
+        Some((
+            &representative.family_name,
+            &representative.given_name,
+            &representative.person_cid,
+            [77u8; 32],
+        )),
+        record.institution_code,
+        record.created_at,
+    )
+        .encode();
+    let before = runtime::guard_institution(&legacy, true).unwrap();
+    assert_eq!(before, record);
+    let key = storage_key::institution(Namespace::Private, &cid);
+    let mut accounts = BTreeMap::new();
+    for kind in primitives::institution_constraints::required_protocol_account_kinds(
+        record.institution_code,
+        &cid,
+        None,
+    )
+    .unwrap()
+    {
+        let name = institution_protocol_account_name(*kind);
+        let address = institution_kind_by_name(&cid, name)
+            .unwrap()
+            .derive(SS58_FORMAT);
+        accounts.insert(
+            storage_key::institution_account_id(Namespace::Private, &cid, name),
+            InstitutionAccountRecord {
+                address,
+                initial_balance: 0,
+                created_at: 0,
+            }
+            .encode(),
+        );
+        accounts.insert(
+            storage_key::account_registered(Namespace::Private, &address),
+            RegisteredInstitution {
+                cid_number: cid.clone(),
+                account_name: name.to_vec(),
+            }
+            .encode(),
+        );
+    }
+    let reference = GenesisReference {
+        institutions: BTreeMap::from([(
+            (Namespace::Private.id(), cid),
+            GenesisInstitutionIdentity {
+                institution_code: record.institution_code,
+                town_code: record.town_code.clone(),
+                created_at: record.created_at,
+            },
+        )]),
+    };
+    let check = |after: Option<Vec<u8>>| {
+        check_transition(
+            8,
+            &BTreeMap::from([(key.clone(), after.clone())]),
+            |k| {
+                if k == key {
+                    Some(before.encode())
+                } else {
+                    accounts.get(k).cloned()
+                }
+            },
+            |k| {
+                if k == key {
+                    after.clone()
+                } else {
+                    accounts.get(k).cloned()
+                }
+            },
+            &reference,
+        )
+    };
+    assert_eq!(check(Some(record.encode())), Ok(()));
+    record.town_code = b"changed".to_vec();
+    assert_eq!(
+        check(Some(record.encode())),
+        Err(GuardError::GenesisInstitutionChanged)
+    );
+    assert_eq!(check(None), Err(GuardError::GenesisInstitutionDeleted));
+    let mut corrupt = legacy;
+    corrupt.push(0);
+    assert!(runtime::guard_institution(&corrupt, true).is_err());
+}

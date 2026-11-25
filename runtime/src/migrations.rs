@@ -65,7 +65,7 @@ pub(crate) struct OldAssignment {
 
 type OldAssignments = BoundedVec<OldAssignment, ConstU32<OLD_CAPACITY>>;
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, scale_info::TypeInfo)]
 pub(crate) struct OldRepresentative {
     pub(crate) family_name: Name,
     pub(crate) given_name: Name,
@@ -73,7 +73,7 @@ pub(crate) struct OldRepresentative {
     pub(crate) account_id: AccountId,
 }
 
-#[derive(Encode, Decode)]
+#[derive(Encode, Decode, scale_info::TypeInfo)]
 pub(crate) struct OldInstitution {
     pub(crate) cid_full_name: Name,
     pub(crate) cid_short_name: Name,
@@ -98,6 +98,431 @@ struct Progress {
     cursor: Option<BoundedVec<u8, ConstU32<512>>>,
     offset: u32,
     counts: Counts,
+}
+
+/// 节点核验所用的迁移阶段；不公开或复制内部游标编码。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MigrationState {
+    /// 尚未安排机构迁移；具体物理命名空间仍由执行元数据确定。
+    NotStarted,
+    /// 有界迁移正在进行，普通机构写入仍受原调用过滤器限制。
+    Running,
+    /// 完成记录及两个实体存储版本均通过核验。
+    Complete,
+}
+
+/// 机构迁移唯一来源和目标；只供迁移阶段的存储核验，不是普通业务读取别名。
+pub fn guard_entity_names(public: bool) -> (&'static [u8], &'static [u8]) {
+    let (source, target, _) = names(public);
+    (source, target)
+}
+
+/// 迁移完成后禁止残留或重新写入的旧机构、管理员及已搬迁模块命名空间。
+pub fn guard_retired_key(key: &[u8]) -> bool {
+    renamed_pallets()
+        .iter()
+        .any(|(source, _, _)| key.starts_with(&sp_io::hashing::twox_128(source.as_bytes())))
+        || [true, false].into_iter().any(|public| {
+            let (source, _, admin) = names(public);
+            [source, admin]
+                .into_iter()
+                .any(|name| key.starts_with(&sp_io::hashing::twox_128(name)))
+        })
+}
+
+/// 返回迁移已声明来源键的唯一目标；机构来源中的未知表或短键拒绝解释。
+pub fn guard_migration_target(key: &[u8]) -> Result<Option<Vec<u8>>, DispatchError> {
+    for (source, target, _) in renamed_pallets() {
+        if key.starts_with(&sp_io::hashing::twox_128(source.as_bytes())) {
+            frame_support::ensure!(key.len() >= 32, invalid());
+            return Ok(Some(
+                [
+                    sp_io::hashing::twox_128(target.as_bytes()).as_slice(),
+                    &key[16..],
+                ]
+                .concat(),
+            ));
+        }
+    }
+    for public in [true, false] {
+        let (source, target, _) = names(public);
+        if key.starts_with(&sp_io::hashing::twox_128(source)) {
+            frame_support::ensure!(key.len() >= 32, invalid());
+            frame_support::ensure!(
+                TABLES
+                    .iter()
+                    .copied()
+                    .chain([b":__STORAGE_VERSION__:".as_slice()])
+                    .any(|table| key[16..32] == sp_io::hashing::twox_128(table)),
+                invalid()
+            );
+            return Ok(Some(
+                [sp_io::hashing::twox_128(target).as_slice(), &key[16..]].concat(),
+            ));
+        }
+    }
+    Ok(None)
+}
+
+/// 只读解释所属进度记录，损坏、互斥标记冲突或伪完成状态均拒绝。
+pub fn guard_migration_state(
+    read: impl Fn(&[u8]) -> Option<Vec<u8>>,
+) -> Result<MigrationState, DispatchError> {
+    match (read(PROGRESS), read(RESULT)) {
+        (None, None) => Ok(MigrationState::NotStarted),
+        (Some(raw), None) => {
+            let progress: Progress = decode(&raw)?;
+            frame_support::ensure!(
+                progress.table <= END
+                    && progress.offset <= OLD_CAPACITY
+                    && (matches!(progress.table, 2 | 3) || progress.offset == 0)
+                    && (progress.offset as usize % SEAT_BATCH == 0)
+                    && (progress.table != END || progress.cursor.is_none()),
+                invalid()
+            );
+            if let Some(cursor) = &progress.cursor {
+                let (pallet, table) = if progress.table < PURGE {
+                    (
+                        names(progress.table % 2 == 0).0,
+                        TABLES[usize::from(progress.table / 2)],
+                    )
+                } else {
+                    let index = progress.table.checked_sub(PURGE).ok_or_else(invalid)?;
+                    let table = ADMIN_TABLES
+                        .get(usize::from(index / 2))
+                        .ok_or_else(invalid)?;
+                    (names(index % 2 == 0).2, *table)
+                };
+                frame_support::ensure!(cursor.starts_with(&prefix(pallet, table)), invalid());
+            }
+            Ok(MigrationState::Running)
+        }
+        (None, Some(raw)) => {
+            let _: Counts = decode(&raw)?;
+            for public in [true, false] {
+                let version =
+                    read(&prefix(names(public).1, b":__STORAGE_VERSION__:")).ok_or_else(invalid)?;
+                frame_support::ensure!(decode::<u16>(&version)? == VERSION, invalid());
+            }
+            Ok(MigrationState::Complete)
+        }
+        (Some(_), Some(_)) => Err(invalid()),
+    }
+}
+
+/// 迁移阶段只能前进；同一行的偏移、表和游标均由迁移所有者核对。
+/// 完成记录不可改写，完成后的旧前缀空集另由节点枚举真实状态验证。
+pub fn guard_migration_transition(
+    parent: impl Fn(&[u8]) -> Option<Vec<u8>>,
+    post: impl Fn(&[u8]) -> Option<Vec<u8>>,
+) -> Result<(), DispatchError> {
+    match (
+        guard_migration_state(&parent)?,
+        guard_migration_state(&post)?,
+    ) {
+        (MigrationState::Complete, MigrationState::Complete) => {
+            frame_support::ensure!(parent(RESULT) == post(RESULT), invalid());
+        }
+        (MigrationState::Complete, _) | (MigrationState::Running, MigrationState::NotStarted) => {
+            return Err(invalid())
+        }
+        (MigrationState::Running, MigrationState::Running) => {
+            let before = parent(PROGRESS).ok_or_else(invalid)?;
+            let after = post(PROGRESS).ok_or_else(invalid)?;
+            let a: Progress = decode(&before)?;
+            let b: Progress = decode(&after)?;
+            let before_position = (a.table, a.cursor.as_ref().map(|c| c.as_slice()), a.offset);
+            let after_position = (b.table, b.cursor.as_ref().map(|c| c.as_slice()), b.offset);
+            frame_support::ensure!(after_position >= before_position, invalid());
+            frame_support::ensure!(
+                after_position != before_position || before == after,
+                invalid()
+            );
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+/// 为永久事实核验读取准确布局，不恢复旧账户授权、不尝试另一种编码回退。
+/// 旧字段只在迁移所有者内部解码，节点获得相同的机构公开事实。
+pub fn guard_institution(
+    raw: &[u8],
+    legacy: bool,
+) -> Result<entitybase::InstitutionInfo<BlockNumber, Vec<u8>, Vec<u8>>, DispatchError> {
+    if !legacy {
+        return decode(raw);
+    }
+    let old: OldInstitution = decode(raw)?;
+    Ok(entitybase::InstitutionInfo {
+        cid_full_name: old.cid_full_name.into_inner(),
+        cid_short_name: old.cid_short_name.into_inner(),
+        town_code: old.town_code.into_inner(),
+        legal_representative: old.legal_representative.map(|person| {
+            entitybase::LegalRepresentative {
+                family_name: person.family_name.into_inner(),
+                given_name: person.given_name.into_inner(),
+                person_cid: person.cid_number.into_inner(),
+            }
+        }),
+        institution_code: old.institution_code,
+        created_at: old.created_at,
+    })
+}
+
+/// 读取明确布局的岗位。旧岗位容量只由同一迁移容量规则补出，不产生业务授权。
+pub fn guard_role(
+    raw: &[u8],
+    legacy: bool,
+) -> Result<entitybase::InstitutionRole<Vec<u8>, Vec<u8>, Vec<u8>>, DispatchError> {
+    if !legacy {
+        return decode(raw);
+    }
+    let role: OldRole = decode(raw)?;
+    let capacity = seats(
+        &role.cid_number,
+        &role.role_code,
+        cid_code(&role.cid_number)?,
+    );
+    Ok(entitybase::InstitutionRole {
+        cid_number: role.cid_number.into_inner(),
+        role_code: role.role_code.into_inner(),
+        role_name: role.role_name.into_inner(),
+        term_required: role.term_required,
+        role_status: role.role_status,
+        seats: capacity,
+    })
+}
+
+/// 历史任职核验的身份事实；Wallet仅用于证明旧状态连续性，不能用于授予新权限。
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MigrationPerson {
+    /// 尚未迁移的历史签名账户。
+    Wallet(AccountId),
+    /// 已迁移的永久人员CID。
+    Cid(Vec<u8>),
+}
+
+/// 只读任职事实，不公开旧SCALE编码或内部迁移游标。
+pub struct MigrationAssignment {
+    /// 任职机构CID。
+    pub cid_number: Vec<u8>,
+    /// 机构内岗位码。
+    pub role_code: Vec<u8>,
+    /// 按已确认布局读取的人员标识。
+    pub person: MigrationPerson,
+    /// 原任期起点。
+    pub term_start: u32,
+    /// 原任期终点。
+    pub term_end: u32,
+    /// 原任职有效状态。
+    pub status: entitybase::InstitutionAssignmentStatus,
+}
+
+/// 严格读取任职事实，节点不解码旧钱包任职结构。
+pub fn guard_assignments(
+    raw: &[u8],
+    legacy: bool,
+) -> Result<Vec<MigrationAssignment>, DispatchError> {
+    if legacy {
+        let rows: OldAssignments = decode(raw)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| MigrationAssignment {
+                cid_number: row.cid_number.into_inner(),
+                role_code: row.role_code.into_inner(),
+                person: MigrationPerson::Wallet(row.account_id),
+                term_start: row.term_start,
+                term_end: row.term_end,
+                status: row.assignment_status,
+            })
+            .collect())
+    } else {
+        let rows: Assignments = decode(raw)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| MigrationAssignment {
+                cid_number: row.cid_number.into_inner(),
+                role_code: row.role_code.into_inner(),
+                person: MigrationPerson::Cid(row.person_cid.into_inner()),
+                term_start: row.term_start,
+                term_end: row.term_end,
+                status: row.assignment_status,
+            })
+            .collect())
+    }
+}
+
+/// 固定组成岗位的旧任职按当前有效绑定准确转换；不是正常业务的旧结构读取入口。
+pub fn guard_member_conversion(
+    raw: &[u8],
+    read: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, DispatchError>,
+) -> Result<Vec<u8>, DispatchError> {
+    let old: OldAssignments = decode(raw)?;
+    let mut result: Assignments = Default::default();
+    for row in old {
+        let spec = member_composition_by_identity(cid_code(&row.cid_number)?, &row.cid_number)
+            .filter(|spec| spec.role_code == row.role_code.as_slice())
+            .ok_or_else(invalid)?;
+        frame_support::ensure!(
+            spec.institution.cid_number.as_bytes() == row.cid_number.as_slice(),
+            invalid()
+        );
+        if let Some(cid) = crate::Identity::person_cid_at(&row.account_id, &read)? {
+            if cid_code(&cid)? != *b"CTZN" {
+                continue;
+            }
+            frame_support::ensure!(!result.iter().any(|a| a.person_cid == cid), invalid());
+            result
+                .try_push(Assignment {
+                    cid_number: row.cid_number,
+                    person_cid: cid,
+                    role_code: row.role_code,
+                    term_start: row.term_start,
+                    term_end: row.term_end,
+                    assignment_source: row.assignment_source,
+                    assignment_source_ref: row.assignment_source_ref,
+                    assignment_status: row.assignment_status,
+                })
+                .map_err(|_| invalid())?;
+        }
+    }
+    Ok(result.encode())
+}
+
+/// 核验同一迁移行的有界任职目标，允许来源保留到最后一批，但拒绝任意影子目标。
+pub fn guard_partial_assignments(
+    key: &[u8],
+    source: &[u8],
+    target: &[u8],
+    read: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, DispatchError>,
+) -> Result<(), DispatchError> {
+    let progress: Progress = decode(&read(PROGRESS)?.ok_or_else(invalid)?)?;
+    frame_support::ensure!(
+        matches!(progress.table, 2 | 3) && progress.offset > 0,
+        invalid()
+    );
+    let public = progress.table == 2;
+    let table = prefix(names(public).1, b"InstitutionRoleAssignments");
+    let suffix = key.strip_prefix(table.as_slice()).ok_or_else(invalid)?;
+    let (cid, role): (Cid, RoleCode) = two_keys(suffix)?;
+    let source_key = [
+        prefix(names(public).0, b"InstitutionRoleAssignments").as_slice(),
+        suffix,
+    ]
+    .concat();
+    frame_support::ensure!(
+        progress
+            .cursor
+            .as_ref()
+            .is_none_or(|cursor| cursor.as_slice() < source_key.as_slice()),
+        invalid()
+    );
+    // 固定组成岗位有界行使用同一人员解析。其它岗位继续由实际迁移执行器核验，
+    // 此处只在双物理记录同时存在的读取中使用，不尝试把两个值拼成新任职。
+    let rows: OldAssignments = decode(source)?;
+    let offset = progress.offset as usize;
+    frame_support::ensure!(
+        offset < rows.len()
+            && offset % SEAT_BATCH == 0
+            && rows
+                .iter()
+                .all(|r| r.cid_number == cid && r.role_code == role),
+        invalid()
+    );
+    let mut expected: Assignments = Default::default();
+    for row in &rows[..offset] {
+        frame_support::ensure!(!founder_role(public, &cid, &role), invalid());
+        let Some(person_cid) = crate::Identity::person_cid_at(&row.account_id, &read)? else {
+            continue;
+        };
+        if public && cid_code(&person_cid)? != *b"CTZN" {
+            continue;
+        }
+        frame_support::ensure!(
+            !expected.iter().any(|r| r.person_cid == person_cid),
+            invalid()
+        );
+        expected
+            .try_push(Assignment {
+                cid_number: cid.clone(),
+                person_cid,
+                role_code: role.clone(),
+                term_start: row.term_start,
+                term_end: row.term_end,
+                assignment_source: row.assignment_source,
+                assignment_source_ref: row.assignment_source_ref.clone(),
+                assignment_status: row.assignment_status,
+            })
+            .map_err(|_| invalid())?;
+    }
+    frame_support::ensure!(expected.encode() == target, invalid());
+    Ok(())
+}
+
+/// 按实际元数据值类型辨别机构布局；不按模块名称、版本号或解码失败猜测旧格式。
+pub fn guard_institution_layout(
+    types: &scale_info::PortableRegistry,
+    value_type: u32,
+) -> Result<bool, DispatchError> {
+    use scale_info::TypeDef;
+    let TypeDef::Composite(institution) = &types.resolve(value_type).ok_or_else(invalid)?.type_def
+    else {
+        return Err(invalid());
+    };
+    let names: Vec<_> = institution
+        .fields
+        .iter()
+        .map(|f| f.name.as_deref())
+        .collect();
+    frame_support::ensure!(
+        names
+            == [
+                Some("cid_full_name"),
+                Some("cid_short_name"),
+                Some("town_code"),
+                Some("legal_representative"),
+                Some("institution_code"),
+                Some("created_at")
+            ],
+        invalid()
+    );
+    let TypeDef::Variant(option) = &types
+        .resolve(institution.fields[3].ty.id)
+        .ok_or_else(invalid)?
+        .type_def
+    else {
+        return Err(invalid());
+    };
+    frame_support::ensure!(option.variants.len() == 2, invalid());
+    let some = option
+        .variants
+        .iter()
+        .find(|v| v.index == 1 && v.name == "Some")
+        .ok_or_else(invalid)?;
+    frame_support::ensure!(some.fields.len() == 1, invalid());
+    let TypeDef::Composite(person) = &types
+        .resolve(some.fields[0].ty.id)
+        .ok_or_else(invalid)?
+        .type_def
+    else {
+        return Err(invalid());
+    };
+    let fields: Vec<_> = person.fields.iter().map(|f| f.name.as_deref()).collect();
+    if fields
+        == [
+            Some("family_name"),
+            Some("given_name"),
+            Some("cid_number"),
+            Some("account_id"),
+        ]
+    {
+        Ok(true)
+    } else if fields == [Some("family_name"), Some("given_name"), Some("person_cid")] {
+        Ok(false)
+    } else {
+        Err(invalid())
+    }
 }
 
 // 先迁岗位和任职，再核对法定代表人；先核验账户正向记录，再搬反向索引。
@@ -140,7 +565,8 @@ impl InitializedVersion for frame_support::traits::NoStorageVersionSet {
 }
 
 /// 当前第一方 pallet 的前缀由各自的运行时注册名生成，旧名只用于原链读取。
-pub(crate) fn renamed_pallets() -> [(&'static str, &'static str, StorageVersion); 17] {
+/// 本轮唯一前缀搬迁清单；外部核验者复用相同来源、目标和存储版本合同。
+pub fn renamed_pallets() -> [(&'static str, &'static str, StorageVersion); 17] {
     macro_rules! renamed {
         ($old:literal, $pallet:ty) => {
             (
@@ -227,7 +653,10 @@ impl RenamePallets {
             while let Some(source) = key {
                 frame_support::ensure!(source.len() >= 32, invalid());
                 let length = sp_io::storage::read(&source, &mut [], 0).ok_or_else(invalid)?;
-                let proof = 8_192u64
+                // 同一来源的长度探测与取值共用trie证明，目标空前缀已在上方单独核验。
+                // 每条只计一份4KiB路径预留，键和值仍双份保守预留；不扩大四分之一预算。
+                // 最终状态回归用SDK真实证明记录器核对，真实Wasm仍须单独验收。
+                let proof = 4_096u64
                     .saturating_add(2 * u64::from(length))
                     .saturating_add(2 * source.len() as u64);
                 used = used
@@ -1162,12 +1591,13 @@ impl Institutions {
         Ok(())
     }
 
-    /// 本次升级只补两条普通创世任职；人员与钱包均复用迁移后的链上真源。
+    /// 补齐本次明确接替的七个岗位；五条原任职保留，人员及当前钱包取链上真源。
     fn add_founder_assignments(counts: &mut Counts) -> Result<(), DispatchError> {
         use primitives::cid::china::{china_cb::CHINA_CB, citizenchain};
         use primitives::governance_skeleton::{
-            federal_registry_institution, province_commissioner_role_code,
-            ROLE_CODE_COMMITTEE_MEMBER,
+            federal_registry_institution, fixed_institutions, province_commissioner_role_code,
+            ROLE_CODE_CHIEF_JUSTICE, ROLE_CODE_COMMITTEE_MEMBER, ROLE_CODE_CONSTITUTION_GUARD,
+            ROLE_CODE_DEPUTY_CHIEF_JUSTICE, ROLE_CODE_JUSTICE,
         };
         let foundation = Cid::try_from(
             citizenchain::CITIZENCHAIN_FOUNDATION
@@ -1195,12 +1625,25 @@ impl Institutions {
                     == Some(primitives::cid::code::NRC)
             })
             .ok_or_else(invalid)?;
+        let judicial = fixed_institutions()
+            .into_iter()
+            .find(|entry| entry.code == primitives::cid::code::NJD)
+            .ok_or_else(invalid)?;
+        // N01、G01、Z01、J01、J08、J09、J11各补一席，不改变固定席位或治理阈值。
         for (raw_cid, raw_role) in [
             (nrc.cid_number, ROLE_CODE_COMMITTEE_MEMBER.to_vec()),
             (
                 federal_registry_institution().cid_number,
                 province_commissioner_role_code(*b"GZ"),
             ),
+            (
+                federal_registry_institution().cid_number,
+                province_commissioner_role_code(*b"ZS"),
+            ),
+            (judicial.cid_number, ROLE_CODE_CONSTITUTION_GUARD.to_vec()),
+            (judicial.cid_number, ROLE_CODE_CHIEF_JUSTICE.to_vec()),
+            (judicial.cid_number, ROLE_CODE_DEPUTY_CHIEF_JUSTICE.to_vec()),
+            (judicial.cid_number, ROLE_CODE_JUSTICE.to_vec()),
         ] {
             let cid = Cid::try_from(raw_cid.as_bytes().to_vec()).map_err(|_| invalid())?;
             let role_code = RoleCode::try_from(raw_role).map_err(|_| invalid())?;
@@ -1295,8 +1738,9 @@ impl Institutions {
             );
         }
         Some(if table == END {
-            // 完成时预留原有 PRC 权限补齐的固定名单读取和写入。
-            Weight::from_parts(600_000_000, 1_200_000).saturating_add(db.reads_writes(128, 64))
+            // 保留原PRC处理预留，补记由两席增至七席的五组机构/岗位/任职读取与写入。
+            // 不扩大每块四分之一预算；CPU预留按原两席处理量保守扩展至七席。
+            Weight::from_parts(2_100_000_000, 1_200_000).saturating_add(db.reads_writes(143, 69))
         } else if table >= PURGE {
             Weight::from_parts(120_000_000, 64_000).saturating_add(db.reads_writes(2, 2))
         } else {

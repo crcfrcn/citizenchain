@@ -52,11 +52,16 @@ impl PowAlgorithm<Block> for SimplePow {
         &self,
         parent: <Block as BlockT>::Hash,
     ) -> Result<Self::Difficulty, sc_consensus_pow::Error<Block>> {
-        let key = [
-            twox_128(b"Difficulty").as_slice(),
-            twox_128(b"CurrentDifficulty").as_slice(),
-        ]
-        .concat();
+        let storage = nodeclient::codec::RuntimeStorage::at_state(&self.client, parent)
+            .map_err(sc_consensus_pow::Error::BlockProposingError)?;
+        let key = storage.key(
+            &[
+                twox_128(b"Difficulty").as_slice(),
+                twox_128(b"CurrentDifficulty").as_slice(),
+            ]
+            .concat(),
+            true,
+        );
         let raw = self
             .client
             .storage(parent, &StorageKey(key))
@@ -66,18 +71,7 @@ impl PowAlgorithm<Block> for SimplePow {
                     "父块缺少 Difficulty::CurrentDifficulty".into(),
                 )
             })?;
-        let mut input = raw.0.as_slice();
-        let difficulty = u64::decode(&mut input).map_err(|_| {
-            sc_consensus_pow::Error::BlockProposingError(
-                "Difficulty::CurrentDifficulty SCALE 解码失败".into(),
-            )
-        })?;
-        if !input.is_empty() || difficulty == 0 {
-            return Err(sc_consensus_pow::Error::BlockProposingError(
-                "Difficulty::CurrentDifficulty 非规范或为零".into(),
-            ));
-        }
-        Ok(U256::from(difficulty))
+        raw_difficulty(&raw.0).map_err(sc_consensus_pow::Error::BlockProposingError)
     }
 
     fn verify(
@@ -113,6 +107,17 @@ impl PowAlgorithm<Block> for SimplePow {
             &public,
         ))
     }
+}
+
+/// 难度仍取原始状态值，名称定位不能改变规范编码、非零及完整消费约束。
+fn raw_difficulty(raw: &[u8]) -> Result<U256, String> {
+    let mut input = raw;
+    let difficulty = u64::decode(&mut input)
+        .map_err(|_| "Difficulty::CurrentDifficulty SCALE 解码失败".to_string())?;
+    if !input.is_empty() || difficulty == 0 {
+        return Err("Difficulty::CurrentDifficulty 非规范或为零".into());
+    }
+    Ok(U256::from(difficulty))
 }
 
 // RPC 运行态验收复用实际矿工的 PoW 计算，不另建测试算法。

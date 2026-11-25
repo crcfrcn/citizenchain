@@ -105,7 +105,10 @@ fn self_occupy_cid_binds_account_and_stays_anonymous() {
         // 占即绑:双向绑定成立。
         assert_eq!(AccountIdByCid::<Test>::get(cid(&cid_bytes)), Some(1));
         assert_eq!(CidByAccountId::<Test>::get(1), Some(cid(&cid_bytes)));
-        assert!(sp_io::storage::exists(&codec::Encode::encode(&(b"evm-receive-registration", &1u64))));
+        assert!(sp_io::storage::exists(&codec::Encode::encode(&(
+            b"evm-receive-registration",
+            &1u64
+        ))));
         // 登记记录:SELF registrar + 空居住地 + Active + commitment = blake2_256(account_id)。
         let rec = CidRegistry::<Test>::get(cid(&cid_bytes)).expect("record");
         assert_eq!(
@@ -181,10 +184,7 @@ fn self_occupy_cid_rejects_non_citizen_code() {
     new_test_ext().execute_with(|| {
         // 自助占号只认 CTZN;机构码(CGOV)CID 被 ensure_valid_citizen_cid 拒。
         assert_noop!(
-            Identity::self_occupy_cid(
-                RuntimeOrigin::signed(1),
-                cid(&public_cid_number("self5")),
-            ),
+            Identity::self_occupy_cid(RuntimeOrigin::signed(1), cid(&public_cid_number("self5")),),
             Error::<Test>::InvalidCitizenCode
         );
     });
@@ -268,7 +268,11 @@ fn person_queries_reject_invalid_cids_even_with_matching_indexes() {
             .expect("有效 CID 包含第二个分隔符")
             .0
             - 1;
-        bad_checksum[checksum] = if bad_checksum[checksum] == b'0' { b'1' } else { b'0' };
+        bad_checksum[checksum] = if bad_checksum[checksum] == b'0' {
+            b'1'
+        } else {
+            b'0'
+        };
 
         // 即使异常状态保有登记及双向索引，查询也必须校验完整类型和格式。
         for invalid in [
@@ -319,6 +323,66 @@ fn person_queries_require_active_registry_and_matching_indexes() {
         assert_missing();
         CidRegistry::<Test>::remove(&person_cid);
         assert_missing();
+    });
+}
+
+#[test]
+fn person_queries_read_an_explicit_snapshot_without_writing_or_hiding_corruption() {
+    new_test_ext().execute_with(|| {
+        let person = cid(&citizen_cid_number("person-snapshot"));
+        assert_ok!(Identity::self_occupy_cid(
+            RuntimeOrigin::signed(1),
+            person.clone()
+        ));
+        let keys = [
+            CidByAccountId::<Test>::hashed_key_for(1),
+            AccountIdByCid::<Test>::hashed_key_for(&person),
+            CidRegistry::<Test>::hashed_key_for(&person),
+        ];
+        let state: std::collections::BTreeMap<_, _> = keys
+            .into_iter()
+            .map(|key| {
+                let raw = sp_io::storage::get(&key).unwrap().to_vec();
+                (key, raw)
+            })
+            .collect();
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        let reads = core::cell::Cell::new(0);
+        assert_eq!(
+            Identity::person_cid_at(&1, |k| {
+                reads.set(reads.get() + 1);
+                Ok(state.get(k).cloned())
+            }),
+            Ok(Some(person.clone()))
+        );
+        assert_eq!(reads.get(), 3, "原查询仍为双向索引与登记各一次读取");
+        assert_eq!(
+            Identity::person_account_at(&person, |k| Ok(state.get(k).cloned())),
+            Ok(Some(1))
+        );
+        assert_eq!(
+            Identity::person_cid_at(&2, |k| Ok(state.get(k).cloned())),
+            Ok(None)
+        );
+        let failed = sp_runtime::DispatchError::Other("读取失败");
+        assert_eq!(Identity::person_cid_at(&1, |_| Err(failed)), Err(failed));
+        for key in state.keys() {
+            let mut bad = state.clone();
+            bad.get_mut(key).unwrap().push(0);
+            assert!(Identity::person_cid_at(&1, |k| Ok(bad.get(k).cloned())).is_err());
+            assert!(Identity::person_account_at(&person, |k| Ok(bad.get(k).cloned())).is_err());
+            let mut absent = state.clone();
+            absent.remove(key);
+            assert_eq!(
+                Identity::person_cid_at(&1, |k| Ok(absent.get(k).cloned())),
+                Ok(None)
+            );
+            assert_eq!(
+                Identity::person_account_at(&person, |k| Ok(absent.get(k).cloned())),
+                Ok(None)
+            );
+        }
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
     });
 }
 
@@ -536,14 +600,8 @@ fn strict_calendar_validation_handles_months_leap_years_and_year_boundary() {
         assert!(Identity::is_plausible_yyyymmdd(20240229));
         assert!(!Identity::is_plausible_yyyymmdd(20230229));
         assert!(!Identity::is_plausible_yyyymmdd(20260431));
-        assert_eq!(
-            Identity::next_calendar_date(20240229),
-            Some(20240301)
-        );
-        assert_eq!(
-            Identity::next_calendar_date(20261231),
-            Some(20270101)
-        );
+        assert_eq!(Identity::next_calendar_date(20240229), Some(20240301));
+        assert_eq!(Identity::next_calendar_date(20261231), Some(20270101));
         assert_eq!(Identity::next_calendar_date(99991231), None);
     });
 }
@@ -742,7 +800,10 @@ fn revoke_cid_tombstones_and_revokes_bound_identity() {
         let rec = CidRegistry::<Test>::get(cid(&citizen_cid_number("RV-1"))).expect("record kept");
         assert_eq!(rec.status, CidRecordStatus::Revoked);
         assert_eq!(Identity::person_cid(&1), None);
-        assert_eq!(Identity::person_account(&cid(&citizen_cid_number("RV-1"))), None);
+        assert_eq!(
+            Identity::person_account(&cid(&citizen_cid_number("RV-1"))),
+            None
+        );
         assert_eq!(
             BindingRevisionByCid::<Test>::get(cid(&citizen_cid_number("RV-1"))),
             Some(2)

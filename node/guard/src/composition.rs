@@ -2,8 +2,10 @@
 
 use codec::Decode;
 use codec::Encode;
+#[cfg(test)]
 use entitybase::InstitutionAssignment;
 use entitybase::InstitutionAssignmentStatus;
+#[cfg(test)]
 use entitybase::InstitutionRole;
 use entitybase::InstitutionRoleStatus;
 use primitives::institution_constraints::member_composition_specs;
@@ -17,8 +19,10 @@ const VOTING_ENGINE_PALLET: &[u8] = b"VotingEngine";
 
 type DecodedInstitution = entitybase::InstitutionInfo<u32, Vec<u8>, Vec<u8>>;
 
+#[cfg(test)]
 type DecodedRole = InstitutionRole<Vec<u8>, Vec<u8>, Vec<u8>>;
 
+#[cfg(test)]
 type DecodedAssignment = InstitutionAssignment<Vec<u8>, Vec<u8>, Vec<u8>>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -57,6 +61,7 @@ pub(crate) enum GuardError {
         found: u32,
     },
     RuntimeUpgradeVoteKeysMissing,
+    MigrationTransitionInvalid([u8; 4]),
 }
 
 fn decode_exact<T: Decode>(raw: &[u8]) -> Result<T, ()> {
@@ -81,12 +86,25 @@ fn proposal_internal_code(raw: &[u8]) -> Result<Option<[u8; 4]>, GuardError> {
         .map_err(|_| crate::guard::national_body_composition::GuardError::ProposalDecodeFailed)
 }
 
+#[cfg(test)]
 fn composition_state<F>(
     spec: &MemberCompositionSpec,
     read: &F,
 ) -> Result<CompositionState, GuardError>
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
+{
+    composition_state_with_layout(spec, read, &|_| false)
+}
+
+fn composition_state_with_layout<F, L>(
+    spec: &MemberCompositionSpec,
+    read: &F,
+    legacy: &L,
+) -> Result<CompositionState, GuardError>
+where
+    F: Fn(&[u8]) -> Option<Vec<u8>>,
+    L: Fn(&[u8]) -> bool,
 {
     let [institution_key, role_key, assignments_key, permission_key] =
         storage_key::composition_keys(spec);
@@ -115,7 +133,7 @@ where
     let Some(role) = role else {
         return Err(GuardError::PartialUnconstitutedState(spec.institution.code));
     };
-    let role: DecodedRole = decode_exact(&role)
+    let role = runtime::guard_role(&role, legacy(&role_key))
         .map_err(|_| GuardError::MemberRoleDecodeFailed(spec.institution.code))?;
     if role.cid_number != spec.institution.cid_number.as_bytes()
         || role.role_code != spec.role_code
@@ -141,8 +159,8 @@ where
     }
     // 各业务的具体发起和表决权限仍由所属Runtime入口按同一RoleSubject裁决。
     // ValueQuery的缺失任职键就是空任职；机构资料和规则岗位必须真实存在。
-    let assignments: Vec<DecodedAssignment> = rows
-        .map(|raw| decode_exact(&raw))
+    let assignments = rows
+        .map(|raw| runtime::guard_assignments(&raw, legacy(&assignments_key)))
         .transpose()
         .map_err(|_| GuardError::AssignmentsDecodeFailed(spec.institution.code))?
         .unwrap_or_default();
@@ -162,7 +180,7 @@ where
     for a in assignments {
         if a.cid_number != spec.institution.cid_number.as_bytes()
             || a.role_code != spec.role_code
-            || a.assignment_status != InstitutionAssignmentStatus::Active
+            || a.status != InstitutionAssignmentStatus::Active
             || (if role.term_required {
                 a.term_start == 0 || a.term_end < a.term_start
             } else {
@@ -171,13 +189,15 @@ where
         {
             return Err(GuardError::AssignmentChanged(spec.institution.code));
         }
-        if !std::str::from_utf8(&a.person_cid).is_ok_and(|s| s.trim() == s)
-            || !primitives::cid::number::parse_cid_number_parts_bytes(&a.person_cid)
-                .is_ok_and(|p| p.institution == *b"CTZN")
-        {
-            return Err(GuardError::PersonCidInvalid(spec.institution.code));
+        if let runtime::MigrationPerson::Cid(cid) = &a.person {
+            if !std::str::from_utf8(cid).is_ok_and(|s| s.trim() == s)
+                || !primitives::cid::number::parse_cid_number_parts_bytes(cid)
+                    .is_ok_and(|p| p.institution == *b"CTZN")
+            {
+                return Err(GuardError::PersonCidInvalid(spec.institution.code));
+            }
         }
-        if !members.insert(a.person_cid) {
+        if !members.insert(a.person) {
             return Err(GuardError::DuplicateMember(spec.institution.code));
         }
     }
@@ -237,17 +257,28 @@ where
 }
 
 /// 启动允许三个机构尚未组成，但不允许半组成或非法组成。
+#[cfg(test)]
 pub(crate) fn check_full_state<F>(read: F) -> Result<(), GuardError>
 where
     F: Fn(&[u8]) -> Option<Vec<u8>>,
 {
+    check_full_state_with_layout(read, |_| false)
+}
+
+/// 历史或迁移中状态逐条按实际布局验证，钱包事实不转换为人员授权。
+pub(crate) fn check_full_state_with_layout<F, L>(read: F, legacy: L) -> Result<(), GuardError>
+where
+    F: Fn(&[u8]) -> Option<Vec<u8>>,
+    L: Fn(&[u8]) -> bool,
+{
     for spec in member_composition_specs() {
-        composition_state(&spec, &read)?;
+        composition_state_with_layout(&spec, &read, &legacy)?;
     }
     Ok(())
 }
 
 /// 普通区块按 delta 检查组成状态单向性，并双向复核提案与固定阈值快照。
+#[cfg(test)]
 pub(crate) fn check_transition<FParent, FPost>(
     delta: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     parent: FParent,
@@ -258,6 +289,33 @@ where
     FParent: Fn(&[u8]) -> Option<Vec<u8>>,
     FPost: Fn(&[u8]) -> Option<Vec<u8>>,
 {
+    check_transition_with_layout(
+        delta,
+        parent,
+        post,
+        |_| false,
+        |_| false,
+        false,
+        runtime_upgrade_vote_keys,
+    )
+}
+
+/// 跨布局只允许迁移所有者核验的准确任职转换；普通块仍保持组成不可撤销规则。
+pub(crate) fn check_transition_with_layout<FParent, FPost, LParent, LPost>(
+    delta: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    parent: FParent,
+    post: FPost,
+    parent_legacy: LParent,
+    post_legacy: LPost,
+    migrating: bool,
+    runtime_upgrade_vote_keys: Option<&[Vec<u8>]>,
+) -> Result<(), GuardError>
+where
+    FParent: Fn(&[u8]) -> Option<Vec<u8>>,
+    FPost: Fn(&[u8]) -> Option<Vec<u8>>,
+    LParent: Fn(&[u8]) -> bool,
+    LPost: Fn(&[u8]) -> bool,
+{
     let code_changed = delta.contains_key(sp_storage::well_known_keys::CODE);
     for spec in member_composition_specs() {
         let affected =
@@ -265,10 +323,25 @@ where
                 .iter()
                 .any(|key| delta.contains_key(key));
         if affected || code_changed {
-            let before = composition_state(&spec, &parent)?;
-            let after = composition_state(&spec, &post)?;
+            let before = composition_state_with_layout(&spec, &parent, &parent_legacy)?;
+            let after = composition_state_with_layout(&spec, &post, &post_legacy)?;
+            let rows_key = storage_key::composition_keys(&spec)[2].clone();
+            let converted = migrating && parent_legacy(&rows_key) && !post_legacy(&rows_key);
+            if converted {
+                let source = parent(&rows_key).ok_or(GuardError::MigrationTransitionInvalid(
+                    spec.institution.code,
+                ))?;
+                let expected = runtime::guard_member_conversion(&source, |key| Ok(parent(key)))
+                    .map_err(|_| GuardError::MigrationTransitionInvalid(spec.institution.code))?;
+                if post(&rows_key).unwrap_or_else(|| vec![0]) != expected {
+                    return Err(GuardError::MigrationTransitionInvalid(
+                        spec.institution.code,
+                    ));
+                }
+            }
             if before == crate::guard::national_body_composition::CompositionState::Constituted
                 && after == crate::guard::national_body_composition::CompositionState::Unconstituted
+                && !converted
             {
                 return Err(
                     crate::guard::national_body_composition::GuardError::ConstitutedBodyRemoved(

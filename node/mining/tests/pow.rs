@@ -3,6 +3,22 @@
 use super::*;
 
 #[test]
+fn parent_difficulty_remains_raw_nonzero_and_canonical() {
+    assert_eq!(raw_difficulty(&1u64.to_le_bytes()).unwrap(), U256::one());
+    assert_eq!(
+        raw_difficulty(&u64::MAX.to_le_bytes()).unwrap(),
+        U256::from(u64::MAX)
+    );
+    assert!(raw_difficulty(&0u64.to_le_bytes()).is_err());
+    for size in 0..8 {
+        assert!(raw_difficulty(&1u64.to_le_bytes()[..size]).is_err());
+    }
+    let mut trailing = 1u64.to_le_bytes().to_vec();
+    trailing.push(0);
+    assert!(raw_difficulty(&trailing).is_err());
+}
+
+#[test]
 fn pow_hash_deterministic() {
     let pre_hash = [0u8; 32];
     let h1 = pow_hash(&pre_hash, 42);

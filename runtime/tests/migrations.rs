@@ -607,6 +607,13 @@ fn founder_fixture() -> (identity::CidNumberBound, AccountId, AccountId) {
                 == Some(primitives::cid::code::FRG)
         })
         .unwrap();
+    let judicial = primitives::cid::china::china_sf::CHINA_SF
+        .iter()
+        .find(|entry| {
+            primitives::cid::code::institution_code_from_cid_number(entry.cid_number)
+                == Some(primitives::cid::code::NJD)
+        })
+        .unwrap();
     let foundation = &citizenchain::CITIZENCHAIN_FOUNDATION;
     for (public, raw, main, fee, roles, has_representative, threshold) in [
         (
@@ -647,9 +654,26 @@ fn founder_fixture() -> (identity::CidNumberBound, AccountId, AccountId) {
             registry.cid_number,
             registry.main_account,
             registry.fee_account,
-            vec![primitives::governance_skeleton::province_commissioner_role_code(*b"GZ")],
+            vec![
+                primitives::governance_skeleton::province_commissioner_role_code(*b"GZ"),
+                primitives::governance_skeleton::province_commissioner_role_code(*b"ZS"),
+            ],
             false,
             3,
+        ),
+        (
+            true,
+            judicial.cid_number,
+            judicial.main_account,
+            judicial.fee_account,
+            vec![
+                primitives::governance_skeleton::ROLE_CODE_CONSTITUTION_GUARD.to_vec(),
+                primitives::governance_skeleton::ROLE_CODE_CHIEF_JUSTICE.to_vec(),
+                primitives::governance_skeleton::ROLE_CODE_DEPUTY_CHIEF_JUSTICE.to_vec(),
+                primitives::governance_skeleton::ROLE_CODE_JUSTICE.to_vec(),
+            ],
+            false,
+            10,
         ),
     ] {
         let pallet = if public {
@@ -752,7 +776,64 @@ fn assert_founder_assignments(person: &identity::CidNumberBound, current: &Accou
         .flat_map(|(_, _, rows)| rows.into_iter())
         .filter(|row| &row.person_cid == person)
         .collect();
-    assert_eq!((public.len(), private.len()), (4, 3));
+    assert_eq!((public.len(), private.len()), (9, 3));
+    let judicial = primitives::governance_skeleton::fixed_institutions()
+        .into_iter()
+        .find(|entry| entry.code == primitives::cid::code::NJD)
+        .unwrap();
+    let registry = primitives::governance_skeleton::federal_registry_institution();
+    let expected = [
+        (CHINA_CB[0].cid_number, COMMITTEE.to_vec()),
+        (
+            registry.cid_number,
+            primitives::governance_skeleton::province_commissioner_role_code(*b"GZ"),
+        ),
+        (
+            registry.cid_number,
+            primitives::governance_skeleton::province_commissioner_role_code(*b"ZS"),
+        ),
+        (
+            judicial.cid_number,
+            primitives::governance_skeleton::ROLE_CODE_CONSTITUTION_GUARD.to_vec(),
+        ),
+        (
+            judicial.cid_number,
+            primitives::governance_skeleton::ROLE_CODE_CHIEF_JUSTICE.to_vec(),
+        ),
+        (
+            judicial.cid_number,
+            primitives::governance_skeleton::ROLE_CODE_DEPUTY_CHIEF_JUSTICE.to_vec(),
+        ),
+        (
+            judicial.cid_number,
+            primitives::governance_skeleton::ROLE_CODE_JUSTICE.to_vec(),
+        ),
+    ];
+    for (cid, code) in expected {
+        let rows: Vec<_> = public
+            .iter()
+            .filter(|row| {
+                row.cid_number.as_slice() == cid.as_bytes() && row.role_code.as_slice() == code
+            })
+            .collect();
+        assert_eq!(rows.len(), 1, "每个接替岗位只能任职一席");
+        assert_eq!(
+            rows[0].assignment_source_ref.as_slice(),
+            (System::block_hash(0), System::block_number()).encode()
+        );
+        let role =
+            publicentity::InstitutionRoles::<Runtime>::get(&rows[0].cid_number, &rows[0].role_code)
+                .unwrap();
+        let info = publicentity::Institutions::<Runtime>::get(&rows[0].cid_number).unwrap();
+        assert_eq!(
+            Some(role.seats),
+            primitives::governance_skeleton::fixed_role_seats_by_identity(
+                info.institution_code,
+                &rows[0].cid_number,
+                &rows[0].role_code
+            )
+        );
+    }
     assert!(public.iter().chain(private.iter()).all(|row| {
         row.term_start == 0
             && row.term_end == 0
@@ -764,7 +845,7 @@ fn assert_founder_assignments(person: &identity::CidNumberBound, current: &Accou
             .iter()
             .filter(|row| !row.assignment_source_ref.is_empty())
             .count(),
-        2
+        7
     );
     assert!(private
         .iter()
@@ -831,7 +912,7 @@ fn assert_founder_assignments(person: &identity::CidNumberBound, current: &Accou
 }
 
 #[test]
-fn entity_migration_keeps_five_rebound_assignments_and_adds_two_seats_once() {
+fn entity_migration_keeps_five_rebound_assignments_and_adds_seven_seats_once() {
     sp_io::TestExternalities::default().execute_with(|| {
         let (person, old, current) = founder_fixture();
         System::set_block_number(726);
@@ -847,7 +928,7 @@ fn entity_migration_keeps_five_rebound_assignments_and_adds_two_seats_once() {
         Institutions::on_runtime_upgrade();
         finish(80);
         assert_founder_assignments(&person, &current);
-        assert_eq!(unhashed::get::<Counts>(RESULT).unwrap().assignments, 7);
+        assert_eq!(unhashed::get::<Counts>(RESULT).unwrap().assignments, 12);
         assert!(is_nrc_member(&current));
         assert!(!is_nrc_member(&old));
         assert_eq!(Identity::person_account(&person), Some(current.clone()));
@@ -869,6 +950,219 @@ fn entity_migration_keeps_five_rebound_assignments_and_adds_two_seats_once() {
         let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
         Institutions::on_runtime_upgrade();
         assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+    });
+}
+
+#[test]
+fn migration_guard_contract_is_read_only_and_rejects_corrupt_or_false_completion() {
+    sp_io::TestExternalities::default().execute_with(|| {
+        founder_fixture();
+        let read = |key: &[u8]| sp_io::storage::get(key).map(|v| v.to_vec());
+        assert_eq!(
+            crate::guard_migration_state(read).unwrap(),
+            crate::MigrationState::NotStarted
+        );
+        Institutions::on_runtime_upgrade();
+        let progress = sp_io::storage::get(crate::migrations::PROGRESS).unwrap();
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        assert_eq!(
+            crate::guard_migration_state(read).unwrap(),
+            crate::MigrationState::Running
+        );
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+        for corrupt in [
+            progress[..progress.len() - 1].to_vec(),
+            [progress.as_ref(), &[0]].concat(),
+            {
+                let mut bytes = progress.to_vec();
+                bytes[0] = 255;
+                bytes
+            },
+        ] {
+            sp_io::storage::set(crate::migrations::PROGRESS, &corrupt);
+            assert!(crate::guard_migration_state(read).is_err());
+        }
+        sp_io::storage::set(crate::migrations::PROGRESS, &progress);
+        finish(80);
+        assert_eq!(
+            crate::guard_migration_state(read).unwrap(),
+            crate::MigrationState::Complete
+        );
+        sp_io::storage::set(crate::migrations::PROGRESS, &progress);
+        assert!(crate::guard_migration_state(read).is_err());
+        sp_io::storage::clear(crate::migrations::PROGRESS);
+        StorageVersion::new(0).put::<PrivateEntity>();
+        assert!(crate::guard_migration_state(read).is_err());
+    });
+}
+
+#[test]
+fn migration_guard_institution_uses_explicit_layout_and_never_restores_wallet_authority() {
+    sp_io::TestExternalities::default().execute_with(|| {
+        let (person, old, current) = founder_fixture();
+        let cid = test_cid_number(
+            primitives::cid::china::citizenchain::CITIZENCHAIN_FOUNDATION
+                .cid_number
+                .as_bytes(),
+        );
+        let raw =
+            sp_io::storage::get(&storage_key(b"PrivateManage", b"Institutions", &cid)).unwrap();
+        let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+        let facts = crate::guard_institution(&raw, true).unwrap();
+        assert_eq!(
+            facts.legal_representative.as_ref().unwrap().person_cid,
+            person.to_vec()
+        );
+        assert!(crate::guard_institution(&raw, false).is_err());
+        assert_eq!(
+            crate::guard_institution(&facts.encode(), false)
+                .unwrap()
+                .encode(),
+            facts.encode()
+        );
+        assert!(crate::guard_institution(&facts.encode(), true).is_err());
+        assert!(crate::guard_institution(&[raw.as_ref(), &[0]].concat(), true).is_err());
+        assert_eq!(Identity::person_account(&person), Some(current));
+        assert!(identity::CidByAccountId::<Runtime>::get(&old).is_none());
+        assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+    });
+}
+
+#[test]
+fn migration_guard_layout_uses_real_value_types_and_rejects_unknown_schema() {
+    let mut registry = scale_info::Registry::new();
+    let old = registry.register_type(&scale_info::meta_type::<crate::migrations::OldInstitution>());
+    let current = registry.register_type(&scale_info::meta_type::<
+        entitybase::InstitutionInfo<
+            u32,
+            publicentity::AccountNameOf<Runtime>,
+            publicentity::CidNumberOf<Runtime>,
+        >,
+    >());
+    let unrelated = registry.register_type(&scale_info::meta_type::<u64>());
+    let portable = registry.into();
+    assert_eq!(crate::guard_institution_layout(&portable, old.id), Ok(true));
+    assert_eq!(
+        crate::guard_institution_layout(&portable, current.id),
+        Ok(false)
+    );
+    assert!(crate::guard_institution_layout(&portable, unrelated.id).is_err());
+    assert!(crate::guard_institution_layout(&portable, u32::MAX).is_err());
+}
+
+#[test]
+fn migration_guard_phase_transition_only_advances_and_freezes_completion() {
+    sp_io::TestExternalities::default().execute_with(|| {
+        founder_fixture();
+        let snapshot = || {
+            [
+                crate::migrations::PROGRESS.to_vec(),
+                RESULT.to_vec(),
+                prefix(b"PublicEntity", b":__STORAGE_VERSION__:").to_vec(),
+                prefix(b"PrivateEntity", b":__STORAGE_VERSION__:").to_vec(),
+            ]
+            .into_iter()
+            .filter_map(|key| sp_io::storage::get(&key).map(|value| (key, value.to_vec())))
+            .collect::<std::collections::BTreeMap<_, _>>()
+        };
+        let before = snapshot();
+        Institutions::on_runtime_upgrade();
+        let start = snapshot();
+        Institutions::step();
+        let middle = snapshot();
+        assert_ne!(start, middle);
+        finish(80);
+        let complete = snapshot();
+        let check = |a: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>,
+                     b: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>| {
+            crate::guard_migration_transition(|k| a.get(k).cloned(), |k| b.get(k).cloned())
+        };
+        assert_eq!(check(&before, &start), Ok(()));
+        assert_eq!(check(&start, &middle), Ok(()));
+        assert_eq!(check(&middle, &complete), Ok(()));
+        assert_eq!(check(&complete, &complete), Ok(()));
+        assert!(check(&middle, &start).is_err());
+        assert!(check(&middle, &before).is_err());
+        assert!(check(&complete, &middle).is_err());
+        let mut forged = complete.clone();
+        let mut counts = Counts::decode_all(&mut complete[RESULT].as_slice()).unwrap();
+        counts.missing_people += 1;
+        forged.insert(RESULT.to_vec(), counts.encode());
+        assert!(check(&complete, &forged).is_err());
+    });
+}
+
+#[test]
+fn migration_guard_checks_real_partial_assignment_batches_and_rejects_shadow_rows() {
+    sp_io::TestExternalities::default().execute_with(|| {
+        fixture();
+        let spec = primitives::institution_constraints::member_composition_specs()[0];
+        let cid = test_cid_number(spec.institution.cid_number.as_bytes());
+        let role: publicentity::RoleCodeOf = spec.role_code.to_vec().try_into().unwrap();
+        let mut role_key = storage_key(OLD, b"InstitutionRoles", &cid);
+        add_key(&mut role_key, &role);
+        sp_io::storage::set(
+            &role_key,
+            &OldRole {
+                cid_number: cid.clone(),
+                role_code: role.clone(),
+                role_name: spec.role_name.to_vec().try_into().unwrap(),
+                term_required: false,
+                role_status: entitybase::InstitutionRoleStatus::Active,
+            }
+            .encode(),
+        );
+        let rows: Vec<_> = (0..spec.min_members)
+            .map(|index| {
+                let mut account = [0u8; 32];
+                account[..4].copy_from_slice(&(index + 1000).to_le_bytes());
+                OldAssignment {
+                    cid_number: cid.clone(),
+                    account_id: AccountId::new(account),
+                    role_code: role.clone(),
+                    term_start: 0,
+                    term_end: 0,
+                    assignment_source: entitybase::InstitutionAssignmentSource::Genesis,
+                    assignment_source_ref: Default::default(),
+                    assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+                }
+            })
+            .collect();
+        let bound = fixture_person(&rows[0].account_id, "CTZN");
+        let mut source = storage_key(OLD, b"InstitutionRoleAssignments", &cid);
+        add_key(&mut source, &role);
+        let mut target = storage_key(b"PublicEntity", b"InstitutionRoleAssignments", &cid);
+        add_key(&mut target, &role);
+        sp_io::storage::set(&source, &rows.encode());
+        Institutions::on_runtime_upgrade();
+        let mut observed = false;
+        for _ in 0..12 {
+            Institutions::step();
+            if let (Some(old), Some(new)) =
+                (sp_io::storage::get(&source), sp_io::storage::get(&target))
+            {
+                observed = true;
+                let read = |key: &[u8]| Ok(sp_io::storage::get(key).map(|v| v.to_vec()));
+                let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+                assert_eq!(
+                    crate::guard_migration_state(|k| sp_io::storage::get(k).map(|v| v.to_vec())),
+                    Ok(crate::MigrationState::Running)
+                );
+                assert_eq!(
+                    crate::guard_partial_assignments(&target, &old, &new, read),
+                    Ok(())
+                );
+                let current: Vec<publicentity::InstitutionAssignmentOf<Runtime>> =
+                    DecodeAll::decode_all(&mut new.as_ref()).unwrap();
+                assert_eq!(current.len(), 1);
+                assert_eq!(current[0].person_cid, bound);
+                assert!(crate::guard_partial_assignments(&target, &old, &vec![0], read).is_err());
+                assert!(crate::guard_partial_assignments(&source, &old, &new, read).is_err());
+                assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+                break;
+            }
+        }
+        assert!(observed, "真实105席任职产生有界中间状态");
     });
 }
 
@@ -910,7 +1204,7 @@ fn entity_migration_rejects_invalid_founder_evidence_before_writing() {
 }
 
 #[test]
-fn entity_migration_founder_target_conflict_does_not_write_either_new_seat() {
+fn entity_migration_founder_target_conflict_does_not_write_any_new_seat() {
     sp_io::TestExternalities::default().execute_with(|| {
         let (person, _, current) = founder_fixture();
         let cid = test_cid_number(CHINA_CB[0].cid_number.as_bytes());
@@ -979,19 +1273,151 @@ fn entity_migration_founder_assignments_resume_after_state_commit() {
 }
 
 #[test]
+fn entity_migration_late_duplicate_or_full_seat_rolls_back_all_seven_replacements() {
+    for duplicate in [true, false] {
+        sp_io::TestExternalities::default().execute_with(|| {
+            let (person, _, current) = founder_fixture();
+            let judicial = primitives::governance_skeleton::fixed_institutions()
+                .into_iter()
+                .find(|entry| entry.code == primitives::cid::code::NJD)
+                .unwrap();
+            let cid = test_cid_number(judicial.cid_number.as_bytes());
+            let role: publicentity::RoleCodeOf = if duplicate {
+                primitives::governance_skeleton::ROLE_CODE_JUSTICE
+            } else {
+                primitives::governance_skeleton::ROLE_CODE_CHIEF_JUSTICE
+            }
+            .to_vec()
+            .try_into()
+            .unwrap();
+            let account = if duplicate {
+                current.clone()
+            } else {
+                AccountId::new([88; 32])
+            };
+            let retained_person = if duplicate {
+                person.clone()
+            } else {
+                fixture_person(&account, "CTZN")
+            };
+            let mut key = storage_key(OLD, b"InstitutionRoleAssignments", &cid);
+            add_key(&mut key, &role);
+            sp_io::storage::set(
+                &key,
+                &vec![OldAssignment {
+                    cid_number: cid.clone(),
+                    account_id: account,
+                    role_code: role.clone(),
+                    term_start: 0,
+                    term_end: 0,
+                    assignment_source: entitybase::InstitutionAssignmentSource::Genesis,
+                    assignment_source_ref: Default::default(),
+                    assignment_status: entitybase::InstitutionAssignmentStatus::Active,
+                }]
+                .encode(),
+            );
+            Institutions::on_runtime_upgrade();
+            for _ in 0..80 {
+                let before = sp_io::storage::get(crate::migrations::PROGRESS);
+                Institutions::step();
+                if before == sp_io::storage::get(crate::migrations::PROGRESS) {
+                    break;
+                }
+            }
+            assert!(Institutions::ongoing());
+            assert!(!sp_io::storage::exists(RESULT));
+            let nrc = test_cid_number(CHINA_CB[0].cid_number.as_bytes());
+            let committee: publicentity::RoleCodeOf = COMMITTEE.to_vec().try_into().unwrap();
+            assert!(
+                publicentity::InstitutionRoleAssignments::<Runtime>::get(&nrc, &committee)
+                    .is_empty()
+            );
+            let registry = test_cid_number(
+                primitives::governance_skeleton::federal_registry_institution()
+                    .cid_number
+                    .as_bytes(),
+            );
+            for province in [*b"GZ", *b"ZS"] {
+                let r: publicentity::RoleCodeOf =
+                    primitives::governance_skeleton::province_commissioner_role_code(province)
+                        .try_into()
+                        .unwrap();
+                assert!(
+                    publicentity::InstitutionRoleAssignments::<Runtime>::get(&registry, &r)
+                        .is_empty()
+                );
+            }
+            let retained = publicentity::InstitutionRoleAssignments::<Runtime>::get(&cid, &role);
+            assert_eq!(retained.len(), 1);
+            assert_eq!(retained[0].person_cid, retained_person);
+            let root = sp_io::storage::root(sp_runtime::StateVersion::V1);
+            Institutions::step();
+            assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), root);
+        });
+    }
+}
+
+#[test]
 #[ignore = "通过塔塔控制台显式传入最终区块的只读状态副本"]
 fn entity_migration_replays_finalized_chain_state() {
     let path = std::env::var_os("CITIZENCHAIN_ENTITY_SNAPSHOT").expect("需要最终状态副本");
     let snapshot: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(snapshot["genesis"].as_str(), Some(GENESIS));
     let rows = snapshot["rows"].as_array().unwrap();
-    sp_io::TestExternalities::default().execute_with(|| {
+    let bytes =
+        |value: &Value| hex::decode(value.as_str().unwrap().strip_prefix("0x").unwrap()).unwrap();
+    let version = sp_runtime::StateVersion::try_from(
+        snapshot["version"]["stateVersion"].as_u64().unwrap() as u8,
+    )
+    .unwrap();
+    let storage = sp_core::storage::Storage {
+        top: rows
+            .iter()
+            .map(|row| (bytes(&row[0]), bytes(&row[1])))
+            .collect(),
+        ..Default::default()
+    };
+    let mut ext = sp_io::TestExternalities::new_with_state_version(storage, version);
+    // 使用锁定SDK真实证明记录器只读枚举全部来源和目标；不绕过生产迁移预算。
+    let ((scanned, payload), proof) = ext.execute_and_prove(|| {
+        let mut scanned = 0usize;
+        let mut payload = 0usize;
+        for (source, target, _) in crate::renamed_pallets() {
+            let from = sp_io::hashing::twox_128(source.as_bytes());
+            let to = sp_io::hashing::twox_128(target.as_bytes());
+            let mut cursor = from.to_vec();
+            while let Some(key) = sp_io::storage::next_key(&cursor).filter(|k| k.starts_with(&from))
+            {
+                let value = sp_io::storage::get(&key).unwrap();
+                payload += value.len();
+                scanned += 1;
+                let target = [to.as_slice(), &key[16..]].concat();
+                let _ = sp_io::storage::get(&target);
+                cursor = key;
+            }
+        }
+        (scanned, payload)
+    });
+    eprintln!(
+        "前缀改名只读证明：{scanned}条、{payload}值字节、{}证明字节",
+        proof.encoded_size()
+    );
+    ext.execute_with(|| {
         let bytes = |value: &Value| {
             hex::decode(value.as_str().unwrap().strip_prefix("0x").unwrap()).unwrap()
         };
         for row in rows {
             sp_io::storage::set(&bytes(&row[0]), &bytes(&row[1]));
         }
+        let version = sp_runtime::StateVersion::try_from(
+            snapshot["version"]["stateVersion"].as_u64().unwrap() as u8,
+        )
+        .unwrap();
+        assert_eq!(
+            sp_io::storage::root(version),
+            bytes(&snapshot["header"]["stateRoot"]),
+            "完整只读副本必须先匹配最终区块状态根"
+        );
         let genesis = Hash::from_slice(&bytes(&snapshot["genesis"]));
         frame_system::BlockHash::<Runtime>::insert(0, genesis);
         let issuance = Balances::total_issuance();
@@ -1026,6 +1452,23 @@ fn entity_migration_replays_finalized_chain_state() {
             .unwrap()
             .cid_number;
         <Runtime as frame_system::Config>::SingleBlockMigrations::on_runtime_upgrade();
+        // 原岗位中当前已绑定的人员逐条保留；创世原五职和七个接替岗位另行精确断言。
+        let mut bound_rows = Vec::new();
+        for public in [true, false] {
+            let pallet = if public {
+                b"PublicManage".as_slice()
+            } else {
+                b"PrivateManage".as_slice()
+            };
+            for (_, raw) in history(&prefix(pallet, b"InstitutionRoleAssignments")) {
+                let rows: Vec<OldAssignment> = DecodeAll::decode_all(&mut raw.as_ref()).unwrap();
+                for row in rows {
+                    if let Some(person) = Identity::person_cid(&row.account_id) {
+                        bound_rows.push((public, row, person));
+                    }
+                }
+            }
+        }
         let vote_prefix = sp_io::hashing::twox_128(b"VotingEngine");
         let internal_prefix = sp_io::hashing::twox_128(b"InternalVote");
         let vote_state = history(&vote_prefix);
@@ -1037,6 +1480,37 @@ fn entity_migration_replays_finalized_chain_state() {
         assert_eq!(counts.public, source_public as u64);
         assert_eq!(counts.private, source_private as u64);
         assert_eq!(counts.accounts, source_accounts as u64);
+        let mut preserved = 0u64;
+        for (public, old, person) in bound_rows {
+            let rows = if public {
+                publicentity::InstitutionRoleAssignments::<Runtime>::get(
+                    &old.cid_number,
+                    &old.role_code,
+                )
+            } else {
+                privateentity::InstitutionRoleAssignments::<Runtime>::get(
+                    &old.cid_number,
+                    &old.role_code,
+                )
+            };
+            assert_eq!(
+                rows.iter()
+                    .filter(|row| row.person_cid == person
+                        && row.cid_number == old.cid_number
+                        && row.role_code == old.role_code
+                        && row.term_start == old.term_start
+                        && row.term_end == old.term_end
+                        && row.assignment_source == old.assignment_source
+                        && row.assignment_source_ref == old.assignment_source_ref
+                        && row.assignment_status == old.assignment_status)
+                    .count(),
+                1
+            );
+            preserved += 1;
+        }
+        assert_eq!(preserved, 37, "本批37个已登记账户各保留原岗位任职");
+        assert_eq!(counts.assignments, 49, "37条原岗位任职及程伟12条任职");
+        assert_eq!(counts.missing_people, 986);
         assert_eq!(System::block_hash(0), genesis);
         assert_eq!(
             counts.public,
@@ -1311,6 +1785,25 @@ fn first_party_prefix_move_rolls_back_all_pallets_on_nonmatching_target_key() {
         let result = std::panic::catch_unwind(crate::migrations::RenamePallets::on_runtime_upgrade);
         assert!(result.is_err());
         assert_eq!(top_storage(), before);
+    });
+}
+
+#[test]
+fn first_party_prefix_move_rejects_oversized_proof_without_any_write() {
+    sp_io::TestExternalities::default().execute_with(|| {
+        let budget = crate::configs::RuntimeBlockWeights::get()
+            .max_block
+            .proof_size()
+            / 4;
+        sp_io::storage::set(&prefix(b"OnchainTransaction", b"Small"), &[1]);
+        let key = prefix(b"SquarePost", b"Large");
+        let value = vec![7; (budget / 2) as usize];
+        sp_io::storage::set(&key, &value);
+        let before = top_storage();
+        assert!(
+            std::panic::catch_unwind(crate::migrations::RenamePallets::on_runtime_upgrade).is_err()
+        );
+        assert_eq!(top_storage(), before, "所有来源和目标在预算拒绝后保持原样");
     });
 }
 
@@ -1656,6 +2149,11 @@ fn full_state_wasm_migration_replay() {
         .unwrap();
         parent = finalized.hash();
         let (proof, delta) = commit(&mut overlay);
+        let maximum = crate::configs::RuntimeBlockWeights::get().max_block;
+        assert!(
+            u64::from(proof) <= maximum.proof_size() / 4,
+            "专用维护块的真实证明必须落在原四分之一预算内：{proof}"
+        );
         if let Some((from, writer)) = archive.as_mut() {
             if first + step >= *from {
                 let state = if first + step == *from {
@@ -1861,8 +2359,8 @@ fn full_state_wasm_migration_replay() {
         assert_eq!(counts.public, source_public as u64);
         assert_eq!(counts.private, source_private as u64);
         assert_eq!(counts.accounts, source_accounts as u64);
-        assert_eq!(counts.assignments, 7);
-        assert_eq!(counts.missing_people, 1023);
+        assert_eq!(counts.assignments, 49);
+        assert_eq!(counts.missing_people, 986);
         assert_eq!(
             publicentity::Institutions::<Runtime>::iter().count(),
             source_public

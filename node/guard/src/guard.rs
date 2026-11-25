@@ -26,6 +26,8 @@ use sp_storage::StorageKey;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use nodeclient::codec::RuntimeStorage;
+
 /// 除宪法外的节点永久规则统一导入包装器。
 pub struct NodeGuard<I> {
     inner: I,
@@ -415,10 +417,46 @@ impl<I> NodeGuard<I> {
                 let read = |key: &[u8]| state.read_baseline(key);
                 let entries = state.baseline_entries();
                 let keys = entries.keys().cloned().collect::<Vec<_>>();
+                // 冻结块0只存在准确的旧实体布局；按已验证创世输入核对真实成员，
+                // 不能因新命名空间没有记录而误判为尚未组成。
+                let composition_error = std::cell::RefCell::new(None);
+                let composition_read = |key: &[u8]| {
+                    if !state.is_frozen() {
+                        return state.read(key);
+                    }
+                    let (source, target) = runtime::guard_entity_names(true);
+                    let target_prefix = sp_crypto_hashing::twox_128(target);
+                    let Some(suffix) = key.strip_prefix(target_prefix.as_slice()) else {
+                        return read(key);
+                    };
+                    let physical =
+                        [sp_crypto_hashing::twox_128(source).as_slice(), suffix].concat();
+                    let raw = state.read(&physical)?;
+                    if suffix.get(..16)
+                        == Some(sp_crypto_hashing::twox_128(b"Institutions").as_slice())
+                    {
+                        match runtime::guard_institution(&raw, true) {
+                            Ok(info) => Some(codec::Encode::encode(&info)),
+                            Err(error) => {
+                                *composition_error.borrow_mut() =
+                                    Some(format!("冻结机构解码失败:{error:?}"));
+                                None
+                            }
+                        }
+                    } else {
+                        Some(raw)
+                    }
+                };
                 if let Err(reason) =
-                    crate::guard::national_body_composition::check_full_state(&read)
+                    crate::guard::national_body_composition::check_full_state_with_layout(
+                        composition_read,
+                        |_| state.is_frozen(),
+                    )
                 {
                     startup_issues.push(format!("国家机构组成校验失败:{reason:?}"));
+                }
+                if let Some(reason) = composition_error.into_inner() {
+                    startup_issues.push(reason);
                 }
                 if let Err(reason) =
                     crate::guard::national_body_composition::check_vote_state_keys(&keys, &read)
@@ -560,9 +598,43 @@ impl<I> NodeGuard<I> {
         if root != *params.header.state_root() {
             return Err("完整状态根与区块头不匹配".into());
         }
-        let read = |key: &[u8]| storage.top.get(key).cloned();
-        let keys = storage.top.keys().cloned().collect::<Vec<_>>();
-        crate::guard::national_body_composition::check_full_state(&read)
+        // 完整状态也必须使用该状态真实代码的类型声明，不用节点编译期布局猜测。
+        // 这里只调用只读元数据接口，临时externalities中的任何写入均不进入核验状态。
+        use sp_core::traits::CodeExecutor as _;
+        let (metadata, _) = executor.call(
+            &mut sp_state_machine::BasicExternalities::new_empty(),
+            &runtime_code,
+            "Metadata_metadata",
+            &[],
+            sp_core::traits::CallContext::Onchain { import: false },
+        );
+        let metadata = metadata.map_err(|e| format!("完整状态元数据调用失败:{e}"))?;
+        let metadata: sp_core::OpaqueMetadata =
+            codec::DecodeAll::decode_all(&mut metadata.as_slice())
+                .map_err(|e| format!("完整状态元数据编码非法:{e}"))?;
+        let physical = |key: &[u8]| Ok(storage.top.get(key).cloned());
+        let layout = RuntimeStorage::from_metadata(&metadata)?.with_state(physical)?;
+        let read_error = std::cell::RefCell::new(None);
+        let read = |key: &[u8]| match layout.read(key, physical) {
+            Ok(value) => value,
+            Err(reason) => {
+                *read_error.borrow_mut() = Some(reason);
+                None
+            }
+        };
+        let legacy = |key: &[u8]| match layout.read_raw(key, physical) {
+            Ok(value) => value.is_some_and(|record| record.legacy),
+            Err(reason) => {
+                *read_error.borrow_mut() = Some(reason);
+                false
+            }
+        };
+        let keys = storage
+            .top
+            .keys()
+            .map(|key| layout.logical_key(key))
+            .collect::<Result<Vec<_>, _>>()?;
+        crate::guard::national_body_composition::check_full_state_with_layout(&read, legacy)
             .map_err(|e| format!("完整状态机构组成非法:{e:?}"))?;
         crate::guard::national_body_composition::check_vote_state_keys(&keys, &read)
             .map_err(|e| format!("完整状态治理阈值非法:{e:?}"))?;
@@ -570,13 +642,20 @@ impl<I> NodeGuard<I> {
             .map_err(|e| format!("完整状态创世事实非法:{e:?}"))?;
         crate::guard::provincialbank_interest::check_full_state(*params.header.number(), &read)
             .map_err(|e| format!("完整状态省储行规则非法:{e:?}"))?;
-        crate::guard::runtime_policy::check_imported_state(storage.top.iter())?;
+        let values = keys
+            .iter()
+            .filter_map(|key| read(key).map(|value| (key.clone(), value)))
+            .collect::<BTreeMap<_, _>>();
+        crate::guard::runtime_policy::check_imported_state(values.iter())?;
         crate::guard::cid_lifecycle::check_full_state(
             &keys,
             &read,
             self.cid_lifecycle.as_ref().ok_or("CID创世基准不可验证")?,
         )
         .map_err(|e| format!("完整状态CID规则非法:{e:?}"))?;
+        if let Some(reason) = read_error.into_inner() {
+            return Err(reason);
+        }
         // 与普通升级块复用同一候选runtime检查；内存状态精确来自下载态，不混入父状态。
         crate::guard::runtime_policy::check_candidate_runtime(
             &memory,
@@ -592,15 +671,18 @@ impl<I> NodeGuard<I> {
     fn cid_state_keys(
         client: &Arc<FullClient>,
         at: <Block as BlockT>::Hash,
+        storage: &RuntimeStorage,
     ) -> Result<Vec<Vec<u8>>, String> {
         let mut keys = BTreeMap::<Vec<u8>, ()>::new();
         for prefix in crate::guard::cid_lifecycle::storage_key::enumerated_prefixes() {
-            let prefix = StorageKey(prefix);
-            let iter = client
-                .storage_keys(at, Some(&prefix), None)
-                .map_err(|e| format!("枚举 CID 规范表失败:{e}"))?;
-            for key in iter {
-                keys.insert(key.0, ());
+            for prefix in storage.physical_prefixes(&prefix) {
+                let prefix = StorageKey(prefix);
+                let iter = client
+                    .storage_keys(at, Some(&prefix), None)
+                    .map_err(|e| format!("枚举 CID 规范表失败:{e}"))?;
+                for key in iter {
+                    keys.insert(storage.logical_key(&key.0)?, ());
+                }
             }
         }
         Ok(keys.into_keys().collect())
@@ -611,15 +693,18 @@ impl<I> NodeGuard<I> {
         client: &Arc<FullClient>,
         at: <Block as BlockT>::Hash,
         prefixes: Vec<Vec<u8>>,
+        storage: &RuntimeStorage,
     ) -> Result<Vec<Vec<u8>>, String> {
         let mut keys = BTreeMap::<Vec<u8>, ()>::new();
         for prefix in prefixes {
-            let prefix = StorageKey(prefix);
-            let iter = client
-                .storage_keys(at, Some(&prefix), None)
-                .map_err(|e| format!("枚举节点永久策略 storage 子树失败:{e}"))?;
-            for key in iter {
-                keys.insert(key.0, ());
+            for prefix in storage.physical_prefixes(&prefix) {
+                let prefix = StorageKey(prefix);
+                let iter = client
+                    .storage_keys(at, Some(&prefix), None)
+                    .map_err(|e| format!("枚举节点永久策略 storage 子树失败:{e}"))?;
+                for key in iter {
+                    keys.insert(storage.logical_key(&key.0)?, ());
+                }
             }
         }
         Ok(keys.into_keys().collect())
@@ -663,7 +748,7 @@ impl<I> NodeGuard<I> {
         let pre_changes = pre_api
             .into_storage_changes(&parent_state, parent_hash)
             .map_err(|e| format!("提取 finalize 前存储变更失败:{e}"))?;
-        let pre_delta: BTreeMap<Vec<u8>, Option<Vec<u8>>> =
+        let raw_pre_delta: BTreeMap<Vec<u8>, Option<Vec<u8>>> =
             pre_changes.main_storage_changes.into_iter().collect();
 
         // 第二阶段完整执行同一区块，得到 finalize 后状态；两阶段都只在 overlay 中执行，不提交后端。
@@ -674,26 +759,97 @@ impl<I> NodeGuard<I> {
         let changes = api
             .into_storage_changes(&parent_state, parent_hash)
             .map_err(|e| format!("提取存储变更失败:{e}"))?;
-        let post_delta: BTreeMap<Vec<u8>, Option<Vec<u8>>> =
+        let raw_post_delta: BTreeMap<Vec<u8>, Option<Vec<u8>>> =
             changes.main_storage_changes.iter().cloned().collect();
 
-        let read_parent = |key: &[u8]| -> Option<Vec<u8>> {
+        // 元数据来自执行该块的父 Runtime。只建立规则读取视图；提交和候选 Wasm
+        // 排演继续使用原始物理变更，不能把前缀定位结果写回真实状态或执行器。
+        let parent_metadata = self
+            .client
+            .runtime_api()
+            .metadata(parent_hash)
+            .map_err(|error| format!("读取父块 Runtime 元数据失败:{error}"))?;
+        let raw_parent = |key: &[u8]| -> Result<Option<Vec<u8>>, String> {
             self.client
                 .storage(parent_hash, &StorageKey(key.to_vec()))
-                .ok()
-                .flatten()
-                .map(|data| data.0)
+                .map(|value| value.map(|data| data.0))
+                .map_err(|error| format!("读取守卫父状态失败:{error}"))
         };
-        let read_pre = |key: &[u8]| -> Option<Vec<u8>> {
-            match pre_delta.get(key) {
-                Some(value) => value.clone(),
-                None => read_parent(key),
+        let raw_pre = |key: &[u8]| -> Result<Option<Vec<u8>>, String> {
+            match raw_pre_delta.get(key) {
+                Some(value) => Ok(value.clone()),
+                None => raw_parent(key),
             }
         };
-        let read_post = |key: &[u8]| -> Option<Vec<u8>> {
-            match post_delta.get(key) {
-                Some(value) => value.clone(),
-                None => read_parent(key),
+        let raw_post = |key: &[u8]| -> Result<Option<Vec<u8>>, String> {
+            match raw_post_delta.get(key) {
+                Some(value) => Ok(value.clone()),
+                None => raw_parent(key),
+            }
+        };
+        // 父状态按写入它的Runtime解释；本块两个执行阶段按执行Runtime及各自进度解释。
+        // set_code后的首块不能把尚未搬迁的父状态误当成已经完成的新存储。
+        let storage =
+            RuntimeStorage::at_state(&self.client, parent_hash)?.with_state(&raw_parent)?;
+        let pre_storage =
+            RuntimeStorage::from_metadata(parent_metadata.as_slice())?.with_state(&raw_pre)?;
+        let post_storage =
+            RuntimeStorage::from_metadata(parent_metadata.as_slice())?.with_state(&raw_post)?;
+        let phase_changed = storage.migration() != post_storage.migration();
+        let stage_error = std::cell::RefCell::new(None);
+        let stage_read = |value: Result<Option<Vec<u8>>, String>| match value {
+            Ok(value) => value,
+            Err(reason) => {
+                *stage_error.borrow_mut() = Some(reason);
+                None
+            }
+        };
+        runtime::guard_migration_transition(
+            |key| stage_read(raw_parent(key)),
+            |key| stage_read(raw_post(key)),
+        )
+        .map_err(|e| format!("迁移阶段转换非法:{e:?}"))?;
+        if let Some(reason) = stage_error.into_inner() {
+            return Err(reason);
+        }
+        if phase_changed && post_storage.migration() == runtime::MigrationState::Complete {
+            // 进度或版本键不能替代真实清理证据；已知来源必须在完成态全部为空。
+            let keys = self
+                .client
+                .storage_keys(parent_hash, None, None)
+                .map_err(|e| format!("枚举迁移完成来源失败:{e}"))?;
+            for key in keys {
+                if runtime::guard_retired_key(&key.0) && raw_post(&key.0)?.is_some() {
+                    return Err("迁移完成后仍存在旧机构或管理员记录".into());
+                }
+            }
+        }
+        let pre_delta = storage.transition_changes(&pre_storage, &raw_pre_delta, &raw_parent)?;
+        let post_delta = storage.transition_changes(&post_storage, &raw_post_delta, &raw_parent)?;
+        // 既有规则接口用Option表达不存在，所有读取/解码错误另行保留，最终必须拒绝导入。
+        let read_error = std::cell::RefCell::new(None);
+        let checked = |result: Result<Option<Vec<u8>>, String>| match result {
+            Ok(value) => value,
+            Err(reason) => {
+                *read_error.borrow_mut() = Some(reason);
+                None
+            }
+        };
+        let read_parent = |key: &[u8]| checked(storage.read(key, &raw_parent));
+        let read_pre = |key: &[u8]| checked(pre_storage.read(key, &raw_pre));
+        let read_post = |key: &[u8]| checked(post_storage.read(key, &raw_post));
+        let parent_legacy = |key: &[u8]| match storage.read_raw(key, &raw_parent) {
+            Ok(value) => value.is_some_and(|record| record.legacy),
+            Err(reason) => {
+                *read_error.borrow_mut() = Some(reason);
+                false
+            }
+        };
+        let post_legacy = |key: &[u8]| match post_storage.read_raw(key, &raw_post) {
+            Ok(value) => value.is_some_and(|record| record.legacy),
+            Err(reason) => {
+                *read_error.borrow_mut() = Some(reason);
+                false
             }
         };
 
@@ -708,11 +864,6 @@ impl<I> NodeGuard<I> {
             return Ok(true);
         }
         // 事件由父块 Runtime 执行时编码；升级块不能用节点内置的新事件类型解码。
-        let parent_metadata = self
-            .client
-            .runtime_api()
-            .metadata(parent_hash)
-            .map_err(|error| format!("读取父块 Runtime 元数据失败:{error}"))?;
         if let Err(reason) =
             crate::guard::runtime_policy::check_block(&body, read_post, parent_metadata.as_slice())
         {
@@ -828,7 +979,7 @@ impl<I> NodeGuard<I> {
             return Ok(true);
         }
 
-        if crate::guard::cid_lifecycle::needs_full_check(&post_delta) {
+        if crate::guard::cid_lifecycle::needs_full_check(&post_delta) || phase_changed {
             let Some(cid_lifecycle) = self.cid_lifecycle.as_ref() else {
                 log::error!(
                     target: "node-guard",
@@ -838,10 +989,11 @@ impl<I> NodeGuard<I> {
                 );
                 return Ok(true);
             };
-            let mut keys: BTreeMap<Vec<u8>, ()> = Self::cid_state_keys(&self.client, parent_hash)?
-                .into_iter()
-                .map(|key| (key, ()))
-                .collect();
+            let mut keys: BTreeMap<Vec<u8>, ()> =
+                Self::cid_state_keys(&self.client, parent_hash, &storage)?
+                    .into_iter()
+                    .map(|key| (key, ()))
+                    .collect();
             for key in post_delta
                 .keys()
                 .filter(|key| crate::guard::cid_lifecycle::is_relevant_key(key))
@@ -870,6 +1022,7 @@ impl<I> NodeGuard<I> {
                 &self.client,
                 parent_hash,
                 crate::guard::runtime_policy::storage_key::relevant_prefixes().to_vec(),
+                &storage,
             )?
             .into_iter()
             .map(|key| (key, ()))
@@ -901,7 +1054,7 @@ impl<I> NodeGuard<I> {
             if let Err(reason) = crate::guard::runtime_policy::check_candidate_runtime(
                 &parent_state,
                 parent_hash,
-                &post_delta,
+                &raw_post_delta,
                 &candidate_code,
                 Some(parent_metadata.as_slice()),
             ) {
@@ -949,6 +1102,7 @@ impl<I> NodeGuard<I> {
                         crate::guard::national_body_composition::storage_key::threshold_prefix(),
                         crate::guard::national_body_composition::storage_key::proposal_prefix(),
                     ],
+                    &storage,
                 )?
                 .into_iter()
                 .map(|key| (key, ()))
@@ -966,10 +1120,21 @@ impl<I> NodeGuard<I> {
             } else {
                 None
             };
-        if let Err(reason) = crate::guard::national_body_composition::check_transition(
+        if phase_changed {
+            crate::guard::national_body_composition::check_full_state_with_layout(
+                &read_post,
+                &post_legacy,
+            )
+            .map_err(|e| format!("迁移阶段机构组成全检失败:{e:?}"))?;
+        }
+        if let Err(reason) = crate::guard::national_body_composition::check_transition_with_layout(
             &post_delta,
             read_parent,
             read_post,
+            parent_legacy,
+            post_legacy,
+            storage.migration() == runtime::MigrationState::Running
+                || post_storage.migration() == runtime::MigrationState::Running,
             runtime_upgrade_vote_keys.as_deref(),
         ) {
             log::error!(
@@ -980,6 +1145,9 @@ impl<I> NodeGuard<I> {
                 reason,
             );
             return Ok(true);
+        }
+        if let Some(reason) = read_error.into_inner() {
+            return Err(reason);
         }
         // 普通执行块只导入本节点已验证的执行结果，不消费外来预计算变更。
         if !matches!(&params.state_action, StateAction::Skip) {

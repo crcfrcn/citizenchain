@@ -1002,23 +1002,7 @@ impl GenesisReference {
         if !state.is_frozen() {
             return Err(GuardError::StorageValueDecodeFailed("未经验证的冻结输入"));
         }
-        // 原始块0的法代字段包含账户；严格消费其历史SCALE，账户不进入任何资格判断。
-        #[derive(Decode)]
-        struct FrozenRepresentative {
-            _family_name: Vec<u8>,
-            _given_name: Vec<u8>,
-            _cid_number: Vec<u8>,
-            _account: [u8; 32],
-        }
-        #[derive(Decode)]
-        struct FrozenInstitution {
-            _full_name: Vec<u8>,
-            _short_name: Vec<u8>,
-            town_code: Vec<u8>,
-            _representative: Option<FrozenRepresentative>,
-            institution_code: InstitutionCode,
-            created_at: u32,
-        }
+        // 原始块0的值布局由迁移所有者严格解释；节点不复制旧法代和账户编码。
         let mut institutions = BTreeMap::new();
         for pallet in [b"PublicManage".as_slice(), b"PrivateManage".as_slice()] {
             let prefix = nodedesktop::storage::prefix(pallet, b"Institutions");
@@ -1027,7 +1011,8 @@ impl GenesisReference {
                 let raw = state
                     .read(key)
                     .ok_or(GuardError::GenesisInstitutionDeleted)?;
-                let record: FrozenInstitution = decode_exact(&raw, "冻结Institutions")?;
+                let record = runtime::guard_institution(&raw, true)
+                    .map_err(|_| GuardError::StorageValueDecodeFailed("冻结Institutions"))?;
                 let code = parse_cid(&cid)?;
                 if code != record.institution_code {
                     return Err(GuardError::GenesisInstitutionChanged);

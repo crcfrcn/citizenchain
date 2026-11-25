@@ -1,9 +1,10 @@
-//! 解码SCALE账户和Runtime metadata，并安全截断UTF-8展示文本。
+//! 按真实Runtime元数据定位存储，解码SCALE账户并安全截断UTF-8展示文本。
 
 #![allow(clippy::result_large_err)]
 use runtime;
+use std::collections::BTreeMap;
 
-use codec::Decode;
+use codec::{Decode, Encode};
 
 use frame_metadata::RuntimeMetadata;
 use frame_metadata::RuntimeMetadataPrefixed;
@@ -14,6 +15,376 @@ use sc_network::NetworkBackend as _;
 use sp_api::Metadata as _;
 
 use sp_runtime::traits::Block as BlockT;
+
+/// 原生规则使用编译期类型的键，物理存储名由执行区块的真实元数据决定。
+/// 按稳定 pallet 编号定位前缀；不修改键后缀、SCALE 值或链状态，也不按版本猜测名称。
+pub struct RuntimeStorage {
+    prefixes: Vec<([u8; 16], [u8; 16])>,
+    entity_layouts: [Option<bool>; 2],
+    migration: runtime::MigrationState,
+}
+
+/// 原始记录及其已确定的物理布局；旧账户字段不代表人员资格。
+pub struct StorageRecord {
+    /// 节点从所查询物理键取得的原始SCALE值。
+    pub bytes: Vec<u8>,
+    /// 布局由实际元数据或已验证迁移来源确定，不能试解码猜测。
+    pub legacy: bool,
+}
+
+impl RuntimeStorage {
+    fn names(bytes: &[u8]) -> Result<BTreeMap<u8, String>, String> {
+        let metadata = decode_runtime_metadata(bytes)?;
+        let names: Vec<_> = match metadata {
+            frame_metadata::RuntimeMetadata::V14(value) => value
+                .pallets
+                .into_iter()
+                .map(|p| (p.index, p.name, p.storage.map(|storage| storage.prefix)))
+                .collect(),
+            frame_metadata::RuntimeMetadata::V15(value) => value
+                .pallets
+                .into_iter()
+                .map(|p| (p.index, p.name, p.storage.map(|storage| storage.prefix)))
+                .collect(),
+            frame_metadata::RuntimeMetadata::V16(value) => value
+                .pallets
+                .into_iter()
+                .map(|p| (p.index, p.name, p.storage.map(|storage| storage.prefix)))
+                .collect(),
+            _ => return Err("节点守卫不支持该 Runtime 元数据".into()),
+        };
+        let mut indexed = BTreeMap::new();
+        let mut occupied = std::collections::BTreeSet::new();
+        let mut storage_prefixes = std::collections::BTreeSet::new();
+        for (index, name, storage) in names {
+            let prefix = storage.unwrap_or_else(|| name.clone());
+            if name.is_empty()
+                || prefix.is_empty()
+                || indexed.insert(index, prefix.clone()).is_some()
+                || !occupied.insert(name)
+                || !storage_prefixes.insert(prefix)
+            {
+                return Err("Runtime 元数据包含空名称或重复 pallet 身份".into());
+            }
+        }
+        Ok(indexed)
+    }
+
+    /// 根据执行 Runtime 的完整元数据建立存储定位，重复身份和受保护模块缺失均失败。
+    pub fn from_metadata(bytes: &[u8]) -> Result<Self, String> {
+        let compiled =
+            runtime::Runtime::metadata_at_version(16).ok_or("节点编译期缺少 V16 元数据")?;
+        let actual = Self::names(bytes)?;
+        let mut prefixes = Vec::new();
+        for (index, name) in Self::names(compiled.as_slice())? {
+            if let Some(owner) = actual.get(&index) {
+                let source = sp_crypto_hashing::twox_128(name.as_bytes());
+                let target = sp_crypto_hashing::twox_128(owner.as_bytes());
+                if source != target {
+                    prefixes.push((source, target));
+                }
+            } else if matches!(name.as_str(), "System" | "Balances" | "Genesis") {
+                return Err(format!("Runtime 元数据缺少受保护 pallet 编号 {index}"));
+            }
+        }
+        let mut entity_layouts = [None, None];
+        macro_rules! layouts {
+            ($metadata:expr) => {
+                for pallet in &$metadata.pallets {
+                    if !matches!(pallet.index, 30 | 31) { continue; }
+                    let storage = pallet.storage.as_ref().ok_or("实体元数据缺少存储声明")?;
+                    let entry = storage.entries.iter().find(|s| s.name == "Institutions")
+                        .ok_or("实体元数据缺少机构表")?;
+                    let frame_metadata::v14::StorageEntryType::Map { value, .. } = &entry.ty
+                    else { return Err("机构表不是映射".into()); };
+                    entity_layouts[(pallet.index - 30) as usize] = Some(
+                        runtime::guard_institution_layout(&$metadata.types, value.id)
+                            .map_err(|e| format!("机构元数据布局非法:{e:?}"))?);
+                }
+            };
+        }
+        match decode_runtime_metadata(bytes)? {
+            RuntimeMetadata::V14(value) => layouts!(value),
+            RuntimeMetadata::V15(value) => layouts!(value),
+            RuntimeMetadata::V16(value) => layouts!(value),
+            _ => return Err("机构元数据版本不受支持".into()),
+        }
+        Ok(Self {
+            prefixes,
+            entity_layouts,
+            migration: runtime::MigrationState::NotStarted,
+        })
+    }
+
+    /// 机构原始值布局来自同一执行元数据；缺失声明不能视为新布局。
+    pub fn entity_legacy(&self, public: bool) -> Result<bool, String> {
+        self.entity_layouts[usize::from(!public)].ok_or("实体元数据缺失".into())
+    }
+
+    /// 迁移进度只经Runtime所属接口解析，错误记录不能退化成未迁移状态。
+    pub fn with_state(
+        mut self,
+        read: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, String>,
+    ) -> Result<Self, String> {
+        let error = std::cell::RefCell::new(None);
+        let stage = runtime::guard_migration_state(|key| match read(key) {
+            Ok(value) => value,
+            Err(reason) => {
+                *error.borrow_mut() = Some(reason);
+                None
+            }
+        });
+        if let Some(reason) = error.into_inner() {
+            return Err(reason);
+        }
+        self.migration = stage.map_err(|e| format!("迁移阶段非法:{e:?}"))?;
+        if self.migration != runtime::MigrationState::NotStarted
+            && (self.entity_legacy(true)? || self.entity_legacy(false)?)
+        {
+            return Err("迁移标记与执行元数据布局冲突".into());
+        }
+        Ok(self)
+    }
+
+    /// 当前存储所属迁移阶段，仅供节点检查中间状态，不授予任何业务权限。
+    pub fn migration(&self) -> runtime::MigrationState {
+        self.migration
+    }
+
+    fn entity_key(key: &[u8]) -> Option<bool> {
+        for public in [true, false] {
+            let (_, target) = runtime::guard_entity_names(public);
+            if key.starts_with(&sp_crypto_hashing::twox_128(target)) {
+                return Some(public);
+            }
+        }
+        None
+    }
+
+    /// 固定阶段内准确定位记录；迁移中才读取该迁移公开声明的未搬来源。
+    pub fn read_raw(
+        &self,
+        key: &[u8],
+        read: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, String>,
+    ) -> Result<Option<StorageRecord>, String> {
+        let actual = self.key(key, true);
+        let primary = read(&actual)?;
+        let Some(public) = Self::entity_key(key) else {
+            return Ok(primary.map(|bytes| StorageRecord {
+                bytes,
+                legacy: false,
+            }));
+        };
+        if self.migration != runtime::MigrationState::Running {
+            let legacy = self.entity_legacy(public)?;
+            return Ok(primary.map(|bytes| StorageRecord { bytes, legacy }));
+        }
+        let (source, _) = runtime::guard_entity_names(public);
+        let old_key = [sp_crypto_hashing::twox_128(source).as_slice(), &key[16..]].concat();
+        let old = read(&old_key)?;
+        match (primary, old) {
+            (Some(bytes), Some(old)) => {
+                if key.get(16..32)
+                    != Some(sp_crypto_hashing::twox_128(b"InstitutionRoleAssignments").as_slice())
+                {
+                    return Err("迁移来源与目标记录冲突".into());
+                }
+                runtime::guard_partial_assignments(key, &old, &bytes, |key| {
+                    read(key).map_err(|_| sp_runtime::DispatchError::Other("读取任职迁移状态失败"))
+                })
+                .map_err(|e| format!("任职迁移中间状态非法:{e:?}"))?;
+                Ok(Some(StorageRecord {
+                    bytes: old,
+                    legacy: true,
+                }))
+            }
+            (Some(bytes), _) => Ok(Some(StorageRecord {
+                bytes,
+                legacy: false,
+            })),
+            (None, Some(bytes)) => Ok(Some(StorageRecord {
+                bytes,
+                legacy: true,
+            })),
+            (None, None) => Ok(None),
+        }
+    }
+
+    /// 永久事实统一由所属Runtime解释机构布局；其它值原样交给各自规则。
+    pub fn read(
+        &self,
+        key: &[u8],
+        read: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, String>,
+    ) -> Result<Option<Vec<u8>>, String> {
+        let Some(record) = self.read_raw(key, read)? else {
+            return Ok(None);
+        };
+        if Self::entity_key(key).is_some()
+            && key.get(16..32) == Some(sp_crypto_hashing::twox_128(b"Institutions").as_slice())
+        {
+            return runtime::guard_institution(&record.bytes, record.legacy)
+                .map(|info| Some(info.encode()))
+                .map_err(|e| format!("机构事实解码失败:{e:?}"));
+        }
+        Ok(Some(record.bytes))
+    }
+
+    /// 迁移中的来源键仍由Runtime声明解释，未知来源不能当作普通无关键。
+    pub fn logical_key(&self, key: &[u8]) -> Result<Vec<u8>, String> {
+        if self.migration == runtime::MigrationState::Complete && runtime::guard_retired_key(key) {
+            return Err("迁移完成后仍存在已退役来源键".into());
+        }
+        if self.migration == runtime::MigrationState::Running {
+            if let Some(target) =
+                runtime::guard_migration_target(key).map_err(|e| format!("迁移键非法:{e:?}"))?
+            {
+                return Ok(target);
+            }
+        }
+        Ok(self.key(key, false))
+    }
+
+    /// 枚举必须覆盖当前阶段的全部真实来源，不能漏掉尚未搬迁的机构记录。
+    pub fn physical_prefixes(&self, logical: &[u8]) -> Vec<Vec<u8>> {
+        let mut prefixes = vec![self.key(logical, true)];
+        if self.migration == runtime::MigrationState::Running {
+            if let Some(public) = Self::entity_key(logical) {
+                let (source, _) = runtime::guard_entity_names(public);
+                let prefix = [
+                    sp_crypto_hashing::twox_128(source).as_slice(),
+                    &logical[16..],
+                ]
+                .concat();
+                if !prefixes.contains(&prefix) {
+                    prefixes.push(prefix);
+                }
+            }
+        }
+        prefixes
+    }
+
+    /// 解释同一已执行区块的物理搬迁，只有已声明且真实存在的来源删除才能合并。
+    /// 普通同值写入仍保留为写入；这里从不修改原始delta或提交状态。
+    pub fn transition_changes(
+        &self,
+        post: &Self,
+        raw: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+        read_parent: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, String>,
+    ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, String> {
+        let read_post = |key: &[u8]| match raw.get(key) {
+            Some(value) => Ok(value.clone()),
+            None => read_parent(key),
+        };
+        let mut grouped = BTreeMap::<Vec<u8>, Vec<(&Vec<u8>, &Option<Vec<u8>>)>>::new();
+        for (key, value) in raw {
+            let parent_key = self.logical_key(key)?;
+            let post_key = post.logical_key(key)?;
+            let logical = if parent_key != *key {
+                parent_key
+            } else {
+                post_key
+            };
+            grouped.entry(logical).or_default().push((key, value));
+        }
+        let mut delta = BTreeMap::new();
+        for (logical, records) in grouped {
+            let source = records
+                .iter()
+                .find(|(_, value)| value.is_none())
+                .map(|(key, _)| *key);
+            let moved = if let Some(source) = source {
+                runtime::guard_migration_target(source)
+                    .map_err(|e| format!("迁移键非法:{e:?}"))?
+                    .is_some_and(|target| target == logical)
+                    && (self.migration == runtime::MigrationState::Running
+                        || post.migration == runtime::MigrationState::Running
+                        || self.key(&logical, true) != post.key(&logical, true))
+                    && read_parent(source)?.is_some()
+                    && read_post(source)?.is_none()
+            } else {
+                false
+            };
+            if records.len() > 1
+                && (!moved
+                    || records.len() != 2
+                    || records.iter().filter(|(_, value)| value.is_some()).count() != 1)
+            {
+                return Err("节点守卫存储键归属冲突".into());
+            }
+            let before = self.read(&logical, &read_parent)?;
+            let after = post.read(&logical, &read_post)?;
+            if moved && before == after && after.is_some() {
+                continue;
+            }
+            for (key, value) in &records {
+                if value.is_some()
+                    && **key != post.key(&logical, true)
+                    && !(post.migration == runtime::MigrationState::Running
+                        && runtime::guard_migration_target(key)
+                            .map_err(|e| format!("迁移键非法:{e:?}"))?
+                            .is_some_and(|target| target == logical))
+                {
+                    return Err("变更写入了非所属存储命名空间".into());
+                }
+            }
+            delta.insert(logical, after);
+        }
+        Ok(delta)
+    }
+
+    /// 父状态归写入它的 Runtime 所有；set_code更新代码后的首块尚未执行名称迁移。
+    pub fn at_state(
+        client: &crate::types::FullClient,
+        at: <runtime::opaque::Block as sp_runtime::traits::Block>::Hash,
+    ) -> Result<Self, String> {
+        use sc_client_api::HeaderBackend as _;
+        use sp_api::{Metadata as _, ProvideRuntimeApi as _};
+        use sp_runtime::traits::Header as _;
+        let header = client
+            .header(at)
+            .map_err(|e| e.to_string())?
+            .ok_or("存储所属区块不存在")?;
+        let writer = if *header.number() == 0 {
+            at
+        } else {
+            *header.parent_hash()
+        };
+        let metadata = client
+            .runtime_api()
+            .metadata(writer)
+            .map_err(|e| e.to_string())?;
+        Self::from_metadata(metadata.as_slice())
+    }
+
+    /// actual为true时定位真实读取键，为false时转为原生规则的键；后缀原样保留。
+    pub fn key(&self, key: &[u8], actual: bool) -> Vec<u8> {
+        for (compiled, runtime) in &self.prefixes {
+            let (from, to) = if actual {
+                (compiled, runtime)
+            } else {
+                (runtime, compiled)
+            };
+            if key.starts_with(from) {
+                return [to.as_slice(), &key[16..]].concat();
+            }
+        }
+        key.to_vec()
+    }
+
+    /// 为原生规则组织只读变更视图，保留删除事实并拒绝归属冲突。
+    pub fn changes(
+        &self,
+        raw: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    ) -> Result<BTreeMap<Vec<u8>, Option<Vec<u8>>>, String> {
+        let mut result = BTreeMap::new();
+        for (key, value) in raw {
+            if result.insert(self.key(key, false), value.clone()).is_some() {
+                return Err("节点守卫存储键归属冲突".into());
+            }
+        }
+        Ok(result)
+    }
+}
 
 /// 父块事件解码和RPC能力探测只信任该块Runtime自身的完整元数据。
 pub fn decode_runtime_metadata(raw: &[u8]) -> Result<RuntimeMetadata, String> {
@@ -42,8 +413,7 @@ pub type AccountInfo = frame_system::AccountInfo<
 
 pub fn decode_account(data: &[u8]) -> Result<AccountInfo, String> {
     use codec::DecodeAll;
-    AccountInfo::decode_all(&mut &data[..])
-        .map_err(|e| format!("System::Account 解码失败: {e}"))
+    AccountInfo::decode_all(&mut &data[..]).map_err(|e| format!("System::Account 解码失败: {e}"))
 }
 
 /// 总余额包含保留资金及账户保留金；冻结额限制支出，不重复计入资产。
@@ -156,6 +526,9 @@ pub fn truncate_chars(s: &str, max_chars: usize) -> String {
 mod tests;
 
 /// 提案 ID 和年内序号在 JSON 边界使用十进制字符串，避免 JavaScript 丢失精度。
-pub fn serialize_decimal<S: serde::Serializer, T: core::fmt::Display>(value: &T, serializer: S) -> Result<S::Ok, S::Error> {
+pub fn serialize_decimal<S: serde::Serializer, T: core::fmt::Display>(
+    value: &T,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
     serializer.collect_str(value)
 }

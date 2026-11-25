@@ -135,7 +135,7 @@ pub(crate) async fn registration_snapshot_at(
     let mut found = None;
     for owner in [EntityPallet::Public, EntityPallet::Private] {
         if let Some(info) =
-            value::<Institution>(view, owner.pallet_name(), "Institutions", &[cid.as_bytes()])
+            value::<Institution>(view, &owner.pallet_name(&view.client.metadata())?, "Institutions", &[cid.as_bytes()])
                 .await?
         {
             if found.is_some() || info.institution_code != parts.institution {
@@ -151,12 +151,12 @@ pub(crate) async fn registration_snapshot_at(
     {
         return Err("institution namespace mismatch".into());
     }
-    let pallet = owner.pallet_name();
+    let pallet = owner.pallet_name(&view.client.metadata())?;
     let mut roles = BTreeMap::new();
     let mut iter = view
         .storage()
         .iter(dynamic::storage(
-            pallet,
+            pallet.as_str(),
             "InstitutionRoles",
             vec![dynamic::Value::from_bytes(cid.as_bytes())],
         ))
@@ -177,7 +177,7 @@ pub(crate) async fn registration_snapshot_at(
     for role in roles.keys() {
         let perms = value::<Vec<Permission>>(
             view,
-            pallet,
+            pallet.as_str(),
             "InstitutionRolePermissions",
             &[cid.as_bytes(), role],
         )
@@ -190,7 +190,7 @@ pub(crate) async fn registration_snapshot_at(
         }
         let rows = value::<Vec<Assignment>>(
             view,
-            pallet,
+            pallet.as_str(),
             "InstitutionRoleAssignments",
             &[cid.as_bytes(), role],
         )
@@ -211,7 +211,7 @@ pub(crate) async fn registration_snapshot_at(
     let constant = view
         .client
         .constants()
-        .at(&dynamic::constant(pallet, "MaxRoleEntries"))
+        .at(&dynamic::constant(pallet.as_str(), "MaxRoleEntries"))
         .map_err(|e| e.to_string())?;
     let max_seats = u32::decode_all(&mut constant.encoded()).map_err(|e| e.to_string())?;
     Ok(RegistrationSnapshot {
@@ -224,12 +224,12 @@ pub(crate) async fn registration_snapshot_at(
         roles,
         permissions,
         assignments,
-        nonce: value(view, pallet, "InstitutionRoleNonce", &[cid.as_bytes()])
+        nonce: value(view, pallet.as_str(), "InstitutionRoleNonce", &[cid.as_bytes()])
             .await?
             .unwrap_or(0),
         threshold: value(
             view,
-            pallet,
+            pallet.as_str(),
             "InstitutionGovernanceThresholds",
             &[cid.as_bytes()],
         )

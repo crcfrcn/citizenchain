@@ -48,6 +48,107 @@ fn block_requires_timestamp_and_at_least_one_user_transaction() {
     assert!(has_user_transaction(2));
 }
 
+fn metadata_with_genesis_name(name: &str) -> Vec<u8> {
+    let bytes = runtime::Runtime::metadata_at_version(16).unwrap();
+    let mut metadata = nodeclient::codec::decode_runtime_metadata(bytes.as_slice()).unwrap();
+    let frame_metadata::RuntimeMetadata::V16(value) = &mut metadata else {
+        panic!("测试需要真实 V16 元数据");
+    };
+    let pallet = value
+        .pallets
+        .iter_mut()
+        .find(|p| p.name == "Genesis")
+        .unwrap();
+    pallet.name = name.into();
+    pallet.storage.as_mut().unwrap().prefix = name.into();
+    frame_metadata::RuntimeMetadataPrefixed(0x6174_656d, metadata).encode()
+}
+
+#[test]
+fn runtime_storage_uses_executing_metadata_and_preserves_immutable_guards() {
+    // 名称由元数据决定，不能靠预设的新旧名称或版本回退通过这个用例。
+    let metadata = metadata_with_genesis_name("ExecutedGenesis");
+    let storage = RuntimeStorage::from_metadata(&metadata).unwrap();
+    let key = |name: &[u8]| nodedesktop::storage::prefix(b"ExecutedGenesis", name);
+    let mut state = BTreeMap::from([
+        (
+            key(b"CitizensDeclaration"),
+            primitives::genesis::CITIZENS.as_bytes().to_vec().encode(),
+        ),
+        (
+            key(b"CountryDeclaration"),
+            primitives::genesis::COUNTRY.as_bytes().to_vec().encode(),
+        ),
+        (
+            key(b"CitizenMax"),
+            primitives::genesis::GENESIS_CITIZEN_MAX.encode(),
+        ),
+    ]);
+    let untouched = state.clone();
+    assert_eq!(
+        genesis_pallet::check_full_state(|k| state.get(k).cloned()),
+        Err(genesis_pallet::GuardError::CitizensDeclarationMissing),
+    );
+    let read = |k: &[u8]| state.get(&storage.key(k, true)).cloned();
+    assert_eq!(
+        genesis_pallet::check_transition(&BTreeMap::new(), &read, &read),
+        Ok(())
+    );
+    let immutable = genesis_pallet::storage_key::citizens_declaration();
+    let raw = BTreeMap::from([(
+        key(b"CitizensDeclaration"),
+        Some(state[&key(b"CitizensDeclaration")].clone()),
+    )]);
+    let changes = storage.changes(&raw).unwrap();
+    assert_eq!(
+        genesis_pallet::check_transition(&changes, &read, &read),
+        Err(genesis_pallet::GuardError::ImmutableStorageTouched(
+            immutable.clone()
+        )),
+    );
+    assert_eq!(state, untouched);
+    state.remove(&key(b"CitizensDeclaration"));
+    // 候选名称下的同值记录不能冒充执行 Runtime 的真实存储。
+    state.insert(
+        immutable.clone(),
+        primitives::genesis::CITIZENS.as_bytes().to_vec().encode(),
+    );
+    assert_eq!(
+        genesis_pallet::check_full_state(|k| state.get(&storage.key(k, true)).cloned()),
+        Err(genesis_pallet::GuardError::CitizensDeclarationMissing),
+    );
+    let mut collision = raw;
+    collision.insert(immutable, None);
+    assert!(storage.changes(&collision).is_err());
+    let actual_key = key(b"CitizenMax");
+    let rule_key = storage.key(&actual_key, false);
+    assert_eq!(&actual_key[16..], &rule_key[16..]);
+    assert_eq!(storage.key(&rule_key, true), actual_key);
+    assert_eq!(storage.key(b":code", true), b":code");
+}
+
+#[test]
+fn runtime_storage_rejects_invalid_or_ambiguous_metadata() {
+    assert!(RuntimeStorage::from_metadata(b"invalid").is_err());
+    let mut bytes = metadata_with_genesis_name("ExecutedGenesis");
+    bytes.push(0);
+    assert!(RuntimeStorage::from_metadata(&bytes).is_err());
+    let bytes = runtime::Runtime::metadata_at_version(16).unwrap();
+    let mut metadata = nodeclient::codec::decode_runtime_metadata(bytes.as_slice()).unwrap();
+    let frame_metadata::RuntimeMetadata::V16(value) = &mut metadata else {
+        panic!("V16")
+    };
+    value.pallets[1].index = value.pallets[0].index;
+    assert!(RuntimeStorage::from_metadata(
+        &frame_metadata::RuntimeMetadataPrefixed(0x6174_656d, metadata).encode()
+    )
+    .is_err());
+    assert!(RuntimeStorage::from_metadata(&metadata_with_genesis_name("System")).is_err());
+    let identity = RuntimeStorage::from_metadata(bytes.as_slice()).unwrap();
+    let key = genesis_pallet::storage_key::citizen_max();
+    assert_eq!(identity.key(&key, true), key);
+}
+
 #[derive(Default)]
 pub(super) struct CountingImport {
     pub(super) imports: AtomicUsize,

@@ -61,10 +61,57 @@ fn platform_price_storage_values_decode_strictly() {
 }
 
 #[test]
+fn storage_names_are_resolved_from_executing_metadata_without_name_fallbacks() {
+    use codec::{Decode, Encode};
+    use subxt::ext::frame_metadata::{RuntimeMetadata, RuntimeMetadataPrefixed};
+    let bytes = runtime::Runtime::metadata().encode();
+    let mut raw = RuntimeMetadataPrefixed::decode(&mut bytes.as_slice()).unwrap();
+    macro_rules! rename {
+        ($pallets:expr) => {
+            for pallet in &mut $pallets {
+                pallet.name = match pallet.index {
+                    10 => "ExecutedIdentity".into(),
+                    30 => "ExecutedPublic".into(),
+                    31 => "ExecutedPrivate".into(),
+                    _ => continue,
+                };
+            }
+        };
+    }
+    match &mut raw.1 {
+        RuntimeMetadata::V14(metadata) => rename!(metadata.pallets),
+        RuntimeMetadata::V15(metadata) => rename!(metadata.pallets),
+        RuntimeMetadata::V16(metadata) => rename!(metadata.pallets),
+        _ => panic!("unsupported test metadata"),
+    }
+    let metadata = subxt::Metadata::decode(&mut raw.encode().as_slice()).unwrap();
+    for (index, expected) in [(10, "ExecutedIdentity"), (30, "ExecutedPublic"), (31, "ExecutedPrivate")] {
+        assert_eq!(super::runtime_pallet_name(&metadata, index).unwrap(), expected);
+    }
+    assert!(super::runtime_pallet_name(&metadata, 255).is_err());
+}
+
+#[test]
+fn institution_projection_rejects_wallet_layout_instead_of_reading_wallet_as_code() {
+    use codec::{Decode, DecodeAll, Encode};
+    // 原格式在永久CID后仍有32字节账户；即使账户字节恰好可当作机构码，也必须拒绝。
+    let representative = (b"family".to_vec(), b"given".to_vec(),
+        crate::testing::person_cid().into_bytes(), [b'A'; 32]);
+    let bytes = (b"institution".to_vec(), b"short".to_vec(), Vec::<u8>::new(),
+        Some(representative), *b"FSC\0", 0u32).encode();
+    assert!(super::RawInstitutionInfo::decode(&mut bytes.as_slice()).is_ok());
+    assert!(super::RawInstitutionInfo::decode_all(&mut bytes.as_slice()).is_err());
+}
+
+#[test]
 fn entity_namespaces_follow_runtime_and_personal_is_rejected() {
     use super::EntityPallet;
-    assert_eq!(EntityPallet::Public.pallet_name(), "PublicEntity");
-    assert_eq!(EntityPallet::Private.pallet_name(), "PrivateEntity");
+    use codec::{Decode, Encode};
+    let bytes = runtime::Runtime::metadata().encode();
+    let metadata = subxt::Metadata::decode(&mut bytes.as_slice()).unwrap();
+    assert_eq!(EntityPallet::Public.pallet_name(&metadata).unwrap(), metadata.pallet_by_index(30).unwrap().name());
+    assert_eq!(EntityPallet::Private.pallet_name(&metadata).unwrap(), metadata.pallet_by_index(31).unwrap().name());
+    assert!(super::runtime_pallet_name(&metadata, 255).is_err());
     for code in [b"NJD\0", b"NRC\0", b"CREG"] {
         assert_eq!(
             super::console_entity_pallets(code).unwrap(),

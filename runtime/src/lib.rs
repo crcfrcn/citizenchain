@@ -14,6 +14,14 @@ pub mod configs;
 mod evm_accounts;
 mod migrations;
 
+// 迁移物理布局仅由Runtime解释，节点通过这些只读接口核验永久事实。
+pub use migrations::{
+    guard_assignments, guard_entity_names, guard_institution, guard_institution_layout,
+    guard_member_conversion, guard_migration_state, guard_migration_target,
+    guard_migration_transition, guard_partial_assignments, guard_retired_key, guard_role,
+    renamed_pallets, MigrationPerson, MigrationState,
+};
+
 extern crate alloc;
 use alloc::vec::Vec;
 use codec::{Decode, DecodeWithMemTracking, Encode};

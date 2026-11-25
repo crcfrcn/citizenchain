@@ -1473,7 +1473,11 @@ pub mod pallet {
                 expires_at,
             )
             .encode();
-            Self::ensure_registrar_rebind_signature(&new_account_id, &payload, &new_account_signature)?;
+            Self::ensure_registrar_rebind_signature(
+                &new_account_id,
+                &payload,
+                &new_account_signature,
+            )?;
             // 新账户任意,但不得已绑另一个 CID(一账户一 CID)。
             if let Some(existing) = CidByAccountId::<T>::get(&new_account_id) {
                 ensure!(
@@ -2531,30 +2535,102 @@ pub mod pallet {
         /// 从当前绑定钱包查询唯一有效人员 CID，适用于公民 CTZN 和居民 NATP。
         /// 任一方向的绑定缺失或错配、CID 非法或登记无效时返回 `None`。
         pub fn person_cid(wallet: &T::AccountId) -> Option<CidNumberBound> {
-            let person_cid = CidByAccountId::<T>::get(wallet)?;
-            (AccountIdByCid::<T>::get(&person_cid).as_ref() == Some(wallet)
-                && Self::is_active_person_cid(&person_cid))
-            .then_some(person_cid)
+            Self::person_cid_at(wallet, |key| {
+                Ok(sp_io::storage::get(key).map(|v| v.to_vec()))
+            })
+            .ok()
+            .flatten()
         }
 
         /// 查询有效人员 CID 当前绑定的唯一钱包，校验与 `person_cid` 相同。
         pub fn person_account(person_cid: &CidNumberBound) -> Option<T::AccountId> {
-            let wallet = AccountIdByCid::<T>::get(person_cid)?;
-            (CidByAccountId::<T>::get(&wallet).as_ref() == Some(person_cid)
-                && Self::is_active_person_cid(person_cid))
-            .then_some(wallet)
+            Self::person_account_at(person_cid, |key| {
+                Ok(sp_io::storage::get(key).map(|v| v.to_vec()))
+            })
+            .ok()
+            .flatten()
         }
 
-        fn is_active_person_cid(person_cid: &CidNumberBound) -> bool {
+        /// 在指定只读状态上核对人员双向绑定，迁移核验与普通业务共用唯一规则。
+        /// 读取或编码错误单独返回，不能把损坏状态解释为未绑定。
+        pub fn person_cid_at(
+            wallet: &T::AccountId,
+            read: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, DispatchError>,
+        ) -> Result<Option<CidNumberBound>, DispatchError> {
+            let Some(cid) = Self::read_person_value::<CidNumberBound>(
+                &CidByAccountId::<T>::hashed_key_for(wallet),
+                &read,
+            )?
+            else {
+                return Ok(None);
+            };
+            if Self::read_person_value::<T::AccountId>(
+                &AccountIdByCid::<T>::hashed_key_for(&cid),
+                &read,
+            )?
+            .as_ref()
+                != Some(wallet)
+            {
+                return Ok(None);
+            }
+            Ok(Self::active_person_at(&cid, &read)?.then_some(cid))
+        }
+
+        /// 指定状态中的人员CID正向查询；缺失或错配返回空，损坏状态返回错误。
+        pub fn person_account_at(
+            person_cid: &CidNumberBound,
+            read: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, DispatchError>,
+        ) -> Result<Option<T::AccountId>, DispatchError> {
+            let Some(wallet) = Self::read_person_value::<T::AccountId>(
+                &AccountIdByCid::<T>::hashed_key_for(person_cid),
+                &read,
+            )?
+            else {
+                return Ok(None);
+            };
+            if Self::read_person_value::<CidNumberBound>(
+                &CidByAccountId::<T>::hashed_key_for(&wallet),
+                &read,
+            )?
+            .as_ref()
+                != Some(person_cid)
+            {
+                return Ok(None);
+            }
+            Ok(Self::active_person_at(person_cid, &read)?.then_some(wallet))
+        }
+
+        fn active_person_at(
+            person_cid: &CidNumberBound,
+            read: &impl Fn(&[u8]) -> Result<Option<Vec<u8>>, DispatchError>,
+        ) -> Result<bool, DispatchError> {
             // 共用解析器允许输入去除首尾空白，存储键必须使用规范 CID 原文。
             let Ok(text) = core::str::from_utf8(person_cid.as_slice()) else {
-                return false;
+                return Ok(false);
             };
-            text.trim() == text
-                && Self::ensure_valid_self_registrable_cid(person_cid).is_ok()
-                && CidRegistry::<T>::get(person_cid).is_some_and(|record| {
-                    record.status == CidRecordStatus::Active && record.revoked_at.is_none()
+            if text.trim() != text || Self::ensure_valid_self_registrable_cid(person_cid).is_err() {
+                return Ok(false);
+            }
+            Ok(Self::read_person_value::<CidRecord<BlockNumberFor<T>>>(
+                &CidRegistry::<T>::hashed_key_for(person_cid),
+                &read,
+            )?
+            .is_some_and(|record| {
+                record.status == CidRecordStatus::Active && record.revoked_at.is_none()
+            }))
+        }
+
+        fn read_person_value<V: Decode>(
+            key: &[u8],
+            read: &impl Fn(&[u8]) -> Result<Option<Vec<u8>>, DispatchError>,
+        ) -> Result<Option<V>, DispatchError> {
+            use codec::DecodeAll;
+            read(key)?
+                .map(|raw| {
+                    V::decode_all(&mut raw.as_slice())
+                        .map_err(|_| DispatchError::Other("人员绑定状态编码错误"))
                 })
+                .transpose()
         }
 
         /// 从身份 Storage 构造完整公民主体。

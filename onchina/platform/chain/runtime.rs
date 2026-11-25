@@ -542,6 +542,47 @@ pub(crate) struct FinalizedChainView {
     pub(crate) block_number: u32,
 }
 
+/// 固定区块的存储与实际执行元数据必须同行，禁止用候选模块名定位运行链。
+pub(crate) struct ChainStorage {
+    storage: subxt::storage::Storage<PolkadotConfig, OnlineClient<PolkadotConfig>>,
+    metadata: subxt::Metadata,
+}
+impl ChainStorage {
+    pub(crate) fn new(client: &OnlineClient<PolkadotConfig>, hash: subxt::utils::H256) -> Self {
+        Self { storage: client.storage().at(hash), metadata: client.metadata() }
+    }
+    pub(crate) fn pallet_name(&self, index: u8) -> Result<String, String> {
+        runtime_pallet_name(&self.metadata, index)
+    }
+}
+impl std::ops::Deref for ChainStorage {
+    type Target = subxt::storage::Storage<PolkadotConfig, OnlineClient<PolkadotConfig>>;
+    fn deref(&self) -> &Self::Target { &self.storage }
+}
+
+/// 模块编号是链调用合同；名称只从本次执行元数据获取，缺失时明确失败。
+fn runtime_pallet_name(metadata: &subxt::Metadata, index: u8) -> Result<String, String> {
+    metadata.pallet_by_index(index).map(|pallet| pallet.name().to_owned())
+        .ok_or_else(|| format!("runtime metadata missing pallet index {index}"))
+}
+
+/// 状态由父块上的Runtime执行产生，升级块不能提前使用新Runtime的物理命名空间。
+pub(crate) async fn pin_state_metadata(
+    client: &OnlineClient<PolkadotConfig>,
+    rpc: &LegacyRpcMethods<PolkadotConfig>,
+    hash: subxt::utils::H256,
+) -> Result<(), String> {
+    let header = rpc.chain_get_header(Some(hash)).await.map_err(|e| e.to_string())?
+        .ok_or("state header missing")?;
+    let writer = if header.number == 0 { hash } else { header.parent_hash };
+    let bytes = rpc.state_get_metadata(Some(writer)).await.map_err(|e| e.to_string())?.into_raw();
+    let mut input = bytes.as_slice();
+    let metadata = subxt::Metadata::decode(&mut input).map_err(|e| e.to_string())?;
+    if !input.is_empty() { return Err("runtime metadata has trailing bytes".into()); }
+    client.set_metadata(metadata);
+    Ok(())
+}
+
 impl FinalizedChainView {
     pub(crate) async fn connect() -> Result<Self, String> {
         Self::connect_at(None).await
@@ -569,6 +610,7 @@ impl FinalizedChainView {
             .map_err(|e| format!("fetch finalized header for admin view failed: {e}"))?
             .ok_or_else(|| "finalized header for admin view is missing".to_string())?
             .number;
+        pin_state_metadata(&client, &rpc, block_hash).await?;
         Ok(Self {
             client,
             block_hash,
@@ -576,8 +618,8 @@ impl FinalizedChainView {
         })
     }
 
-    pub fn storage(&self) -> subxt::storage::Storage<PolkadotConfig, OnlineClient<PolkadotConfig>> {
-        self.client.storage().at(self.block_hash)
+    pub fn storage(&self) -> ChainStorage {
+        ChainStorage::new(&self.client, self.block_hash)
     }
 
     /// 岗位任期按同一 finalized 区块的链时间判定，禁止使用 OnChina 主机本地时钟。
@@ -612,11 +654,8 @@ pub enum EntityPallet {
     Private,
 }
 impl EntityPallet {
-    pub(crate) fn pallet_name(self) -> &'static str {
-        match self {
-            Self::Public => "PublicEntity",
-            Self::Private => "PrivateEntity",
-        }
+    pub(crate) fn pallet_name(self, metadata: &subxt::Metadata) -> Result<String, String> {
+        runtime_pallet_name(metadata, match self { Self::Public => 30, Self::Private => 31 })
     }
     pub(crate) fn module_tag(self) -> &'static [u8] {
         match self {
@@ -801,7 +840,7 @@ struct RawInstitutionInfo {
 
 type RawLegalRepresentative = entitybase::LegalRepresentative<Vec<u8>, Vec<u8>>;
 async fn project_legal_representative(
-    storage: &subxt::storage::Storage<PolkadotConfig, OnlineClient<PolkadotConfig>>,
+    storage: &ChainStorage,
     value: Option<RawLegalRepresentative>,
 ) -> Result<Option<OnChainLegalRepresentative>, String> {
     let Some(value) = value else { return Ok(None) };
@@ -833,22 +872,13 @@ pub async fn institution_lookup_at(
     cid_number: &str,
     block_hash: Option<[u8; 32]>,
 ) -> Result<Option<OnChainInstitution>, String> {
-    let ws_url = super::chain_url::chain_ws_url()?;
-    let client = super::chain_url::online_client(ws_url.as_str())
-        .await
-        .map_err(|e| format!("connect chain ws for institutions failed: {e}"))?;
-    let storage = match block_hash {
-        Some(hash) => client.storage().at(subxt::utils::H256(hash)),
-        None => client
-            .storage()
-            .at_latest()
-            .await
-            .map_err(|e| format!("read finalized storage failed: {e}"))?,
-    };
+    let finalized = FinalizedChainView::connect_at(block_hash).await?;
+    let storage = finalized.storage();
     let mut institution = None;
-    for pallet in ["PublicEntity", "PrivateEntity"] {
+    for owner in [EntityPallet::Public, EntityPallet::Private] {
+        let pallet = owner.pallet_name(&finalized.client.metadata())?;
         let query = dynamic::storage(
-            pallet,
+            pallet.clone(),
             "Institutions",
             vec![dynamic::Value::from_bytes(cid_number.as_bytes())],
         );
@@ -891,7 +921,7 @@ pub(crate) async fn for_each_chain_institution_at(
     mut f: impl FnMut(Vec<u8>, OnChainInstitution),
 ) -> Result<usize, String> {
     let storage = finalized.storage();
-    let query = dynamic::storage("PublicEntity", "Institutions", Vec::<dynamic::Value>::new());
+    let query = dynamic::storage(finalized.storage().pallet_name(30)?, "Institutions", Vec::<dynamic::Value>::new());
     let mut iter = storage
         .iter(query)
         .await
@@ -908,7 +938,7 @@ pub(crate) async fn for_each_chain_institution_at(
         let cid: Vec<u8> = codec::Decode::decode(&mut cursor)
             .map_err(|e| format!("decode institution key failed: {e}"))?;
         let mut raw = kv.value.encoded();
-        let info = RawInstitutionInfo::decode(&mut raw)
+        let info = RawInstitutionInfo::decode_all(&mut raw)
             .map_err(|e| format!("decode institution info failed: {e}"))?;
         f(
             cid,
@@ -938,7 +968,7 @@ pub(crate) async fn for_each_chain_institution_account_at(
 ) -> Result<usize, String> {
     let storage = finalized.storage();
     let query = dynamic::storage(
-        "PublicEntity",
+        storage.pallet_name(30)?,
         "InstitutionAccounts",
         Vec::<dynamic::Value>::new(),
     );
@@ -998,7 +1028,7 @@ pub(crate) async fn institution_accounts_lookup_at(
     if snapshot.institution.institution_code != *institution_code {
         return Err("institution code mismatch".into());
     }
-    let pallet = snapshot.owner.pallet_name();
+    let pallet = snapshot.owner.pallet_name(&finalized.client.metadata())?;
     let storage = finalized.storage();
     // 前缀迭代:首键锁定本机构 cid,只返回该机构名下账户。
     let query = dynamic::storage(
@@ -1170,19 +1200,9 @@ pub async fn for_each_chain_citizen_cid_in_scope_at(
         _registered_at: u32,
         _revoked_at: Option<u32>,
     }
-    let ws_url = super::chain_url::chain_ws_url()?;
-    let client = super::chain_url::online_client(ws_url.as_str())
-        .await
-        .map_err(|e| format!("connect chain ws for citizen scan failed: {e}"))?;
-    let storage = match block_hash {
-        Some(hash) => client.storage().at(subxt::utils::H256(hash)),
-        None => client
-            .storage()
-            .at_latest()
-            .await
-            .map_err(|e| format!("read finalized storage failed: {e}"))?,
-    };
-    let query = dynamic::storage("Identity", "CidRegistry", Vec::<dynamic::Value>::new());
+    let finalized = FinalizedChainView::connect_at(block_hash).await?;
+    let storage = finalized.storage();
+    let query = dynamic::storage(storage.pallet_name(10)?, "CidRegistry", Vec::<dynamic::Value>::new());
     let mut iter = storage
         .iter(query)
         .await
@@ -1228,20 +1248,10 @@ pub async fn for_each_chain_private_institution_cid_at(
     block_hash: Option<[u8; 32]>,
     mut f: impl FnMut(String),
 ) -> Result<usize, String> {
-    let ws_url = super::chain_url::chain_ws_url()?;
-    let client = super::chain_url::online_client(ws_url.as_str())
-        .await
-        .map_err(|e| format!("connect chain ws for private institutions failed: {e}"))?;
-    let storage = match block_hash {
-        Some(hash) => client.storage().at(subxt::utils::H256(hash)),
-        None => client
-            .storage()
-            .at_latest()
-            .await
-            .map_err(|e| format!("read finalized storage failed: {e}"))?,
-    };
+    let finalized = FinalizedChainView::connect_at(block_hash).await?;
+    let storage = finalized.storage();
     let query = dynamic::storage(
-        "PrivateEntity",
+        storage.pallet_name(31)?,
         "Institutions",
         Vec::<dynamic::Value>::new(),
     );
@@ -1287,7 +1297,7 @@ pub(crate) async fn find_active_memberships(
         let mut iter = view
             .storage()
             .iter(dynamic::storage(
-                owner.pallet_name(),
+                owner.pallet_name(&view.client.metadata())?,
                 "InstitutionRoleAssignments",
                 Vec::<dynamic::Value>::new(),
             ))

@@ -35,6 +35,100 @@ fn person(index: u32) -> Vec<u8> {
     .unwrap()
     .into_bytes()
 }
+
+fn legacy_state(spec: &MemberCompositionSpec) -> BTreeMap<Vec<u8>, Vec<u8>> {
+    let mut state = formed_state(spec, spec.min_members);
+    let [_, role_key, rows_key, _] = storage_key::composition_keys(spec);
+    let role: DecodedRole = decode_exact(&state[&role_key]).unwrap();
+    state.insert(
+        role_key,
+        (
+            &role.cid_number,
+            &role.role_code,
+            &role.role_name,
+            role.term_required,
+            role.role_status,
+        )
+            .encode(),
+    );
+    let rows: Vec<_> = (0..spec.min_members)
+        .map(|index| {
+            let mut wallet = [0u8; 32];
+            wallet[..4].copy_from_slice(&index.to_le_bytes());
+            (
+                role.cid_number.clone(),
+                wallet,
+                role.role_code.clone(),
+                0u32,
+                0u32,
+                InstitutionAssignmentSource::PopularElection,
+                b"election".to_vec(),
+                InstitutionAssignmentStatus::Active,
+            )
+        })
+        .collect();
+    state.insert(rows_key, rows.encode());
+    state
+}
+
+#[test]
+fn migration_checks_legacy_composition_and_exact_cid_conversion_without_wallet_authority() {
+    let spec = member_composition_specs()[0];
+    let parent = legacy_state(&spec);
+    let [_, role_key, rows_key, _] = storage_key::composition_keys(&spec);
+    let legacy = |key: &[u8]| key == role_key || key == rows_key;
+    assert_eq!(
+        check_full_state_with_layout(|k| parent.get(k).cloned(), legacy),
+        Ok(())
+    );
+    let mut post = formed_state(&spec, 0);
+    let delta = BTreeMap::from([
+        (role_key.clone(), Some(post[&role_key].clone())),
+        (rows_key.clone(), Some(post[&rows_key].clone())),
+    ]);
+    let check = |post: &BTreeMap<Vec<u8>, Vec<u8>>, migrating| {
+        check_transition_with_layout(
+            &delta,
+            |k| parent.get(k).cloned(),
+            |k| post.get(k).cloned(),
+            legacy,
+            |_| false,
+            migrating,
+            None,
+        )
+    };
+    assert_eq!(check(&post, true), Ok(()), "原钱包均未绑定时只产生真实空缺");
+    assert_eq!(
+        check(&post, false),
+        Err(GuardError::ConstitutedBodyRemoved(spec.institution.code))
+    );
+    post = formed_state(&spec, spec.min_members);
+    assert_eq!(
+        check(&post, true),
+        Err(GuardError::MigrationTransitionInvalid(
+            spec.institution.code
+        )),
+        "合法格式的虚构人员CID也不能替代真实绑定转换"
+    );
+
+    let mut duplicate = parent.clone();
+    let mut rows: Vec<(
+        Vec<u8>,
+        [u8; 32],
+        Vec<u8>,
+        u32,
+        u32,
+        InstitutionAssignmentSource,
+        Vec<u8>,
+        InstitutionAssignmentStatus,
+    )> = decode_exact(&parent[&rows_key]).unwrap();
+    rows[1].1 = rows[0].1;
+    duplicate.insert(rows_key.clone(), rows.encode());
+    assert_eq!(
+        check_full_state_with_layout(|k| duplicate.get(k).cloned(), legacy),
+        Err(GuardError::DuplicateMember(spec.institution.code))
+    );
+}
 fn formed_state(spec: &MemberCompositionSpec, count: u32) -> BTreeMap<Vec<u8>, Vec<u8>> {
     let institution = DecodedInstitution {
         cid_full_name: b"institution".to_vec(),
