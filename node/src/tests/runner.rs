@@ -130,7 +130,7 @@ fn essential_failure_keeps_original_reason_after_runtime_shutdown() {
     let runtime = lifecycle_runtime();
     let mut manager = sc_service::TaskManager::new(runtime.handle().clone(), None).unwrap();
     manager.keep_alive(lifecycle_runtime());
-    let original = "Ethereum RPC/TLS 必要任务失败: Ethereum客户端初始化: 固定原始错误(4003)";
+    let original = "原生RPC/TLS必要任务失败: TLS监听: 固定原始错误(4003)";
     let rpc_failure = Arc::new(Mutex::new(Some(original.to_string())));
     manager
         .spawn_essential_handle()

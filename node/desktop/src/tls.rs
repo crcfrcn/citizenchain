@@ -197,17 +197,31 @@ impl RpcTls {
     pub async fn run(
         self,
         endpoints: Vec<RpcEndpoint>,
-        mut module: RpcModule<()>,
+        module: RpcModule<()>,
     ) -> Result<(), RpcError> {
-        module.extensions_mut().insert(DenyUnsafe::Yes);
-        module.remove_method("rpc_methods");
-        let mut available = module.method_names().map(str::to_owned).collect::<Vec<_>>();
-        available.push("rpc_methods".into());
-        available.sort();
-        module.register_method(
-            "rpc_methods",
-            move |_, _, _| serde_json::json!({"methods":available}),
-        )?;
+        let (_sender, updates) = tokio::sync::watch::channel(module);
+        self.run_updates(endpoints, updates).await
+    }
+
+    /// 原生监听立即建立；扩展模块独立发布，既有HTTP连接也读取最新方法集合。
+    pub async fn run_updates(
+        self,
+        endpoints: Vec<RpcEndpoint>,
+        updates: tokio::sync::watch::Receiver<RpcModule<()>>,
+    ) -> Result<(), RpcError> {
+        let prepare = |mut module: RpcModule<()>| -> Result<RpcModule<()>, RpcError> {
+            module.extensions_mut().insert(DenyUnsafe::Yes);
+            module.remove_method("rpc_methods");
+            let mut available = module.method_names().map(str::to_owned).collect::<Vec<_>>();
+            available.push("rpc_methods".into());
+            available.sort();
+            module.register_method(
+                "rpc_methods",
+                move |_, _, _| serde_json::json!({"methods":available}),
+            )?;
+            Ok(module)
+        };
+        let module = Arc::new(std::sync::RwLock::new(prepare(updates.borrow().clone())?));
         let mut listeners = Vec::new();
         for endpoint in endpoints {
             if !endpoint.listen_addr.ip().is_loopback() {
@@ -230,6 +244,7 @@ impl RpcTls {
         let _shutdown = Shutdown(handle);
         let mut tasks = Vec::new();
         for (listener, endpoint) in listeners {
+            let mut updates = updates.clone();
             let stop = stop.clone();
             let acceptor = self.acceptor.clone();
             let page = self.page.clone();
@@ -267,8 +282,18 @@ impl RpcTls {
                     .rate_limit
                     .map(|limit| MiddlewareLayer::new().with_rate_limit_per_minute(limit));
                 let mut tasks = JoinSet::new();
+                let mut receiving_updates = true;
                 loop {
                     let (socket, remote) = tokio::select! {
+                        changed = updates.changed(), if receiving_updates => {
+                            if changed.is_err() {
+                                receiving_updates = false;
+                            } else {
+                                let next = prepare(updates.borrow_and_update().clone())?;
+                                *module.write().map_err(|_| std::io::Error::other("RPC模块锁异常"))? = next;
+                            }
+                            continue;
+                        },
                         accepted = listener.accept() => accepted?,
                         _ = stop.clone().shutdown() => return Ok::<(), RpcError>(()),
                         Some(_) = tasks.join_next(), if !tasks.is_empty() => continue,
@@ -308,7 +333,8 @@ impl RpcTls {
                         let service = tower::service_fn(
                             move |mut request: jsonrpsee::server::HttpRequest<_>| {
                                 request.extensions_mut().insert(DenyUnsafe::Yes);
-                                let mut rpc = builder.clone().build(module.clone(), stop.clone());
+                                let methods = module.read().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+                                let mut rpc = builder.clone().build(methods, stop.clone());
                                 let page = page.clone();
                                 // Host/CORS 中间件覆盖静态交付与 RPC，不能因分流绕过校验。
                                 let router = tower::service_fn(move |request| {

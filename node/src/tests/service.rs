@@ -663,3 +663,55 @@ fn archive_old_constrained_database_is_not_silently_relabelled() {
         "不得偷偷改写旧库模式"
     );
 }
+
+#[test]
+fn ethereum_index_work_and_failure_do_not_block_the_single_native_worker() {
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(1)
+        .enable_all()
+        .build()
+        .unwrap();
+    let mut manager = sc_service::TaskManager::new(runtime.handle().clone(), None).unwrap();
+    let (started, ready) = tokio::sync::oneshot::channel();
+    let (release, wait) = std::sync::mpsc::channel();
+    let (finished, done) = tokio::sync::oneshot::channel();
+    spawn_ethereum_index(&manager, async move {
+        started.send(()).unwrap();
+        wait.recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        finished.send(()).unwrap();
+        Err(rpc_stage_error(
+            "固定初始化故障",
+            std::io::Error::other("固定收据失败"),
+        ))
+    });
+    runtime.block_on(async {
+        ready.await.unwrap();
+        let before = std::time::Instant::now();
+        let native = tokio::spawn(async {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            7
+        });
+        assert_eq!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), native)
+                .await
+                .unwrap()
+                .unwrap(),
+            7
+        );
+        assert!(
+            before.elapsed() < std::time::Duration::from_secs(1),
+            "Ethereum工作不能占用唯一原生工作线程"
+        );
+        release.send(()).unwrap();
+        done.await.unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(30), manager.future())
+                .await
+                .is_err(),
+            "Ethereum失败不能结束节点任务管理器"
+        );
+    });
+    drop(manager.into_task_registry());
+    runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+}

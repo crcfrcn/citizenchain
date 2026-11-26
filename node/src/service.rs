@@ -102,6 +102,20 @@ fn ensure_powr_key(keystore: &sp_keystore::KeystorePtr) -> Result<(), ServiceErr
 
 type RpcTaskError = Box<dyn std::error::Error + Send + Sync>;
 
+/// 初始化和历史解码可能同步执行Wasm，使用独立阻塞任务避免占用原生RPC反应器。
+fn spawn_ethereum_index(
+    manager: &TaskManager,
+    work: impl std::future::Future<Output = Result<(), RpcTaskError>> + Send + 'static,
+) {
+    manager
+        .spawn_handle()
+        .spawn_blocking("ethereum-index", Some("rpc"), async move {
+            if let Err(error) = work.await {
+                log::error!("Ethereum索引不可用，节点及原生RPC保持服务: {error}");
+            }
+        });
+}
+
 // 只增加阶段上下文，原错误仍作为 source 保留，不以清理错误或固定提示替代。
 #[derive(Debug)]
 struct RpcStageError {
@@ -787,77 +801,52 @@ pub(crate) fn new_full_with_network_reader(
     }
 
     if let Some(rpc_tls) = rpc_tls {
-        // 原生后端仅在进程内使用；公开副本显式覆盖为 Safe，防止 Unsafe 扩展泄漏。
+        // 原生TLS立即监听。Ethereum初始化、回填及同步独立，不能阻止节点就绪或关闭原生RPC。
         let native = (*rpc_handlers.handle()).clone();
+        let (modules, updates) = tokio::sync::watch::channel(native.clone());
         let rpc_client = client.clone();
+        spawn_ethereum_index(&task_manager, async move {
+            let finalized = rpc_client.info().finalized_hash;
+            let metadata = rpc_client
+                .runtime_api()
+                .metadata(finalized)
+                .map_err(|error| rpc_stage_error("读取Runtime元数据", error))?;
+            let version = rpc_client
+                .runtime_api()
+                .version(finalized)
+                .map_err(|error| rpc_stage_error("读取Runtime版本", error))?;
+            if !ethereum_rpc_available(metadata.as_slice(), version.spec_version).map_err(
+                |error| rpc_stage_error("核验Runtime的Revive能力", std::io::Error::other(error)),
+            )? {
+                return Ok(());
+            }
+            let (ethereum, synchronization) = crate::ethereum::initialize(native.clone())
+                .await
+                .map_err(|error| rpc_stage_error("Ethereum客户端初始化", error))?;
+            let mut exposed = native;
+            exposed
+                .merge(ethereum)
+                .map_err(|error| rpc_stage_error("Ethereum方法装配", error))?;
+            modules.send_replace(exposed);
+            synchronization
+                .await
+                .map_err(|error| rpc_stage_error("Ethereum同步任务", error))?;
+            Ok(())
+        });
         task_manager
             .spawn_essential_handle()
-            .spawn("ethereum-rpc-tls", Some("rpc"), async move {
-                let result: Result<(), RpcTaskError> = async {
-                    let finalized = rpc_client.info().finalized_hash;
-                    let metadata = rpc_client
-                        .runtime_api()
-                        .metadata(finalized)
-                        .map_err(|error| rpc_stage_error("读取Runtime元数据", error))?;
-                    let version = rpc_client
-                        .runtime_api()
-                        .version(finalized)
-                        .map_err(|error| rpc_stage_error("读取Runtime版本", error))?;
-                    let with_ethereum = ethereum_rpc_available(
-                        metadata.as_slice(),
-                        version.spec_version,
-                    )
-                    .map_err(|error| {
-                        rpc_stage_error("核验Runtime的Revive能力", std::io::Error::other(error))
-                    })?;
-                    let mut exposed = native;
-                    if with_ethereum {
-                        let (ethereum, synchronization) =
-                            crate::ethereum::initialize(exposed.clone())
-                                .await
-                                .map_err(|error| rpc_stage_error("Ethereum客户端初始化", error))?;
-                        exposed
-                            .merge(ethereum)
-                            .map_err(|error| rpc_stage_error("Ethereum方法装配", error))?;
-                        tokio::try_join!(
-                            async {
-                                synchronization
-                                    .await
-                                    .map_err(|error| rpc_stage_error("Ethereum同步任务", error))
-                            },
-                            async {
-                                rpc_tls
-                                    .run(rpc_endpoints, exposed)
-                                    .await
-                                    .map_err(|error| rpc_stage_error("TLS监听", error))
-                            },
-                        )?;
-                    } else {
-                        // 创世旧Runtime尚无Revive，只提供受同一TLS和Safe规则保护的原生RPC。
-                        // 正式升级最终确认后由节点重启重新装配Ethereum方法，初始化失败仍终止节点。
-                        log::info!(
-                            "创世Runtime尚无Revive，原生TLS RPC先行服务；升级最终确认后需重启节点"
-                        );
-                        rpc_tls
-                            .run(rpc_endpoints, exposed)
-                            .await
-                            .map_err(|error| rpc_stage_error("原生TLS监听", error))?;
-                    }
-                    Ok(())
-                }
-                .await;
-                if let Err(error) = result {
+            .spawn("rpc-tls", Some("rpc"), async move {
+                if let Err(error) = rpc_tls.run_updates(rpc_endpoints, updates).await {
                     if let Some(failure) = desktop_rpc_failure {
                         let mut saved = failure
                             .lock()
                             .unwrap_or_else(|poisoned| poisoned.into_inner());
                         if saved.is_none() {
-                            *saved = Some(format!("Ethereum RPC/TLS 必要任务失败: {error}"));
+                            *saved = Some(format!("原生RPC/TLS必要任务失败: {error}"));
                         }
                     }
-                    log::error!("Ethereum RPC/TLS 必要任务失败: {error}");
+                    log::error!("原生RPC/TLS必要任务失败: {error}");
                 }
-                // 必要任务退出由 TaskManager 终止节点，禁止继续报告 RPC 可用。
             });
     }
 

@@ -132,7 +132,8 @@ async fn https_wss_certificate_validation_safe_methods_and_plaintext_rejection()
         is_optional: false,
         retry_random_port: false,
     };
-    let mut server = tokio::spawn(tls.run(vec![endpoint], module));
+    let (publish, updates) = tokio::sync::watch::channel(module);
+    let mut server = tokio::spawn(tls.run_updates(vec![endpoint], updates));
     let client = reqwest::Client::builder()
         .https_only(true)
         .no_proxy()
@@ -439,6 +440,60 @@ async fn https_wss_certificate_validation_safe_methods_and_plaintext_rejection()
     }
     drop(wss);
     internal.close();
+    let mut updated = publish.borrow().clone();
+    updated.extensions_mut().insert(DenyUnsafe::No);
+    updated
+        .register_method("extension_failure", |_, _, _| {
+            Err::<(), _>(jsonrpsee::types::ErrorObjectOwned::owned(
+                -32000,
+                "固定索引失败",
+                None::<()>,
+            ))
+        })
+        .unwrap();
+    publish.send_replace(updated);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let value: serde_json::Value = client
+                .post(&url)
+                .json(&serde_json::json!({
+                    "jsonrpc":"2.0","id":9,"method":"extension_failure","params":[]
+                }))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            if value["error"]["code"] == -32000 {
+                break;
+            }
+            assert_eq!(value["error"]["code"], -32601);
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    drop(publish);
+    for method in ["system_health", "unsafe"] {
+        let value: serde_json::Value = client
+            .post(&url)
+            .json(&serde_json::json!({
+                "jsonrpc":"2.0","id":10,"method":method,"params":[]
+            }))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        if method == "system_health" {
+            assert_eq!(value["result"]["peers"], 0);
+        } else {
+            assert!(value.get("error").is_some(), "发布扩展不能放开Unsafe");
+        }
+    }
+    assert!(!server.is_finished(), "扩展失败或发布结束不能关闭原生监听");
     server.abort();
     let _ = server.await;
     assert!(tokio::net::TcpStream::connect(address).await.is_err());

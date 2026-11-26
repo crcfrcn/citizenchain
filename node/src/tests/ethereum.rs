@@ -5,6 +5,7 @@ use super::*;
 use crate::ethereum::account_at;
 use crate::ethereum::initialize;
 use crate::ethereum::subscription_request;
+use crate::service::Service;
 use ::runtime;
 use ::runtime::opaque::Block;
 use codec::Encode;
@@ -12,7 +13,6 @@ use jsonrpsee::core::client::SubscriptionClientT;
 use jsonrpsee::RpcModule;
 use nodeclient::types::FullBackend;
 use nodeclient::types::FullClient;
-use crate::service::Service;
 use pallet_revive::evm::Account;
 use pallet_revive::evm::Bytes;
 use pallet_revive::evm::GenericTransaction;
@@ -61,6 +61,13 @@ use std::time::Duration;
 
 fn chain_spec() -> crate::chain::ChainSpec {
     chain_spec_with_accounts(&[])
+}
+
+fn reader_error(error: ClientError) -> ErrorObjectOwned {
+    match error {
+        ClientError::Jsonrpsee(jsonrpsee::core::ClientError::Call(error)) => error,
+        other => ErrorObjectOwned::from(other),
+    }
 }
 
 /// Ethereum接入回归：仅公开RPC模型和元数据，不生产区块、不提交交易。
@@ -198,6 +205,12 @@ fn reader_model(unavailable: bool) -> (RpcModule<()>, Arc<std::sync::Mutex<Vec<H
                     number: n.into(),
                     hash: H256::from_low_u64_be(n as u64 + 1000),
                     gas_limit: 1_000_000u64.into(),
+                    transactions_root: H256::from_slice(
+                        pallet_revive::evm::Block::compute_trie_root(&[]).as_slice(),
+                    ),
+                    receipts_root: H256::from_slice(
+                        pallet_revive::evm::Block::compute_trie_root(&[]).as_slice(),
+                    ),
                     ..Default::default()
                 }
                 .encode(),
@@ -276,6 +289,33 @@ fn reader_model(unavailable: bool) -> (RpcModule<()>, Arc<std::sync::Mutex<Vec<H
             .unwrap();
     }
     (module, reads)
+}
+
+/// 仅测试夹具等到索引就绪；生产监听不等待该任务。
+async fn initialized_reader(
+    native: RpcModule<()>,
+) -> (RpcModule<()>, BoxFuture<'static, Result<()>>) {
+    let (module, mut task) = initialize(native).await.unwrap();
+    let ready = async {
+        tokio::time::timeout(Duration::from_secs(30), async {
+            loop {
+                match module
+                    .call::<_, U256>("eth_chainId", jsonrpsee::rpc_params![])
+                    .await
+                {
+                    Ok(_) => break,
+                    Err(error) if error.to_string().contains("Ethereum索引尚未就绪") => {
+                        tokio::task::yield_now().await
+                    }
+                    Err(error) => panic!("Ethereum初始化失败: {error}"),
+                }
+            }
+        })
+        .await
+        .expect("Ethereum夹具必须有界就绪");
+    };
+    tokio::select! { result = &mut task => panic!("Ethereum任务提前退出:{result:?}"), _ = ready => {} }
+    (module, task)
 }
 
 #[tokio::test]
@@ -423,6 +463,7 @@ async fn ethereum_reader_advances_finality_and_default_estimation_together() {
     .await
     .unwrap();
     let ethereum = Ethereum {
+        status: tokio::sync::watch::channel(None).0,
         native,
         blocks,
         receipts,
@@ -459,6 +500,27 @@ async fn ethereum_reader_advances_finality_and_default_estimation_together() {
             H256::from_low_u64_be(81)
         );
     }
+    let tip = ethereum.blocks.latest_block().await;
+    let empty = ethereum.checked(&tip).await.unwrap().unwrap();
+    assert!(ethereum
+        .block_receipts(&tip, &empty)
+        .await
+        .unwrap()
+        .is_empty());
+    for changed in 0..4 {
+        let mut bad = empty.clone();
+        match changed {
+            0 => bad.receipts_root = H256::repeat_byte(7),
+            1 => bad.transactions_root = H256::repeat_byte(7),
+            2 => bad.gas_used = U256::one(),
+            _ => bad.logs_bloom.0[0] = 1,
+        }
+        assert!(matches!(
+            ethereum.block_receipts(&tip, &bad).await,
+            Err(ClientError::SyncBoundaryMismatch)
+        ));
+    }
+    let status = ethereum.status.clone();
     let rpc = ethereum.into_rpc();
     let default_gas: U256 = rpc
         .call(
@@ -481,6 +543,17 @@ async fn ethereum_reader_advances_finality_and_default_estimation_together() {
         vec![H256::from_low_u64_be(81); 2],
         "默认和显式估算必须实际调用同一最新状态，不能只比较碰巧相同的报价"
     );
+    status.send_replace(Some("固定收据索引错误".into()));
+    for method in ["eth_blockNumber", "eth_chainId", "eth_syncing"] {
+        let error = rpc
+            .call::<_, serde_json::Value>(method, jsonrpsee::rpc_params![])
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("固定收据索引错误"),
+            "不能用陈旧索引返回成功: {error}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -609,7 +682,7 @@ async fn ethereum_balance_uses_total_at_same_block_and_propagates_errors() {
             Ok(Some(sp_core::Bytes(info.encode())))
         })
         .unwrap();
-    let (module, task) = initialize(native).await.unwrap();
+    let (module, task) = initialized_reader(native).await;
     let ratio = U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO);
     for (block, number, total) in [
         (serde_json::json!("latest"), 80, 1_200),
@@ -673,7 +746,7 @@ async fn ethereum_balance_uses_total_at_same_block_and_propagates_errors() {
 #[tokio::test]
 async fn ethereum_reader_keeps_all_rpc_methods_and_standard_newheads_subscription() {
     let (native, _) = reader_model(false);
-    let (module, task) = initialize(native).await.unwrap();
+    let (module, task) = initialized_reader(native).await;
     let methods = module
         .method_names()
         .collect::<std::collections::BTreeSet<_>>();
@@ -1078,7 +1151,7 @@ async fn serve_on_port(
     tokio::task::JoinHandle<Result<(), Box<dyn std::error::Error + Send + Sync>>>,
 ) {
     let mut module = native(partial);
-    let (ethereum, synchronization) = initialize(module.clone()).await.unwrap();
+    let (ethereum, synchronization) = initialized_reader(module.clone()).await;
     module.merge(ethereum).unwrap();
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port))
         .await
@@ -3546,4 +3619,200 @@ async fn signed_transactions_receipts_logs_finality_reorg_and_restart_over_real_
     .unwrap();
     drop(config);
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn ethereum_filtered_outer_call_keeps_empty_receipts_and_rejects_inconsistent_data() {
+    // 真实756块中被CallFiltered拒绝的公开Ethereum外层调用；不签名、不提交。
+    let filtered = "0xfd01052300e90102f8778207eb02843b9aca00843b9aca0084060db884946d66a0cb155051055f3fb3cc73d9230d3fb4d5b589056bc75e2d6310000080c080a05f1d9b34d239b26bf6fb81c0b2e05aa637a916a66017844e28f251eea894ed96a02003b7d7ac96e99e0d0efc61b04dad8a5b6e2aaa8a956f12ab1e6fcc3a5a6480";
+    let decoded = runtime::UncheckedExtrinsic::decode_all(
+        &mut hex::decode(filtered.trim_start_matches("0x"))
+            .unwrap()
+            .as_slice(),
+    )
+    .unwrap();
+    let runtime::RuntimeCall::Revive(pallet_revive::Call::eth_transact { payload }) =
+        sp_runtime::traits::ExtrinsicCall::into_call(decoded)
+    else {
+        panic!("真实756调用类型不符");
+    };
+    let filtered_hash = H256::from(sp_crypto_hashing::keccak_256(&payload));
+    for inconsistent in [false, true] {
+        let (mut native, _) = reader_model(false);
+        let original = Native(Arc::new(native.clone()));
+        native.remove_method("chain_getBlock");
+        let source = original.clone();
+        native
+            .register_async_method("chain_getBlock", move |params, _, _| {
+                let source = source.clone();
+                async move {
+                    let values: serde_json::Value = params.parse()?;
+                    let mut value = source
+                        .request("chain_getBlock", values)
+                        .await
+                        .map_err(reader_error)?;
+                    value["block"]["extrinsics"]
+                        .as_array_mut()
+                        .unwrap()
+                        .push(serde_json::json!(filtered));
+                    Ok::<_, ErrorObjectOwned>(value)
+                }
+            })
+            .unwrap();
+        native.remove_method("state_call");
+        native
+            .register_async_method("state_call", move |params, _, _| {
+                let source = original.clone();
+                async move {
+                    let values: Vec<serde_json::Value> = params.parse()?;
+                    if inconsistent && values[0] == "ReviveApi_eth_receipt_data" {
+                        return Ok(serde_json::json!(sp_core::Bytes(
+                            vec![ReceiptGasInfo::default()].encode()
+                        )));
+                    }
+                    source
+                        .request("state_call", serde_json::Value::Array(values))
+                        .await
+                        .map_err(reader_error)
+                }
+            })
+            .unwrap();
+        if inconsistent {
+            let (module, task) = initialize(native).await.unwrap();
+            assert!(module
+                .call::<_, U256>("eth_blockNumber", jsonrpsee::rpc_params![])
+                .await
+                .is_err());
+            let error = tokio::time::timeout(Duration::from_secs(30), task)
+                .await
+                .unwrap()
+                .unwrap_err();
+            assert!(error.to_string().contains("Receipt data length mismatch"));
+            assert!(module
+                .call::<_, U256>("eth_blockNumber", jsonrpsee::rpc_params![])
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("Receipt data length mismatch"));
+        } else {
+            let (module, task) = initialized_reader(native).await;
+            for full in [false, true] {
+                let eth: pallet_revive::evm::Block = module
+                    .call(
+                        "eth_getBlockByNumber",
+                        jsonrpsee::rpc_params!["latest", full],
+                    )
+                    .await
+                    .unwrap();
+                assert!(eth.transactions.is_empty());
+                assert_eq!(eth.gas_used, U256::zero());
+            }
+            let count: Option<U256> = module
+                .call(
+                    "eth_getBlockTransactionCountByNumber",
+                    jsonrpsee::rpc_params!["latest"],
+                )
+                .await
+                .unwrap();
+            assert_eq!(count, Some(U256::zero()));
+            let receipt: Option<ReceiptInfo> = module
+                .call(
+                    "eth_getTransactionReceipt",
+                    jsonrpsee::rpc_params![filtered_hash],
+                )
+                .await
+                .unwrap();
+            assert!(receipt.is_none());
+            let transaction: Option<TransactionInfo> = module
+                .call(
+                    "eth_getTransactionByHash",
+                    jsonrpsee::rpc_params![filtered_hash],
+                )
+                .await
+                .unwrap();
+            assert!(transaction.is_none());
+            let transaction: Option<TransactionInfo> = module
+                .call(
+                    "eth_getTransactionByBlockNumberAndIndex",
+                    jsonrpsee::rpc_params!["latest", "0x0"],
+                )
+                .await
+                .unwrap();
+            assert!(transaction.is_none());
+            let block: pallet_revive::evm::Block = module
+                .call(
+                    "eth_getBlockByNumber",
+                    jsonrpsee::rpc_params!["latest", false],
+                )
+                .await
+                .unwrap();
+            let transaction: Option<TransactionInfo> = module
+                .call(
+                    "eth_getTransactionByBlockHashAndIndex",
+                    jsonrpsee::rpc_params![block.hash, "0x0"],
+                )
+                .await
+                .unwrap();
+            assert!(transaction.is_none());
+            let logs: serde_json::Value = module
+                .call(
+                    "eth_getLogs",
+                    jsonrpsee::rpc_params![
+                        serde_json::json!({"fromBlock":"latest","toBlock":"latest"})
+                    ],
+                )
+                .await
+                .unwrap();
+            assert_eq!(logs, serde_json::json!([]));
+            drop(task);
+            assert!(module
+                .call::<_, U256>("eth_blockNumber", jsonrpsee::rpc_params![])
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("Ethereum索引任务已停止"));
+        }
+    }
+}
+
+#[tokio::test]
+async fn ethereum_before_first_block_reports_absence_without_inventing_a_height() {
+    let (mut native, _) = reader_model(false);
+    let source = Native(Arc::new(native.clone()));
+    native.remove_method("state_call");
+    native
+        .register_async_method("state_call", move |params, _, _| {
+            let source = source.clone();
+            async move {
+                let values: Vec<serde_json::Value> = params.parse()?;
+                match values[0].as_str().unwrap() {
+                    "ReviveApi_eth_block" => Ok(serde_json::json!(sp_core::Bytes(
+                        pallet_revive::evm::Block::default().encode()
+                    ))),
+                    "ReviveApi_eth_block_hash" => Ok(serde_json::json!(sp_core::Bytes(
+                        Option::<H256>::None.encode()
+                    ))),
+                    _ => source
+                        .request("state_call", serde_json::Value::Array(values))
+                        .await
+                        .map_err(reader_error),
+                }
+            }
+        })
+        .unwrap();
+    let (module, task) = initialized_reader(native).await;
+    let error = module
+        .call::<_, U256>("eth_blockNumber", jsonrpsee::rpc_params![])
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("Ethereum尚未生成区块"));
+    let block: Option<pallet_revive::evm::Block> = module
+        .call(
+            "eth_getBlockByNumber",
+            jsonrpsee::rpc_params!["latest", true],
+        )
+        .await
+        .unwrap();
+    assert!(block.is_none());
+    drop(task);
 }

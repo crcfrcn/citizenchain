@@ -1,6 +1,6 @@
 //! 公民链 Ethereum 接入；交易/事件始终绑定执行状态，状态查询使用请求指定块。
-use codec::{DecodeAll, Encode};
 use ::runtime;
+use codec::{DecodeAll, Encode};
 use futures::future::BoxFuture;
 use futures::{FutureExt, StreamExt};
 use jsonrpsee::core::{async_trait, RpcResult};
@@ -71,8 +71,8 @@ async fn account_at(
     if let Some(hash) = at {
         params.push(serde_json::json!(hash));
     }
-    let result = native_request(native, "state_getStorage", serde_json::Value::Array(params))
-        .await?;
+    let result =
+        native_request(native, "state_getStorage", serde_json::Value::Array(params)).await?;
     let mapped: Option<sp_core::Bytes> = serde_json::from_value(result).map_err(|_| {
         ErrorObjectOwned::owned(-32603, "Ethereum 地址映射存储响应无效", None::<()>)
     })?;
@@ -382,6 +382,8 @@ impl BlockInfoProvider for Blocks {
 
 #[derive(Clone)]
 struct Ethereum {
+    /// 索引状态只影响Ethereum方法，不控制节点或原生RPC生命周期。
+    status: tokio::sync::watch::Sender<Option<String>>,
     native: Native,
     blocks: Blocks,
     receipts: ReceiptProvider<Blocks>,
@@ -390,6 +392,21 @@ struct Ethereum {
     // 最佳块发布块头，最终块发布日志；SDK公开组件负责回执、分叉裁剪及费用统计。
     heads: broadcast::Sender<Block>,
     logs: broadcast::Sender<Log>,
+}
+
+/// 任意退出都撤销就绪状态；已报告的原始错误不能被清理覆盖。
+struct IndexGuard {
+    status: tokio::sync::watch::Sender<Option<String>>,
+    reported: bool,
+}
+
+impl Drop for IndexGuard {
+    fn drop(&mut self) {
+        if !self.reported {
+            self.status
+                .send_replace(Some("Ethereum索引任务已停止".into()));
+        }
+    }
 }
 
 fn checked_block(
@@ -412,6 +429,47 @@ fn checked_block(
 }
 
 impl Ethereum {
+    fn ensure_ready(&self) -> Result<()> {
+        match self.status.borrow().as_ref() {
+            Some(error) => Err(failure(format!("Ethereum索引不可用: {error}"))),
+            None => Ok(()),
+        }
+    }
+    /// Ethereum列表来自已执行区块；被原生过滤的外层调用不构成Ethereum交易或回执。
+    async fn block_receipts(
+        &self,
+        block: &SubstrateBlock,
+        eth: &Block,
+    ) -> Result<Vec<(TransactionSigned, ReceiptInfo)>> {
+        if eth.transactions.is_empty() {
+            let data: Vec<ReceiptGasInfo> = self
+                .native
+                .runtime(block.hash(), "eth_receipt_data", vec![])
+                .await?;
+            if !data.is_empty() {
+                return Err(ClientError::ReceiptDataLengthMismatch);
+            }
+            let root = H256::from_slice(Block::compute_trie_root(&[]).as_slice());
+            if eth.transactions_root != root
+                || eth.receipts_root != root
+                || !eth.gas_used.is_zero()
+                || eth.logs_bloom != Default::default()
+            {
+                return Err(ClientError::SyncBoundaryMismatch);
+            }
+            return Ok(Vec::new());
+        }
+        let receipts = self.receipts.receipts_from_block(block, eth.hash).await?;
+        if receipts.len() != eth.transactions.len()
+            || receipts
+                .iter()
+                .any(|(_, receipt)| !eth.transactions.contains_tx(receipt.transaction_hash))
+        {
+            return Err(ClientError::ReceiptDataLengthMismatch);
+        }
+        Ok(receipts)
+    }
+
     async fn checked(&self, block: &SubstrateBlock) -> Result<Option<Block>> {
         let eth: Block = self
             .native
@@ -455,18 +513,14 @@ impl Ethereum {
             *self.prefix.lock().await = Some((block.number(), block.hash()));
             return Ok(None);
         };
-        let receipts = self
-            .receipts
-            .receipts_from_block(block, eth.hash)
-            .await
-            .map_err(|error| {
-                failure(format!(
-                    "Ethereum区块 #{} {:?}，执行父状态 {:?}: {error}",
-                    block.number(),
-                    block.hash(),
-                    block.header().parent_hash
-                ))
-            })?;
+        let receipts = self.block_receipts(block, &eth).await.map_err(|error| {
+            failure(format!(
+                "Ethereum区块 #{} {:?}，执行父状态 {:?}: {error}",
+                block.number(),
+                block.hash(),
+                block.header().parent_hash
+            ))
+        })?;
         self.receipts
             .insert_block_receipts(block, &receipts, &eth.hash)
             .await?;
@@ -584,8 +638,7 @@ impl Ethereum {
         };
         if hydrated {
             eth.transactions = HashesOrTransactionInfos::TransactionInfos(
-                self.receipts
-                    .receipts_from_block(&block, eth.hash)
+                self.block_receipts(&block, &eth)
                     .await?
                     .into_iter()
                     .map(|(signed, receipt)| TransactionInfo::new(&receipt, signed))
@@ -603,18 +656,17 @@ impl Ethereum {
         let index: usize = index
             .try_into()
             .map_err(|_| ClientError::ConversionFailed)?;
-        let Some(receipt) = self
-            .receipts
-            .receipt_by_block_hash_and_index(&block.hash(), index)
-            .await
-        else {
+        let Some(eth) = self.checked(&block).await? else {
             return Ok(None);
         };
         Ok(self
-            .receipts
-            .signed_tx_by_hash(&receipt.transaction_hash)
-            .await
-            .map(|signed| TransactionInfo::new(&receipt, signed)))
+            .block_receipts(&block, &eth)
+            .await?
+            .into_iter()
+            .find_map(|(signed, receipt)| {
+                (receipt.transaction_index == U256::from(index))
+                    .then(|| TransactionInfo::new(&receipt, signed))
+            }))
     }
 }
 
@@ -631,24 +683,34 @@ fn dry_run_config(
 #[async_trait]
 impl EthRpcServer for Ethereum {
     async fn accounts(&self) -> RpcResult<Vec<H160>> {
+        self.ensure_ready()?;
         Ok(vec![])
     }
     async fn chain_id(&self) -> RpcResult<U256> {
+        self.ensure_ready()?;
         Ok(primitives::core_const::ETHEREUM_CHAIN_ID.into())
     }
     async fn net_version(&self) -> RpcResult<String> {
+        self.ensure_ready()?;
         Ok(primitives::core_const::ETHEREUM_CHAIN_ID.to_string())
     }
     async fn web3_client_version(&self) -> RpcResult<String> {
+        self.ensure_ready()?;
         Ok(format!(
             "citizenchain/{}",
             env!("CITIZENCHAIN_RELEASE_VERSION")
         ))
     }
     async fn block_number(&self) -> RpcResult<U256> {
-        Ok(self.blocks.latest_block().await.number().into())
+        self.ensure_ready()?;
+        let block = self.blocks.latest_block().await;
+        self.checked(&block)
+            .await?
+            .map(|eth| eth.number)
+            .ok_or_else(|| ErrorObjectOwned::from(failure("Ethereum尚未生成区块")))
     }
     async fn syncing(&self) -> RpcResult<SyncingStatus> {
+        self.ensure_ready()?;
         let health = self
             .blocks
             .legacy
@@ -679,12 +741,15 @@ impl EthRpcServer for Ethereum {
         .into())
     }
     async fn net_listening(&self) -> RpcResult<bool> {
+        self.ensure_ready()?;
         Ok(matches!(self.syncing().await?, SyncingStatus::Bool(false)))
     }
     async fn max_priority_fee_per_gas(&self) -> RpcResult<U256> {
+        self.ensure_ready()?;
         Ok(U256::zero())
     }
     async fn gas_price(&self) -> RpcResult<U256> {
+        self.ensure_ready()?;
         Ok(self
             .native
             .runtime(
@@ -695,13 +760,18 @@ impl EthRpcServer for Ethereum {
             .await?)
     }
     async fn get_balance(&self, address: H160, at: BlockNumberOrTagOrHash) -> RpcResult<U256> {
+        self.ensure_ready()?;
         // 映射及账户必须读取同一请求块；仅展示总余额，不改变 Runtime 的可支配余额 API。
         let at = self.resolve_hash(at).await?;
         let account = account_at(&self.native.0, address, Some(at)).await?;
         let key = nodeclient::query::system_account_key(&format!("0x{}", hex::encode(account)))
             .map_err(failure)?;
-        let raw = native_request(&self.native.0, "state_getStorage", serde_json::json!([key, at]))
-            .await?;
+        let raw = native_request(
+            &self.native.0,
+            "state_getStorage",
+            serde_json::json!([key, at]),
+        )
+        .await?;
         let raw: Option<sp_core::Bytes> = serde_json::from_value(raw)
             .map_err(|error| failure(format!("账户总余额存储响应无效: {error}")))?;
         let total = match raw {
@@ -714,6 +784,7 @@ impl EthRpcServer for Ethereum {
         Ok(U256::from(total) * U256::from(primitives::core_const::NATIVE_TO_ETH_RATIO))
     }
     async fn get_code(&self, address: H160, at: BlockNumberOrTagOrHash) -> RpcResult<Bytes> {
+        self.ensure_ready()?;
         let code: Vec<u8> = self
             .native
             .runtime(self.resolve_hash(at).await?, "code", address.encode())
@@ -725,6 +796,7 @@ impl EthRpcServer for Ethereum {
         address: H160,
         at: BlockNumberOrTagOrHash,
     ) -> RpcResult<U256> {
+        self.ensure_ready()?;
         if matches!(at, BlockNumberOrTagOrHash::BlockTag(BlockTag::Pending)) {
             let account = account_at(&self.native.0, address, None).await?;
             let value = self
@@ -747,6 +819,7 @@ impl EthRpcServer for Ethereum {
         slot: U256,
         at: BlockNumberOrTagOrHash,
     ) -> RpcResult<Bytes> {
+        self.ensure_ready()?;
         let value: pallet_revive::GetStorageResult = self
             .native
             .runtime(
@@ -763,6 +836,7 @@ impl EthRpcServer for Ethereum {
         tx: GenericTransaction,
         at: Option<BlockNumberOrTag>,
     ) -> RpcResult<U256> {
+        self.ensure_ready()?;
         let at: BlockNumberOrTagOrHash = at.unwrap_or_default().into();
         let config = dry_run_config(
             matches!(at, BlockNumberOrTagOrHash::BlockTag(BlockTag::Pending)),
@@ -784,6 +858,7 @@ impl EthRpcServer for Ethereum {
         at: Option<BlockNumberOrTagOrHash>,
         overrides: Option<StateOverrideSet>,
     ) -> RpcResult<Bytes> {
+        self.ensure_ready()?;
         let at = at.unwrap_or_default();
         let config = dry_run_config(
             matches!(at, BlockNumberOrTagOrHash::BlockTag(BlockTag::Pending)),
@@ -800,6 +875,7 @@ impl EthRpcServer for Ethereum {
         Ok(value.map_err(ClientError::TransactError)?.data.into())
     }
     async fn send_raw_transaction(&self, payload: Bytes) -> RpcResult<H256> {
+        self.ensure_ready()?;
         let signed =
             TransactionSigned::decode(&payload.0).map_err(|_| EthRpcError::InvalidTransaction)?;
         let transaction = GenericTransaction::from_signed(signed, U256::zero(), None);
@@ -843,6 +919,7 @@ impl EthRpcServer for Ethereum {
         Ok(hash)
     }
     async fn send_transaction(&self, transaction: GenericTransaction) -> RpcResult<H256> {
+        self.ensure_ready()?;
         match transaction.from {
             Some(account) => Err(EthRpcError::AccountNotFound(account).into()),
             None => Err(EthRpcError::InvalidTransaction.into()),
@@ -853,12 +930,14 @@ impl EthRpcServer for Ethereum {
         at: BlockNumberOrTag,
         full: bool,
     ) -> RpcResult<Option<Block>> {
+        self.ensure_ready()?;
         match self.by_number(at).await? {
             Some(block) => Ok(self.block(block, full).await?),
             None => Ok(None),
         }
     }
     async fn get_block_by_hash(&self, hash: H256, full: bool) -> RpcResult<Option<Block>> {
+        self.ensure_ready()?;
         match self.by_ethereum_hash(hash).await? {
             Some(block) => Ok(self.block(block, full).await?),
             None => Ok(None),
@@ -868,6 +947,7 @@ impl EthRpcServer for Ethereum {
         &self,
         hash: Option<H256>,
     ) -> RpcResult<Option<U256>> {
+        self.ensure_ready()?;
         let hash = match hash {
             Some(hash) => hash,
             None => self.blocks.latest_block().await.hash(),
@@ -885,6 +965,7 @@ impl EthRpcServer for Ethereum {
         &self,
         at: Option<BlockNumberOrTag>,
     ) -> RpcResult<Option<U256>> {
+        self.ensure_ready()?;
         match self.by_number(at.unwrap_or_default()).await? {
             Some(block) => Ok(self
                 .receipts
@@ -895,9 +976,11 @@ impl EthRpcServer for Ethereum {
         }
     }
     async fn get_transaction_receipt(&self, hash: H256) -> RpcResult<Option<ReceiptInfo>> {
+        self.ensure_ready()?;
         Ok(self.receipts.receipt_by_hash(&hash).await)
     }
     async fn get_transaction_by_hash(&self, hash: H256) -> RpcResult<Option<TransactionInfo>> {
+        self.ensure_ready()?;
         let Some(receipt) = self.receipts.receipt_by_hash(&hash).await else {
             return Ok(None);
         };
@@ -912,6 +995,7 @@ impl EthRpcServer for Ethereum {
         hash: H256,
         index: U256,
     ) -> RpcResult<Option<TransactionInfo>> {
+        self.ensure_ready()?;
         let Some(hash) = self.receipts.get_substrate_hash(&hash).await else {
             return Ok(None);
         };
@@ -925,12 +1009,14 @@ impl EthRpcServer for Ethereum {
         at: BlockNumberOrTag,
         index: U256,
     ) -> RpcResult<Option<TransactionInfo>> {
+        self.ensure_ready()?;
         match self.by_number(at).await? {
             Some(block) => Ok(self.transaction(block, index).await?),
             None => Ok(None),
         }
     }
     async fn get_logs(&self, filter: Option<Filter>) -> RpcResult<FilterResults> {
+        self.ensure_ready()?;
         // 把标签一次解析到当前快照，SQL查询与SDK公开索引使用同一高度口径。
         let best = self.blocks.latest_block().await.number();
         let finalized = self.blocks.latest_finalized_block().await.number();
@@ -982,6 +1068,7 @@ impl EthRpcServer for Ethereum {
         at: BlockNumberOrTag,
         percentiles: Option<Vec<f64>>,
     ) -> RpcResult<FeeHistoryResult> {
+        self.ensure_ready()?;
         let count: u32 = count
             .try_into()
             .map_err(|_| ClientError::ConversionFailed)?;
@@ -996,6 +1083,10 @@ impl EthRpcServer for Ethereum {
         kind: SubscriptionKind,
         options: Option<SubscriptionOptions>,
     ) {
+        if let Err(error) = self.ensure_ready() {
+            pending.reject(ErrorObjectOwned::from(error)).await;
+            return;
+        }
         let Some(parameters) = SubscriptionParameters::new(kind, options) else {
             pending
                 .reject(ErrorObjectOwned::owned(
@@ -1025,12 +1116,22 @@ impl EthRpcServer for Ethereum {
                 })
                 .boxed(),
         };
+        let mut status = self.status.subscribe();
+        // 订阅建立前再次核对，覆盖首次检查与订阅状态监听之间的失败竞态。
+        if let Err(error) = self.ensure_ready() {
+            pending.reject(ErrorObjectOwned::from(error)).await;
+            return;
+        }
         let Ok(sink) = pending.accept().await else {
             return;
         };
         loop {
             let message = tokio::select! {
                 _ = sink.closed() => break,
+                changed = status.changed() => {
+                    if changed.is_err() || status.borrow().is_some() { break; }
+                    continue;
+                },
                 message = receiver.next() => message,
             };
             let item = match message {
@@ -1135,7 +1236,7 @@ impl Ethereum {
             }
             let eth = self.checked(&next).await?;
             let publication = if let Some(eth) = eth {
-                let receipts = self.receipts.receipts_from_block(&next, eth.hash).await?;
+                let receipts = self.block_receipts(&next, &eth).await?;
                 Some((
                     eth,
                     receipts
@@ -1199,6 +1300,7 @@ pub(crate) async fn initialize(
     )
     .await?;
     let ethereum = Ethereum {
+        status: tokio::sync::watch::channel(Some("Ethereum索引尚未就绪".to_string())).0,
         native,
         blocks,
         receipts,
@@ -1226,7 +1328,6 @@ pub(crate) async fn initialize(
             "chain_unsubscribeFinalizedHeads",
         )
         .await?;
-    ethereum.rebuild().await?;
     let mut module = ethereum.clone().into_rpc();
     module.remove_method("eth_subscribe");
     module.remove_method("eth_unsubscribe");
@@ -1248,32 +1349,48 @@ pub(crate) async fn initialize(
         },
     )?;
     let module = module.remove_context();
+    let status = ethereum.status.clone();
+    let guard = IndexGuard {
+        status: status.clone(),
+        reported: false,
+    };
     let task = async move {
-        loop {
-            let (header, finality) = tokio::select! {
-                header = best.next() => (header,false),
-                header = finalized.next() => (header,true),
-            };
-            let header = header.ok_or(ClientError::BlockNotFound)??;
-            let block = ethereum
-                .blocks
-                .block_by_hash(&header.hash())
-                .await?
-                .ok_or(ClientError::BlockNotFound)?;
-            if finality {
-                ethereum.finalized(block).await?;
-            } else {
-                ethereum.index_path(block.clone()).await?;
-                let head = ethereum.checked(&block).await?;
-                ethereum
+        let mut guard = guard;
+        let result: Result<()> = async {
+            ethereum.rebuild().await?;
+            status.send_replace(None);
+            loop {
+                let (header, finality) = tokio::select! {
+                    header = best.next() => (header,false),
+                    header = finalized.next() => (header,true),
+                };
+                let header = header.ok_or(ClientError::BlockNotFound)??;
+                let block = ethereum
                     .blocks
-                    .update_latest(block, SubscriptionType::BestBlocks)
-                    .await;
-                if let Some(head) = head {
-                    let _ = ethereum.heads.send(head);
+                    .block_by_hash(&header.hash())
+                    .await?
+                    .ok_or(ClientError::BlockNotFound)?;
+                if finality {
+                    ethereum.finalized(block).await?;
+                } else {
+                    ethereum.index_path(block.clone()).await?;
+                    let head = ethereum.checked(&block).await?;
+                    ethereum
+                        .blocks
+                        .update_latest(block, SubscriptionType::BestBlocks)
+                        .await;
+                    if let Some(head) = head {
+                        let _ = ethereum.heads.send(head);
+                    }
                 }
             }
         }
+        .await;
+        if let Err(error) = &result {
+            status.send_replace(Some(error.to_string()));
+            guard.reported = true;
+        }
+        result
     }
     .boxed();
     Ok((module, task))
