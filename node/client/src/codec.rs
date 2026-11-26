@@ -10,12 +10,6 @@ use frame_metadata::RuntimeMetadata;
 use frame_metadata::RuntimeMetadataPrefixed;
 use frame_metadata::META_RESERVED;
 
-use sc_network::NetworkBackend as _;
-
-use sp_api::Metadata as _;
-
-use sp_runtime::traits::Block as BlockT;
-
 /// 原生规则使用编译期类型的键，物理存储名由执行区块的真实元数据决定。
 /// 按稳定 pallet 编号定位前缀；不修改键后缀、SCALE 值或链状态，也不按版本猜测名称。
 #[derive(Clone)]
@@ -275,7 +269,7 @@ impl RuntimeStorage {
     }
 
     /// 解释同一已执行区块的物理搬迁，只有已声明且真实存在的来源删除才能合并。
-    /// 普通同值写入仍保留为写入；这里从不修改原始delta或提交状态。
+    /// 搬迁后立即消费仍保留逻辑删除，普通同值写入仍保留；不修改原始delta或提交状态。
     pub fn transition_changes(
         &self,
         post: &Self,
@@ -308,17 +302,24 @@ impl RuntimeStorage {
         }
         let mut delta = BTreeMap::new();
         for (logical, records) in grouped {
-            let source = records
-                .iter()
-                .find(|(_, value)| value.is_none())
-                .map(|(key, _)| *key);
+            let target = post.key(&logical, true);
+            let mut source = None;
+            for (key, value) in &records {
+                // 删除记录的排序不代表来源身份；目标也可能在同一初始化中被消费。
+                if value.is_none()
+                    && **key != target
+                    && runtime::guard_migration_target(key)
+                        .map_err(|e| format!("迁移键非法:{e:?}"))?
+                        .is_some_and(|target| target == logical)
+                    && source.replace(*key).is_some()
+                {
+                    return Err("同一逻辑键存在多个声明迁移来源".into());
+                }
+            }
             let moved = if let Some(source) = source {
-                runtime::guard_migration_target(source)
-                    .map_err(|e| format!("迁移键非法:{e:?}"))?
-                    .is_some_and(|target| target == logical)
-                    && (self.migration == runtime::MigrationState::Running
-                        || post.migration == runtime::MigrationState::Running
-                        || self.key(&logical, true) != post.key(&logical, true))
+                (self.migration == runtime::MigrationState::Running
+                    || post.migration == runtime::MigrationState::Running
+                    || self.key(&logical, true) != target)
                     && read_parent(source)?.is_some()
                     && read_post(source)?.is_none()
             } else {
@@ -327,7 +328,10 @@ impl RuntimeStorage {
             if records.len() > 1
                 && (!moved
                     || records.len() != 2
-                    || records.iter().filter(|(_, value)| value.is_some()).count() != 1)
+                    || !records.iter().all(|(key, _)| Some(*key) == source || **key == target)
+                    // 双删除只允许消费刚搬入的目标，不能掩盖父状态已有的双来源冲突。
+                    || raw.get(&target).is_some_and(Option::is_none)
+                        && read_parent(&target)?.is_some())
             {
                 return Err(format!(
                     "节点守卫存储键归属冲突：逻辑前缀{}，来源{}个，已验证搬迁{}",

@@ -135,6 +135,84 @@ fn verified_prefix_move_is_not_an_immutable_write_but_ordinary_same_value_write_
 }
 
 #[test]
+fn verified_prefix_move_then_delete_preserves_deletion_and_rejects_false_sources() {
+    let original = runtime::Runtime::metadata_at_version(16).unwrap();
+    let current = RuntimeStorage::from_metadata(original.as_slice()).unwrap();
+    for (name, source, table) in [
+        ("Difficulty", "PowDifficulty", "PendingParams"),
+        ("Genesis", "GenesisPallet", "CitizensDeclaration"),
+    ] {
+        let layout = |owner: &str| {
+            let mut metadata = decode_runtime_metadata(original.as_slice()).unwrap();
+            let RuntimeMetadata::V16(value) = &mut metadata else {
+                panic!("V16");
+            };
+            let pallet = value.pallets.iter_mut().find(|p| p.name == name).unwrap();
+            pallet.name = owner.into();
+            pallet.storage.as_mut().unwrap().prefix = owner.into();
+            RuntimeStorage::from_metadata(
+                &RuntimeMetadataPrefixed(META_RESERVED, metadata).encode(),
+            )
+            .unwrap()
+        };
+        let before = layout(source);
+        let old = nodedesktop::storage::prefix(source.as_bytes(), table.as_bytes());
+        let target = nodedesktop::storage::prefix(name.as_bytes(), table.as_bytes());
+        let state = BTreeMap::from([(old.clone(), vec![1])]);
+        let read = |key: &[u8]| Ok(state.get(key).cloned());
+        let raw = BTreeMap::from([(old.clone(), None), (target.clone(), None)]);
+        assert_eq!(
+            before.transition_changes(&current, &raw, read).unwrap(),
+            BTreeMap::from([(target.clone(), None)]),
+            "搬迁后消费必须留下真实逻辑删除，永久记录的删除仍交给所属守卫拒绝"
+        );
+        assert!(
+            before
+                .transition_changes(&current, &raw, |_| Ok(None))
+                .is_err(),
+            "不存在的来源不能证明搬迁"
+        );
+        let conflict = BTreeMap::from([(old.clone(), vec![1]), (target.clone(), vec![1])]);
+        assert!(
+            before
+                .transition_changes(&current, &raw, |key| Ok(conflict.get(key).cloned()))
+                .is_err(),
+            "不能用双删除吞掉父状态中的来源冲突"
+        );
+        let retained = BTreeMap::from([(old.clone(), Some(vec![1])), (target.clone(), None)]);
+        assert!(before
+            .transition_changes(&current, &retained, read)
+            .is_err());
+        assert!(before.transition_changes(&before, &raw, read).is_err());
+        for failed in [&old, &target] {
+            let result = before.transition_changes(&current, &raw, |key| {
+                if key == failed {
+                    Err("读取失败".into())
+                } else {
+                    read(key)
+                }
+            });
+            assert_eq!(result.unwrap_err(), "读取失败");
+        }
+        let unknown = layout("UndeclaredSource");
+        let fake = nodedesktop::storage::prefix(b"UndeclaredSource", table.as_bytes());
+        assert!(unknown
+            .transition_changes(
+                &current,
+                &BTreeMap::from([(fake.clone(), None), (target.clone(), None)]),
+                |key| Ok((key == fake).then(|| vec![1])),
+            )
+            .is_err());
+        let third = nodedesktop::storage::prefix(b"OtherTarget", table.as_bytes());
+        let mut extra = raw.clone();
+        extra.insert(third, None);
+        assert!(before
+            .transition_changes(&layout("OtherTarget"), &extra, read)
+            .is_err());
+    }
+}
+
+#[test]
 fn migration_views_enumerate_both_sources_and_reject_conflicts_retired_keys_and_read_errors() {
     let metadata = runtime::Runtime::metadata_at_version(16).unwrap();
     let mut layout = RuntimeStorage::from_metadata(metadata.as_slice()).unwrap();

@@ -149,8 +149,8 @@ fn runtime_storage_rejects_invalid_or_ambiguous_metadata() {
     assert_eq!(identity.key(&key, true), key);
 }
 
-/// 用原状态及用户已签名的池内交易重放首个升级块；不另签、不提交、不更改原快照。
-fn replay_signed_upgrade(
+/// 用最终状态及明确类型的用户已签交易重放升级或升级后的首块；不另签、不提交。
+fn replay_signed_block(
     snapshot: &serde_json::Value,
     state: &BTreeMap<Vec<u8>, Vec<u8>>,
     backend: &sp_state_machine::InMemoryBackend<sp_runtime::traits::BlakeTwo256>,
@@ -163,9 +163,14 @@ fn replay_signed_upgrade(
     use codec::DecodeAll;
     use sp_core::traits::{CallContext, RuntimeCode, WrappedRuntimeCode};
     use sp_runtime::traits::{Hash as _, Header as _};
-    let path = std::env::var_os("CITIZENCHAIN_UPGRADE_EXTRINSIC")
-        .expect("必须交付用户已签名的真实升级交易");
+    let path = std::env::var_os("CITIZENCHAIN_REPLAY_EXTRINSIC")
+        .expect("必须交付用户已签名的真实交易及其用途");
     let request: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let upgrade = match request["kind"].as_str().unwrap() {
+        "upgrade" => true,
+        "maintenance" => false,
+        other => panic!("未声明的真实交易用途:{other}"),
+    };
     let bytes = |value: &str| hex::decode(value.trim_start_matches("0x")).unwrap();
     let signed = bytes(request["extrinsic"].as_str().unwrap());
     assert_eq!(
@@ -175,12 +180,22 @@ fn replay_signed_upgrade(
         ),
         request["tx_hash"].as_str().unwrap()
     );
-    assert!(
-        signed
-            .windows(candidate.len())
-            .any(|part| part == candidate),
-        "已签名交易必须包含本轮准确正式Wasm"
-    );
+    if upgrade {
+        assert!(
+            signed
+                .windows(candidate.len())
+                .any(|part| part == candidate),
+            "已签升级交易必须包含准确正式Wasm"
+        );
+    } else {
+        assert_eq!(
+            state[sp_storage::well_known_keys::CODE],
+            candidate,
+            "维护交易必须从已经实际升级的最终状态执行"
+        );
+        assert_eq!(snapshot["version"]["specVersion"], 8);
+        assert_eq!(snapshot["version"]["transactionVersion"], 7);
+    }
     let parent = sp_core::H256::from_slice(&bytes(snapshot["at"].as_str().unwrap()));
     let number = u32::from_str_radix(
         snapshot["header"]["number"]
@@ -236,7 +251,7 @@ fn replay_signed_upgrade(
                 CallContext::Onchain { import: false },
             )
             .execute()
-            .unwrap_or_else(|e| panic!("真实升级API {method} 失败:{e:?}"));
+            .unwrap_or_else(|e| panic!("真实已签交易API {method} 失败:{e:?}"));
             output
         };
     invoke(&mut overlay, "Core_initialize_block", &header.encode());
@@ -246,7 +261,7 @@ fn replay_signed_upgrade(
             &mut invoke(&mut overlay, "BlockBuilder_apply_extrinsic", encoded).as_slice(),
         )
         .unwrap();
-        assert_eq!(result, Ok(Ok(())), "真实已签升级及时间戳均须执行成功");
+        assert_eq!(result, Ok(Ok(())), "真实已签交易及时间戳均须执行成功");
     }
     let finalized = runtime::opaque::Header::decode_all(
         &mut invoke(&mut overlay, "BlockBuilder_finalize_block", &[]).as_slice(),
@@ -255,22 +270,32 @@ fn replay_signed_upgrade(
     let changes = overlay.drain_storage_changes(backend, version).unwrap();
     assert_eq!(changes.transaction_storage_root, *finalized.state_root());
     assert_eq!(
-        sp_runtime::traits::BlakeTwo256::ordered_trie_root(vec![timestamp, signed], version),
+        sp_runtime::traits::BlakeTwo256::ordered_trie_root(
+            vec![timestamp.clone(), signed.clone()],
+            version
+        ),
         *finalized.extrinsics_root()
     );
     let delta: BTreeMap<_, _> = changes.main_storage_changes.into_iter().collect();
-    assert_eq!(
-        delta.get(sp_storage::well_known_keys::CODE),
-        Some(&Some(candidate.to_vec()))
-    );
-    crate::guard::runtime_policy::check_candidate_runtime(
-        backend,
-        parent,
-        &delta,
-        candidate,
-        Some(metadata),
-    )
-    .expect("真实升级块的候选Runtime接口及永久规则必须通过");
+    if upgrade {
+        assert_eq!(
+            delta.get(sp_storage::well_known_keys::CODE),
+            Some(&Some(candidate.to_vec()))
+        );
+        crate::guard::runtime_policy::check_candidate_runtime(
+            backend,
+            parent,
+            &delta,
+            candidate,
+            Some(metadata),
+        )
+        .expect("真实升级块的候选Runtime接口及永久规则必须通过");
+    } else {
+        assert!(
+            !delta.contains_key(sp_storage::well_known_keys::CODE),
+            "维护交易不得再次升级Runtime"
+        );
+    }
     let parent = |key: &[u8]| Ok(state.get(key).cloned());
     let post = |key: &[u8]| {
         Ok(delta
@@ -279,10 +304,41 @@ fn replay_signed_upgrade(
             .unwrap_or_else(|| state.get(key).cloned()))
     };
     let before = layout.clone().with_state(parent).unwrap();
-    // set_code所在块仍由旧Runtime执行；不能拿已写入的新代码解释未搬迁的宪法。
-    let after = layout.clone().with_state(post).unwrap();
+    // 父状态归写入它的元数据，本次差量归实际执行代码；set_code所在块仍由旧代码执行。
+    let after = RuntimeStorage::from_metadata(metadata)
+        .unwrap()
+        .with_state(post)
+        .unwrap();
     crate::constitution::guard::check_transition(reference, &before, &after, &delta, parent)
         .unwrap();
+    let logical = before.transition_changes(&after, &delta, parent).unwrap();
+    let read_post = |key: &[u8]| after.read(key, post).unwrap();
+    crate::guard::runtime_policy::check_transition(&logical, read_post).unwrap();
+    let body = [timestamp, signed]
+        .iter()
+        .map(|encoded| sp_runtime::OpaqueExtrinsic::from_bytes(encoded).unwrap())
+        .collect::<Vec<_>>();
+    crate::guard::runtime_policy::check_block(&body, read_post, metadata).unwrap();
+    if !upgrade {
+        let old = nodedesktop::storage::prefix(b"PowDifficulty", b"PendingParams");
+        let target = nodedesktop::storage::prefix(b"Difficulty", b"PendingParams");
+        assert!(state.contains_key(&old));
+        assert!(!state.contains_key(&target));
+        assert_eq!(delta.get(&old), Some(&None));
+        assert_eq!(delta.get(&target), Some(&None));
+        assert_eq!(
+            logical.get(&target),
+            Some(&None),
+            "真实删除必须到达永久守卫"
+        );
+        assert_eq!(before.migration(), runtime::MigrationState::NotStarted);
+        assert_eq!(after.migration(), runtime::MigrationState::Running);
+        runtime::guard_migration_transition(
+            |key| state.get(key).cloned(),
+            |key| post(key).unwrap(),
+        )
+        .unwrap();
+    }
     assert!(
         !state.contains_key(&crate::constitution::storage_key::law(0)),
         "这个真实旧状态必须复现原来按新前缀直读失败的条件"
@@ -302,8 +358,18 @@ fn replay_signed_upgrade(
         &imported,
     )
     .unwrap();
+    if !upgrade {
+        let mut ext = sp_io::TestExternalities::new(sp_storage::Storage {
+            top: imported,
+            ..Default::default()
+        });
+        let params = ext.execute_with(runtime::Difficulty::active_params);
+        assert_eq!(params.params_version, 2);
+        assert_eq!(params.target_block_time_ms, 6000);
+    }
     eprintln!(
-        "真实已签升级首块{number}宪法守卫通过，交易{}；仅离线执行，未提交",
+        "真实已签{}块{number}执行、参数和宪法/费用守卫通过，交易{}；仅离线执行，未提交",
+        request["kind"].as_str().unwrap(),
         request["tx_hash"]
     );
 }
@@ -379,7 +445,13 @@ fn replayed_migration_preserves_storage_views_and_permanent_facts() {
         );
         sp_core::OpaqueMetadata::decode_all(&mut result.unwrap().as_slice()).unwrap()
     };
-    let old_metadata = metadata(&state[sp_storage::well_known_keys::CODE]);
+    let writer = &snapshot["writer_metadata"];
+    assert_eq!(
+        writer["at"], snapshot["header"]["parentHash"],
+        "非创世状态的写入元数据必须来自其真实父块"
+    );
+    let old_metadata = bytes(&writer["value"]);
+    let execution_metadata = metadata(&state[sp_storage::well_known_keys::CODE]);
     let new_metadata = metadata(&code);
     let old_layout = RuntimeStorage::from_metadata(&old_metadata).unwrap();
     let new_layout = RuntimeStorage::from_metadata(&new_metadata).unwrap();
@@ -394,14 +466,14 @@ fn replayed_migration_preserves_storage_views_and_permanent_facts() {
             ),
         ))
         .unwrap();
-    replay_signed_upgrade(
+    replay_signed_block(
         &snapshot,
         &state,
         &memory,
         version,
         &code,
         &old_layout,
-        old_metadata.as_slice(),
+        execution_metadata.as_slice(),
         &constitution,
     );
     let reference = crate::guard::cid_lifecycle::GenesisReference::from_frozen(
