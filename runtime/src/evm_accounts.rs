@@ -60,13 +60,12 @@ impl Get<Weight> for EvmAccountMapping {
     }
 }
 
-/// 原生本金转账最多新建一个收款账户；三个公共手续费收款方的预算由
-/// EvmPaymentWeight 统一预留，本适配器不重复计算。
+/// 每笔普通转账的本金和执行期手续费均在调用内，预留四个接收账户的建户成本。
 pub struct EvmOnchainWeight;
 impl onchain::weights::WeightInfo for EvmOnchainWeight {
     fn transfer_with_remark() -> Weight {
         <onchain::weights::SubstrateWeight<Runtime> as onchain::weights::WeightInfo>::transfer_with_remark()
-            .saturating_add(EvmAccountMapping::get())
+            .saturating_add(EvmAccountMapping::get().saturating_mul(4))
     }
 }
 

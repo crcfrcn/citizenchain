@@ -261,25 +261,6 @@ fn mapping_progressed(before: &[u8], after: Option<Vec<u8>>) -> Result<bool, Str
     }
 }
 
-fn mapping_succeeded(events: &[u8], index: usize) -> Result<(), String> {
-    let mut input = events;
-    let records =
-        Vec::<frame_system::EventRecord<runtime::RuntimeEvent, runtime::Hash>>::decode(&mut input)
-            .map_err(|error| format!("维护备注最终块事件解码失败: {error}"))?;
-    if !input.is_empty()
-        || !records.iter().any(|record| {
-            record.phase == frame_system::Phase::ApplyExtrinsic(index as u32)
-                && matches!(
-                    record.event,
-                    runtime::RuntimeEvent::System(frame_system::Event::ExtrinsicSuccess { .. })
-                )
-        })
-    {
-        return Err("维护备注未执行成功，停止且不重发".into());
-    }
-    Ok(())
-}
-
 fn read_mapping_cursor(
     client: &nodeclient::types::FullClient,
     at: runtime::Hash,
@@ -291,6 +272,72 @@ fn read_mapping_cursor(
             .map_err(|error| format!("读取EVM回填状态失败: {error}"))
     };
     mapping_cursor(read(MAPPING_PROGRESS)?, read(MAPPING_COMPLETE)?)
+}
+
+/// 状态解释归Runtime；节点只比较不透明读取快照，不复制迁移游标结构。
+fn institution_progress(read:impl Fn(&[u8])->Result<Option<Vec<u8>>,String>) -> Result<Option<Vec<u8>>,String> {
+    let reads = std::cell::RefCell::new(std::collections::BTreeMap::new());
+    let errors = std::cell::RefCell::new(None);
+    let state = runtime::guard_migration_state(|key| {
+        match read(key) {
+            Ok(raw) => { reads.borrow_mut().insert(key.to_vec(),raw.clone()); raw },
+            Err(error) => { *errors.borrow_mut()=Some(error.to_string()); None },
+        }
+    }).map_err(|e|format!("机构迁移状态非法: {e:?}"))?;
+    if let Some(error)=errors.into_inner() { return Err(error); }
+    if state == runtime::MigrationState::Running {
+        let mut cursor=vec![0]; cursor.extend_from_slice(&blake2_256(&reads.into_inner().encode()));
+        return Ok(Some(cursor));
+    }
+    Ok(None)
+}
+
+fn read_maintenance_cursor(client: &nodeclient::types::FullClient, at: runtime::Hash) -> Result<Option<Vec<u8>>, String> {
+    if let Some(cursor)=institution_progress(|key|client.storage(at,&StorageKey(key.to_vec())).map(|v|v.map(|v|v.0)).map_err(|e|e.to_string()))? {return Ok(Some(cursor));}
+    read_mapping_cursor(client,at).map(|cursor|cursor.map(|raw|{let mut v=vec![1];v.extend(raw);v}))
+}
+
+const MAINTENANCE_PENDING: &[u8] = b":citizenchain:maintenance:pending:v1";
+
+/// 未决标记只归节点已有aux数据库，不写链上业务状态。
+fn maintenance_marker(client: &nodeclient::types::FullClient, value: Option<&serde_json::Value>) -> Result<(), String> {
+    use sc_client_api::AuxStore;
+    if let Some(value)=value {
+        let bytes=serde_json::to_vec(value).map_err(|e|e.to_string())?;
+        client.insert_aux(&[(MAINTENANCE_PENDING,bytes.as_slice())],&[]).map_err(|e|e.to_string())
+    } else { client.insert_aux(&[],&[MAINTENANCE_PENDING]).map_err(|e|e.to_string()) }
+}
+
+fn pending_maintenance(raw:&[u8])->Result<(String,u32,Vec<u8>),String>{
+    let pending:serde_json::Value=serde_json::from_slice(raw).map_err(|_|"维护未决记录损坏")?;
+    let hash=pending.get("hash").and_then(|v|v.as_str()).filter(|v|v.len()==66&&v.starts_with("0x")&&v[2..].bytes().all(|b|b.is_ascii_hexdigit())).ok_or("上次维护提交结果未知，停止且不重发")?.to_owned();
+    let from=pending.get("from").and_then(|v|v.as_u64()).and_then(|v|u32::try_from(v).ok()).ok_or("维护起点损坏")?;
+    let cursor=pending.get("cursor").and_then(|v|v.as_str()).and_then(|v|hex::decode(v).ok()).filter(|v|v.first()==Some(&0)&&v.len()==33||v.first()==Some(&1)&&v.len()>1).ok_or("维护快照损坏")?;
+    Ok((hash,from,cursor))
+}
+
+/// 重启只核验已有最终结果；未知、失败或缺少哈希均停止，绝不补签重发。
+fn recover_maintenance(client: &nodeclient::types::FullClient) -> Result<(), String> {
+    use sc_client_api::{AuxStore, BlockBackend};
+    use sp_runtime::traits::Header;
+    let Some(raw)=client.get_aux(MAINTENANCE_PENDING).map_err(|e|e.to_string())? else {return Ok(());};
+    let (hash,from,before)=pending_maintenance(&raw)?;
+    // 重启核对也有界，未找到不能占用后台线程无限追扫历史。
+    let end=client.info().finalized_number.min(from.saturating_add(32));
+    for number in from.saturating_add(1)..=end {
+        let block=client.hash(number).map_err(|e|e.to_string())?.ok_or("维护历史块缺失")?;
+        let body=client.block_body(block).map_err(|e|e.to_string())?.ok_or("维护历史区块体缺失")?;
+        for (index,xt) in body.iter().enumerate() {
+            if format!("0x{}",hex::encode(blake2_256(&xt.encode()))) != hash {continue;}
+            let header=client.header(block).map_err(|e|e.to_string())?.ok_or("维护历史头缺失")?;
+            let metadata=client.runtime_api().metadata(*header.parent_hash()).map_err(|e|e.to_string())?;
+            let events=client.storage(block,&StorageKey(nodeguard::guard::runtime_policy::storage_key::events())).map_err(|e|e.to_string())?.ok_or("维护事件缺失")?;
+            nodeguard::guard::runtime_policy::extrinsic_succeeded(&events.0,metadata.as_slice(),index as u32)?;
+            mapping_progressed(&before,read_maintenance_cursor(client,block)?)?;
+            return maintenance_marker(client,None);
+        }
+    }
+    Err("未决维护在有界核对范围内没有可验证最终结果，停止且不重发".into())
 }
 
 /// 普通 V5 备注仍经过完整签名、资源、权限与交易池检查。
@@ -325,7 +372,7 @@ async fn mapping_finalized(
     Err("维护备注状态流结束，结果不明，停止且不重发".into())
 }
 
-/// 仅桌面进程接线；CLI服务器不启动该任务。每次仅等待一笔真实备注最终确定。
+/// 仅桌面进程接线；先自动推进机构迁移，再接续原EVM回填，每次等待一笔真实备注最终确定。
 async fn run_mapping_backfill(
     client: Arc<nodeclient::types::FullClient>,
     pool: Arc<sc_transaction_pool::TransactionPoolHandle<Block, nodeclient::types::FullClient>>,
@@ -358,7 +405,8 @@ async fn run_mapping_backfill(
         }
         audit.last_wait = None;
         audit.step("checking_cursor", snapshot);
-        let Some(before) = read_mapping_cursor(&client, info.finalized_hash)? else {
+        recover_maintenance(&client)?;
+        let Some(before) = read_maintenance_cursor(&client, info.finalized_hash)? else {
             log::info!("EVM回填无需继续，桌面维护任务结束");
             return Ok(());
         };
@@ -368,17 +416,25 @@ async fn run_mapping_backfill(
             "submitting",
             serde_json::json!({
                 "cursor": hex::encode(blake2_256(&before)),
+                "kind": if before.first()==Some(&0) {"institutions"} else {"evm_mapping"},
             }),
         );
+        maintenance_marker(&client,Some(&serde_json::json!({"from":info.finalized_number,"cursor":hex::encode(&before)})))?;
+        let call = if before.first() == Some(&0) {
+            let mut remark=b"entity-migration:".to_vec();remark.extend_from_slice(&before[1..]);
+            runtime::RuntimeCall::System(frame_system::Call::remark {remark})
+        } else {mapping_remark(&before[1..])};
         let (hash, status) = crate::rpc::submit_powr_signed_tx(
             &client,
             &pool,
             &keystore,
             &miner_signing,
-            mapping_remark(&before),
+            call,
+            None,
         )
         .map_err(|error| format!("维护备注入池失败，停止且不重发: {error}"))?;
         log::info!("桌面EVM回填维护备注已提交: {hash}");
+        maintenance_marker(&client,Some(&serde_json::json!({"hash":hash,"from":info.finalized_number,"cursor":hex::encode(&before)})))?;
         audit.tx = Some(hash);
         audit.step("waiting_finality", serde_json::json!({}));
         let (finalized, index) =
@@ -396,11 +452,14 @@ async fn run_mapping_backfill(
             .storage(finalized, &StorageKey(key))
             .map_err(|error| format!("读取维护备注执行结果失败: {error}"))?
             .ok_or("维护备注最终块缺少事件")?;
-        mapping_succeeded(&events.0, index)?;
+        let header=client.header(finalized).map_err(|e|e.to_string())?.ok_or("维护最终块头缺失")?;
+        let metadata=client.runtime_api().metadata(header.parent_hash).map_err(|e|e.to_string())?;
+        nodeguard::guard::runtime_policy::extrinsic_succeeded(&events.0,metadata.as_slice(),index as u32)?;
         audit.step("checking_progress", serde_json::json!({"block": finalized}));
-        let after = read_mapping_cursor(&client, finalized)?;
+        let after = read_maintenance_cursor(&client, finalized)?;
         let cursor = after.as_deref().map(|bytes| hex::encode(blake2_256(bytes)));
         let complete = mapping_progressed(&before, after)?;
+        maintenance_marker(&client,None)?;
         audit.step(
             "progress",
             serde_json::json!({"cursor": cursor, "complete": complete}),
@@ -872,7 +931,7 @@ pub(crate) fn new_full_with_network_reader(
         let sync = sync_service.clone();
         task_manager
             .spawn_handle()
-            .spawn("evm-mapping-backfill", None, async move {
+            .spawn_blocking("evm-mapping-backfill", None, async move {
                 let mut audit = MappingAudit::new(mapping_base);
                 let result = run_mapping_backfill(
                     client,

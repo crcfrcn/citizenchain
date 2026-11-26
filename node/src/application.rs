@@ -106,6 +106,9 @@ pub fn run_desktop() {
             nodeonchain::commands::build_cold_transfer_request,
             nodeonchain::commands::submit_cold_transfer,
             nodeonchain::commands::submit_hot_transfer,
+            nodeonchain::commands::get_transfer_result,
+            nodeonchain::commands::get_transfer_policy,
+            nodeonchain::commands::prepare_transfer,
             // ─── 清算行 offchain tab ───
             nodeinstitution::commands::search_eligible_clearing_banks,
             nodeoffchain::commands::query_clearing_bank_node_info,

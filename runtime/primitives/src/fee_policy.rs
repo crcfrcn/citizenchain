@@ -2,6 +2,16 @@
 
 use sp_runtime::{Debug, Perbill};
 
+/// 链上费收取时点；五类费用分类保持不变。
+#[derive(Clone, Copy, Eq, PartialEq, Debug, codec::Encode, codec::Decode, codec::DecodeWithMemTracking, scale_info::TypeInfo)]
+pub enum FeeTiming {
+    Outer,
+    Execution,
+}
+
+/// 普通转账仅在其业务事务成功时实际收取手续费。
+pub const TRANSFER_FEE_TIMING: FeeTiming = FeeTiming::Execution;
+
 /// 链上交易费执行接口。
 ///
 /// 本接口不是第二套费用分类：调用方只能提交已经由业务规则确定的付款账户和
@@ -45,10 +55,11 @@ pub enum OffchainFeePayer {
 pub enum FeeRoute<AccountId, Balance> {
     /// 框架固有、Root 回调或幂等维护调用，不收取交易费。
     Free,
-    /// 链上交易费：按交易金额计算，零金额自动落最低 0.1 元。
+    /// 链上交易费的精确报价、付款账户与收取时点；执行期报价仅供审阅。
     Onchain {
-        transaction_amount: Balance,
+        fee_amount: Balance,
         payer_account_id: AccountId,
+        timing: FeeTiming,
     },
     /// 链下交易费：费用由链下清算模块按批次业务规则计算并收取。
     Offchain {
@@ -107,6 +118,11 @@ pub const OPERATIONAL_FEE_MULTIPLIER: u8 = 1;
 /// 公式：`max(round(amount × ONCHAIN_FEE_RATE), ONCHAIN_MIN_FEE)`。
 pub fn calculate_onchain_fee(amount: u128) -> u128 {
     mul_perbill_round(amount, ONCHAIN_FEE_RATE).max(ONCHAIN_MIN_FEE)
+}
+
+/// 普通单笔和批次子项共用的精确整分报价。
+pub fn calculate_transfer_fee(amount: u128, has_remark: bool) -> u128 {
+    calculate_onchain_fee(amount).saturating_add(if has_remark { FLAT_FEE } else { 0 })
 }
 
 fn mul_perbill_round(amount: u128, rate: Perbill) -> u128 {

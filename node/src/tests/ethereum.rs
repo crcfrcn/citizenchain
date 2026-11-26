@@ -1388,6 +1388,7 @@ async fn mapping_backfill_v5_pool_nonce_and_signing_are_shared() {
                 &keystore,
                 &signing,
                 runtime::RuntimeCall::System(frame_system::Call::remark { remark }),
+                None,
             )
             .unwrap()
             .0
@@ -3815,4 +3816,55 @@ async fn ethereum_before_first_block_reports_absence_without_inventing_a_height(
         .unwrap();
     assert!(block.is_none());
     drop(task);
+}
+
+
+/// 官方批次、真实V5签名、交易池、Wasm、两层守卫、TLS与GRANDPA共同验收。
+#[cfg(feature = "runtime-tests")]
+#[tokio::test(flavor = "multi_thread",worker_threads=4)]
+async fn native_batch_success_fees_over_real_tls_wasm() {
+    use sc_transaction_pool_api::{InPoolTransaction,TransactionPool};
+    use sp_keystore::Keystore;
+    let mut config=test_config("native-utility",tokio::runtime::Handle::current());
+    config.role=Role::Authority;
+    let root=config.base_path.path().to_path_buf();
+    let identity=nodeguard::guard::testing::TestGenesisIdentity::from_chain_spec(config.chain_spec.as_ref()).unwrap();
+    let partial=crate::service::testing::new_partial_for_test(&config).unwrap();
+    let keystore=partial.keystore_container.keystore();
+    keystore.sr25519_generate_new(nodemining::pow::POW_AUTHOR_KEY_TYPE,Some("//Alice")).unwrap();
+    let pool=partial.transaction_pool.clone();
+    let raw=sc_consensus_pow::PowBlockImport::new(partial.other.0.clone(),partial.client.clone(),nodemining::pow::SimplePow::new(partial.client.clone()),0,partial.select_chain.clone(),|_,()|async{Ok((sp_timestamp::InherentDataProvider::from_system_time(),))});
+    let genesis=nodeguard::guard::testing::TestGenesisIdentity::genesis_state(config.chain_spec.as_ref());
+    let guarded=nodeguard::guard::NodeGuard::new_for_test(raw,partial.client.clone(),partial.backend.clone(),identity,genesis.clone());
+    let importer=nodeguard::constitution::guard::ConstitutionGuard::new(guarded,partial.client.clone(),partial.backend.clone(),genesis);
+    let credentials=rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+    let http=reqwest::Client::builder().https_only(true).no_proxy().add_root_certificate(reqwest::Certificate::from_der(credentials.cert.der().as_ref()).unwrap()).timeout(Duration::from_secs(15)).build().unwrap();
+    let (url,server)=serve(&partial,&credentials).await;
+    let mut node=start_test_network(&mut config,partial,true);node.start_finality();
+    assert_eq!(rpc(&http,&url,"transaction_transferPolicy",serde_json::json!([])).await,serde_json::json!({"executionFee":true,"batchEnabled":true}));
+    let to=nodeclient::signing::account_id_to_ss58(&[0xa7;32]).unwrap();
+    let missing=nodeclient::signing::account_id_to_ss58(&[0xa8;32]).unwrap();
+    for (offset,(mode,all_failed,expected,fee)) in [("force_batch",false,vec!["success","failed","success"],"21"),("batch_all",false,vec!["rolled_back","rolled_back","rolled_back"],"0"),("batch",false,vec!["success","failed","not_executed"],"10"),("transfer",false,vec!["failed"],"0"),("force_batch",true,vec!["failed","failed"],"0")].into_iter().enumerate() {
+        let items=if all_failed {serde_json::json!([{"toAddress":missing,"amountFen":"1","remark":""},{"toAddress":missing,"amountFen":"1","remark":""}])} else if mode=="transfer" {serde_json::json!([{"toAddress":missing,"amountFen":"1","remark":""}])} else {serde_json::json!([{ "toAddress":to,"amountFen":"100","remark":""},{"toAddress":missing,"amountFen":"1","remark":""},{"toAddress":to,"amountFen":"10500","remark":""}])};
+        let wrong=nodedesktop::security::issue_miner_transfer_token().unwrap();
+        let rejected=response(&http,&url,"transaction_submitMinerTransfer",serde_json::json!([format!("0x{}","11".repeat(32)),mode,items,wrong])).await;
+        assert!(rejected.get("error").is_some(),"付款钱包必须与实际签名账户一致");
+        let token=nodedesktop::security::issue_miner_transfer_token().unwrap();
+        let params=serde_json::json!([format!("0x{}",hex::encode(Sr25519Keyring::Alice.to_account_id())),mode,items,token]);
+        let hash=rpc(&http,&url,"transaction_submitMinerTransfer",params.clone()).await;
+        assert!(response(&http,&url,"transaction_submitMinerTransfer",params).await.get("error").is_some(),"一次性令牌不能重复签名");
+        let tx=pool.ready().find(|tx|format!("0x{}",hex::encode(sp_crypto_hashing::blake2_256(&tx.data().encode())))==hash.as_str().unwrap()).expect("真实交易池中必须存在这一笔合法签名").data().clone();
+        let block=proposal(&node.client,node.client.info().best_hash,vec![(*tx).clone()],1_782_950_406_000+offset as u64*6_000);
+        let block_hash=block.post_hash();
+        assert!(matches!(importer.import_block(block).await.unwrap(),ImportResult::Imported(_)));
+        wait_finalized(&node,block_hash,offset as u32+1).await;
+        let result=rpc(&http,&url,"transaction_getTransferResult",serde_json::json!([hash,0,16])).await;
+        assert_eq!(result["feeFen"],fee);
+        if all_failed {assert_eq!(result["state"],"failed","全部失败不能显示部分成功");}
+        assert_eq!(result["items"].as_array().unwrap().iter().map(|v|v["state"].as_str().unwrap()).collect::<Vec<_>>(),expected);
+    }
+    server.abort();let _=server.await;drop(importer);drop(pool);drop(keystore);
+    let backend=Arc::downgrade(&node.backend);let tasks=node.stop();
+    tokio::time::timeout(Duration::from_secs(10),async{while !tasks.running_tasks().is_empty()||backend.upgrade().is_some(){tokio::time::sleep(Duration::from_millis(10)).await;}}).await.unwrap();
+    drop(config);std::fs::remove_dir_all(root).unwrap();
 }

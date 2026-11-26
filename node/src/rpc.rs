@@ -113,7 +113,6 @@ pub(crate) fn identity_binding(
     ))
 }
 
-const MAX_TRANSFER_REMARK_BYTES: usize = 99;
 
 /// Full client dependencies.
 pub(crate) struct FullDeps<C, P> {
@@ -141,6 +140,7 @@ pub(crate) fn submit_powr_signed_tx<C, P>(
     keystore: &sp_keystore::KeystorePtr,
     miner_signing: &Mutex<()>,
     call: runtime::RuntimeCall,
+    expected_payer: Option<&AccountId>,
 ) -> Result<
     (
         String,
@@ -171,6 +171,9 @@ where
 
     // 2. 推导 AccountId
     let miner_account_id: AccountId = chain_signing::account_id_from_public(public);
+    if expected_payer.is_some_and(|payer|payer!=&miner_account_id) {
+        return Err(ErrorObject::owned(-1,"矿工签名账户已改变，请重新选择付款钱包",None::<()>));
+    }
 
     // 3. 查询链信息
     let info = (*client).info();
@@ -227,20 +230,6 @@ where
     .map_err(|e| ErrorObject::owned(-1, format!("提交交易到交易池失败: {e}"), None::<()>))?;
 
     Ok((format!("{tx_hash:?}"), status))
-}
-
-/// 从 SS58 地址解析 AccountId。
-fn account_id_from_ss58_address(
-    ss58_address: &str,
-) -> Result<AccountId, jsonrpsee::types::ErrorObjectOwned> {
-    use sp_core::crypto::Ss58Codec;
-    sp_runtime::AccountId32::from_ss58check(ss58_address).map_err(|e| {
-        jsonrpsee::types::error::ErrorObject::owned(
-            -1,
-            format!("SS58 地址解析失败: {e:?}"),
-            None::<()>,
-        )
-    })
 }
 
 /// 从唯一文本格式解析 AccountId：小写 `0x` + 64 位十六进制。
@@ -356,12 +345,12 @@ pub(crate) fn create_full<C, P>(
 where
     C: ProvideRuntimeApi<Block>,
     C: HeaderBackend<Block> + HeaderMetadata<Block, Error = BlockChainError> + 'static,
-    C: StorageProvider<Block, sc_service::TFullBackend<Block>> + 'static,
+    C: StorageProvider<Block, sc_service::TFullBackend<Block>> + sc_client_api::BlockBackend<Block> + 'static,
     C: Send + Sync + 'static,
     C::Api: substrate_frame_rpc_system::AccountNonceApi<Block, AccountId, Nonce>,
     C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<Block, Balance>,
     C::Api: BlockBuilder<Block>,
-    C::Api: CoreApi<Block>,
+    C::Api: CoreApi<Block> + sp_api::Metadata<Block>,
     P: TransactionPool<Block = Block> + 'static,
 {
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
@@ -538,7 +527,7 @@ where
                 fullnodeissue::pallet::Call::bind_reward_account { reward_account_id },
             );
             let _submission =
-                submit_powr_signed_tx(&client, &pool, &keystore, &miner_signing, call)?;
+                submit_powr_signed_tx(&client, &pool, &keystore, &miner_signing, call, None)?;
             Ok::<&str, jsonrpsee::types::ErrorObjectOwned>("ok")
         })?;
     }
@@ -559,13 +548,13 @@ where
                 },
             );
             let _submission =
-                submit_powr_signed_tx(&client, &pool, &keystore, &miner_signing, call)?;
+                submit_powr_signed_tx(&client, &pool, &keystore, &miner_signing, call, None)?;
             Ok::<&str, jsonrpsee::types::ErrorObjectOwned>("ok")
         })?;
     }
 
-    // transaction_submitMinerTransfer(to_ss58_address, amount_fen, remark, token) -> tx_hash
-    // 由 node 端使用本机 powr 矿工密钥签名并提交 Onchain::transfer_with_remark。
+    // transaction_submitMinerTransfer(account_id, mode, transfers, token) -> tx_hash
+    // 复用唯一调用构造器及本机powr签名器，清单只有一次外层签名。
     {
         let client = client.clone();
         let pool = pool.clone();
@@ -574,46 +563,66 @@ where
         module.register_method("transaction_submitMinerTransfer", move |params, _, _| {
             use jsonrpsee::types::error::ErrorObject;
 
-            let (to_ss58_address, amount_fen_raw, remark_raw, auth_token): (
-                String,
-                String,
-                String,
-                String,
-            ) = params.parse()?;
+            let (account_id, mode, transfers, auth_token): (String,nodeonchain::types::TransferMode, Vec<nodeonchain::types::TransferItem>, String) = params.parse()?;
             if !consume_miner_transfer_token(&auth_token) {
                 return Err(ErrorObject::owned(-1, "矿工热钱包提交令牌无效", None::<()>));
             }
-            let destination_account_id = account_id_from_ss58_address(&to_ss58_address)?;
-            let amount_fen: Balance = amount_fen_raw.parse().map_err(|e| {
-                ErrorObject::owned(-1, format!("转账金额解析失败: {e}"), None::<()>)
-            })?;
-            if amount_fen == 0 {
-                return Err(ErrorObject::owned(-1, "转账金额不能为零", None::<()>));
-            }
-            let remark_len = remark_raw.len();
-            if remark_len > MAX_TRANSFER_REMARK_BYTES {
-                return Err(ErrorObject::owned(
-                    -1,
-                    format!(
-                        "转账备注不能超过 {MAX_TRANSFER_REMARK_BYTES} 字节，当前 {remark_len} 字节"
-                    ),
-                    None::<()>,
-                ));
-            }
-            let remark: onchain::pallet::TransferRemarkOf<runtime::Runtime> = remark_raw
-                .as_bytes()
-                .to_vec()
-                .try_into()
-                .map_err(|_| ErrorObject::owned(-1, "转账备注长度超过链上限制", None::<()>))?;
-
-            let call = runtime::RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
-                beneficiary_account_id: destination_account_id,
-                amount: amount_fen,
-                remark,
-            });
+            let payer=parse_account_id(&account_id)?;
+            let call = nodeonchain::transfer::build_transfer_call(mode, &transfers)
+                .map_err(|e| ErrorObject::owned(-32602, e, None::<()>))?;
             let (tx_hash, _) =
-                submit_powr_signed_tx(&client, &pool, &keystore, &miner_signing, call)?;
+                submit_powr_signed_tx(&client, &pool, &keystore, &miner_signing, call, Some(&payer))?;
             Ok::<String, jsonrpsee::types::ErrorObjectOwned>(tx_hash)
+        })?;
+    }
+
+    {
+        let client=client.clone();
+        module.register_method("transaction_transferPolicy",move |_params,_,_| {
+            use sp_api::Metadata;
+            let invalid=|e:String|jsonrpsee::types::ErrorObjectOwned::owned(-1,e,None::<()>);
+            let at=client.info().finalized_hash;
+            let metadata=client.runtime_api().metadata(at).map_err(|e|invalid(e.to_string()))?;
+            let (execution,mut batch)=nodeguard::guard::runtime_policy::transfer_policy(metadata.as_slice()).map_err(invalid)?;
+            if batch {
+                let errors=std::cell::RefCell::new(None);
+                let state=runtime::guard_migration_state(|key|match client.storage(at,&sp_storage::StorageKey(key.to_vec())) {Ok(v)=>v.map(|v|v.0),Err(e)=>{*errors.borrow_mut()=Some(e.to_string());None}}).map_err(|e|invalid(format!("迁移状态非法: {e:?}")))?;
+                if let Some(error)=errors.into_inner(){return Err(invalid(error));}
+                batch=state!=runtime::MigrationState::Running;
+            }
+            Ok::<_,jsonrpsee::types::ErrorObjectOwned>(serde_json::json!({"executionFee":execution,"batchEnabled":batch}))
+        })?;
+    }
+
+    // 最终块分页查询；不新建索引、不签名、不重发。
+    {
+        let client = client.clone();
+        module.register_method("transaction_getTransferResult", move |params, _, _| {
+            use sp_api::Metadata;
+            use sp_runtime::traits::Header;
+            let (tx_hash, cursor, limit): (String, u32, u32) = params.parse()?;
+            let invalid = |message: String| jsonrpsee::types::ErrorObjectOwned::owned(-32602,message,None::<()>);
+            let wanted = tx_hash.strip_prefix("0x").and_then(|s| hex::decode(s).ok()).filter(|v|v.len()==32).ok_or_else(||invalid("交易哈希格式非法".into()))?;
+            if limit == 0 || limit > 32 { return Err(invalid("查询分页必须在1到32块之间".into())); }
+            let info = client.info();
+            let last = cursor.saturating_add(limit).min(info.finalized_number);
+            for number in cursor.saturating_add(1)..=last {
+                let hash = client.hash(number).map_err(|e|invalid(e.to_string()))?.ok_or_else(||invalid("最终块缺失".into()))?;
+                let header = client.header(hash).map_err(|e|invalid(e.to_string()))?.ok_or_else(||invalid("最终块头缺失".into()))?;
+                let body = client.block_body(hash).map_err(|e|invalid(e.to_string()))?.ok_or_else(||invalid("归档区块体缺失".into()))?;
+                for (index, xt) in body.iter().enumerate() {
+                    if sp_io::hashing::blake2_256(&xt.encode()).as_slice() != wanted.as_slice() { continue; }
+                    let metadata = client.runtime_api().metadata(*header.parent_hash()).map_err(|e|invalid(e.to_string()))?;
+                    let raw = client.storage(hash,&sp_storage::StorageKey(nodeguard::guard::runtime_policy::storage_key::events())).map_err(|e|invalid(e.to_string()))?.ok_or_else(||invalid("最终块事件缺失".into()))?;
+                    let result = nodeguard::guard::runtime_policy::transfer_outcome(xt,&raw.0,metadata.as_slice(),index as u32).map_err(invalid)?;
+                    let fees = result.fees.iter().try_fold(0u128,|s,f|s.checked_add(*f)).ok_or_else(||invalid("实际费用合计溢出".into()))?;
+                    return Ok::<_,jsonrpsee::types::ErrorObjectOwned>(serde_json::json!({
+                        "state":result.state,"cursor":number,"blockHash":format!("{hash:#x}"),"index":index,"feeFen":fees.to_string(),"error":result.error,
+                        "items":result.items.iter().zip(result.fees.iter()).map(|(state,fee)|serde_json::json!({"state":state,"feeFen":fee.to_string()})).collect::<Vec<_>>()
+                    }));
+                }
+            }
+            Ok(serde_json::json!({"state":"pending","cursor":last.max(cursor)}))
         })?;
     }
 

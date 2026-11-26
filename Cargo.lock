@@ -10175,12 +10175,14 @@ name = "nodeonchain"
 version = "1.0.0"
 dependencies = [
  "chain-signing",
+ "frame-support",
  "hex",
  "nodeclient",
  "nodecontrol",
  "nodedesktop",
  "nodeinstitution",
  "onchain",
+ "pallet-utility",
  "parity-scale-codec",
  "primitives",
  "qr-protocol",
@@ -16283,6 +16285,7 @@ dependencies = [
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
+ "pallet-utility",
  "parity-scale-codec",
  "personal",
  "prbbankissue",

@@ -175,6 +175,7 @@ fn first_party_metadata_keeps_registered_indices_and_signed_calls() {
             (24, "Assets"),
             (25, "Legislation"),
             (26, "LegislationVote"),
+            (27, "Utility"),
             (30, "PublicEntity"),
             (31, "PrivateEntity"),
             (32, "Election"),
@@ -274,7 +275,7 @@ fn entity_metadata_preserves_pallet_and_call_indices() {
     assert!(metadata
         .pallets
         .iter()
-        .all(|pallet| ![27, 28, 29].contains(&pallet.index)));
+        .all(|pallet| ![28, 29].contains(&pallet.index)));
     for call in [
         publicentity::Call::<Runtime>::type_info(),
         privateentity::Call::<Runtime>::type_info(),
@@ -520,7 +521,8 @@ fn ordinary_policy_and_transfer_use_real_native_permissions_and_common_threshold
                 &policy
             ),
             primitives::fee_policy::FeeRoute::Onchain {
-                transaction_amount: 0,
+                fee_amount: primitives::fee_policy::calculate_onchain_fee(0),
+            timing: primitives::fee_policy::FeeTiming::Outer,
                 payer_account_id: fee.clone()
             }
         );
@@ -1148,7 +1150,8 @@ fn institution_transfer_route_uses_exact_fee_account() {
         assert_eq!(
             route,
             primitives::fee_policy::FeeRoute::Onchain {
-                transaction_amount: 0,
+                fee_amount: primitives::fee_policy::calculate_onchain_fee(0),
+            timing: primitives::fee_policy::FeeTiming::Outer,
                 payer_account_id: fee_account,
             }
         );
@@ -1720,7 +1723,8 @@ fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
         assert_eq!(
             amount_with_remark,
             primitives::fee_policy::FeeRoute::Onchain {
-                transaction_amount: 456,
+                fee_amount: primitives::fee_policy::calculate_transfer_fee(456,true),
+            timing: primitives::fee_policy::FeeTiming::Execution,
                 payer_account_id: who.clone(),
             }
         );
@@ -1755,7 +1759,8 @@ fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
         assert_eq!(
             fullnode_kind,
             primitives::fee_policy::FeeRoute::Onchain {
-                transaction_amount: 0,
+                fee_amount: primitives::fee_policy::calculate_onchain_fee(0),
+            timing: primitives::fee_policy::FeeTiming::Outer,
                 payer_account_id: miner,
             }
         );
@@ -1784,7 +1789,8 @@ fn runtime_fee_router_covers_free_onchain_vote_institution_and_reject_paths() {
         assert_eq!(
             resolution_kind,
             primitives::fee_policy::FeeRoute::Onchain {
-                transaction_amount: 0,
+                fee_amount: primitives::fee_policy::calculate_onchain_fee(0),
+            timing: primitives::fee_policy::FeeTiming::Outer,
                 payer_account_id: AccountId::new(CHINA_CB[0].fee_account),
             }
         );
@@ -1958,7 +1964,8 @@ fn institution_retry_fee_requires_current_frozen_role_of_paying_institution() {
         assert_eq!(
             route(&nrc_wallet),
             FeeRoute::Onchain {
-                transaction_amount: 0,
+                fee_amount: primitives::fee_policy::calculate_onchain_fee(0),
+            timing: primitives::fee_policy::FeeTiming::Outer,
                 payer_account_id: AccountId::new(nrc.fee_account),
             },
         );
@@ -2014,7 +2021,8 @@ fn runtime_fee_router_treats_proposals_as_operations_not_votes() {
         assert_eq!(
             create_kind,
             primitives::fee_policy::FeeRoute::Onchain {
-                transaction_amount: 0,
+                fee_amount: primitives::fee_policy::calculate_onchain_fee(0),
+            timing: primitives::fee_policy::FeeTiming::Outer,
                 payer_account_id: who.clone(),
             }
         );
@@ -2044,7 +2052,8 @@ fn runtime_fee_router_treats_proposals_as_operations_not_votes() {
         assert_eq!(
             close_kind,
             primitives::fee_policy::FeeRoute::Onchain {
-                transaction_amount: 0,
+                fee_amount: primitives::fee_policy::calculate_onchain_fee(0),
+            timing: primitives::fee_policy::FeeTiming::Outer,
                 payer_account_id: AccountId::new(CHINA_CB[0].fee_account),
             }
         );
@@ -2079,7 +2088,8 @@ fn runtime_fee_router_treats_proposals_as_operations_not_votes() {
         assert_eq!(
             transfer_kind,
             primitives::fee_policy::FeeRoute::Onchain {
-                transaction_amount: 0,
+                fee_amount: primitives::fee_policy::calculate_onchain_fee(0),
+            timing: primitives::fee_policy::FeeTiming::Outer,
                 payer_account_id: AccountId::new(CHINA_CB[0].fee_account),
             }
         );
@@ -2995,7 +3005,8 @@ fn runtime_square_post_fee_kind_uses_onchain_minimum_fee() {
         assert_eq!(
             fee_kind,
             primitives::fee_policy::FeeRoute::Onchain {
-                transaction_amount: 0,
+                fee_amount: primitives::fee_policy::calculate_onchain_fee(0),
+            timing: primitives::fee_policy::FeeTiming::Outer,
                 payer_account_id: who,
             }
         );
@@ -4743,7 +4754,7 @@ fn evm_account_creation_weights_cover_fee_rewards_and_background_payouts() {
         onchain::weights::WeightInfo,
         onchain::weights::SubstrateWeight<Runtime>,
         transfer_with_remark,
-        1
+        4
     );
     let ordinary = <<Runtime as onchain::pallet::Config>::WeightInfo as onchain::weights::WeightInfo>::transfer_with_remark();
     let payment = <<Runtime as pallet_transaction_payment::Config>::WeightInfo as pallet_transaction_payment::WeightInfo>::charge_transaction_payment();
@@ -4751,8 +4762,8 @@ fn evm_account_creation_weights_cover_fee_rewards_and_background_payouts() {
         .saturating_add(<pallet_transaction_payment::weights::SubstrateWeight<Runtime> as pallet_transaction_payment::WeightInfo>::charge_transaction_payment());
     assert_eq!(
         ordinary.saturating_add(payment),
-        old.saturating_add(mapping.saturating_mul(4)),
-        "ordinary principal and common fee receivers must not be counted twice"
+        old.saturating_add(mapping.saturating_mul(7)),
+        "每笔执行期收费独立覆盖四个接收方，通用外层扩展保留其原有资源上界"
     );
 
     budget!(
@@ -5067,4 +5078,82 @@ fn multisig_execution_charger_uses_existing_payer_and_shared_remark_fee() {
             );
         });
     }
+}
+
+
+#[test]
+fn official_utility_keeps_principal_and_each_fee_in_the_same_transaction() {
+    for atomic in [true, false] {
+        new_test_ext().execute_with(|| {
+            let from=AccountId::new([220;32]); let a=AccountId::new([221;32]); let absent=AccountId::new([222;32]); let c=AccountId::new([223;32]);
+            let _=Balances::make_free_balance_be(&from,100_000);
+            let _=Balances::make_free_balance_be(&a,EXISTENTIAL_DEPOSIT);
+            let _=Balances::make_free_balance_be(&c,EXISTENTIAL_DEPOSIT);
+            let make=|to:AccountId,amount|RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {beneficiary_account_id:to,amount,remark:Default::default()});
+            let calls=vec![make(a.clone(),100),make(absent.clone(),1),make(c.clone(),200)];
+            let result=if atomic {Utility::batch_all(RuntimeOrigin::signed(from.clone()),calls)} else {Utility::force_batch(RuntimeOrigin::signed(from.clone()),calls)};
+            assert_eq!(result.is_ok(),!atomic);
+            assert_eq!(Balances::free_balance(&absent),0);
+            assert_eq!(Balances::free_balance(&from),if atomic {100_000} else {99_680});
+            assert_eq!(Balances::free_balance(&a),EXISTENTIAL_DEPOSIT+if atomic {0}else{100});
+            assert_eq!(Balances::free_balance(&c),EXISTENTIAL_DEPOSIT+if atomic {0}else{200});
+            let fees=System::events().iter().filter_map(|e|match &e.event {RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid {account_id,fee})=>Some((account_id.clone(),*fee)),_=>None}).collect::<Vec<_>>();
+            assert_eq!(fees,if atomic {vec![]} else {vec![(from.clone(),10),(from.clone(),10)]});
+        });
+    }
+}
+
+#[test]
+fn ordinary_transfer_fee_failure_rolls_back_and_utility_filter_rejects_mixed_calls() {
+    new_test_ext().execute_with(|| {
+        let from=AccountId::new([224;32]); let to=AccountId::new([225;32]);
+        let _=Balances::make_free_balance_be(&from,EXISTENTIAL_DEPOSIT+100);
+        let before=Balances::free_balance(&from);
+        assert!(Onchain::transfer_with_remark(RuntimeOrigin::signed(from.clone()),to.clone(),100,Default::default()).is_err());
+        assert_eq!(Balances::free_balance(&from),before);
+        assert!(!System::events().iter().any(|e|matches!(e.event,RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid{..}))));
+        let invalid=RuntimeCall::Utility(pallet_utility::Call::force_batch {calls:vec![RuntimeCall::System(frame_system::Call::remark {remark:vec![]})]});
+        assert!(!RuntimeCallFilter::contains(&invalid));
+        let nested=RuntimeCall::Utility(pallet_utility::Call::batch_all {calls:vec![invalid]});
+        assert!(!RuntimeCallFilter::contains(&nested));
+        assert!(crate::configs::batch_calls_limit()>0);
+        assert!(core::mem::size_of::<RuntimeCall>()<=1024);
+    });
+}
+
+
+#[test]
+fn batch_fee_rounding_matches_three_independent_successful_transfers() {
+    let run=|batch|new_test_ext().execute_with(|| {
+        let payer=AccountId::new([226;32]);let recipient=AccountId::new([227;32]);
+        let nrc=<RuntimeNrcAccountProvider as onchain::NrcAccountProvider<AccountId>>::nrc_account().unwrap();
+        let safety=<RuntimeSafetyFundAccountProvider as onchain::SafetyFundAccountProvider<AccountId>>::safety_fund_account();
+        for (account,value) in [(&payer,50_000),(&recipient,111),(&nrc,111),(&safety,111)] {drop(Balances::make_free_balance_be(account,value));}
+        if batch {
+            let calls=(0..3).map(|_|RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark{beneficiary_account_id:recipient.clone(),amount:10_500,remark:Default::default()})).collect();
+            Utility::batch_all(RuntimeOrigin::signed(payer.clone()),calls).unwrap();
+        }else{for _ in 0..3{Onchain::transfer_with_remark(RuntimeOrigin::signed(payer.clone()),recipient.clone(),10_500,Default::default()).unwrap();}}
+        let result=(Balances::free_balance(&payer),Balances::free_balance(&recipient),Balances::free_balance(&nrc),Balances::free_balance(&safety));
+        assert_eq!(result,(18_467,31_611,114,117));
+        result
+    });
+    assert_eq!(run(false),run(true));
+}
+
+#[test]
+fn successful_transfer_preserves_exact_ed_and_frozen_failure_costs_nothing() {
+    use frame_support::traits::{LockableCurrency,WithdrawReasons};
+    new_test_ext().execute_with(|| {
+        let payer=AccountId::new([228;32]);let recipient=AccountId::new([229;32]);
+        drop(Balances::make_free_balance_be(&payer,EXISTENTIAL_DEPOSIT+110));
+        drop(Balances::make_free_balance_be(&recipient,EXISTENTIAL_DEPOSIT));
+        Onchain::transfer_with_remark(RuntimeOrigin::signed(payer.clone()),recipient.clone(),100,Default::default()).unwrap();
+        assert_eq!(Balances::free_balance(&payer),EXISTENTIAL_DEPOSIT);
+        drop(Balances::make_free_balance_be(&payer,50_000));
+        Balances::set_lock(*b"testlock",&payer,50_000,WithdrawReasons::all());
+        System::reset_events();
+        assert!(Onchain::transfer_with_remark(RuntimeOrigin::signed(payer.clone()),recipient,100,Default::default()).is_err());
+        assert_eq!(Balances::free_balance(&payer),50_000);
+        assert!(!System::events().iter().any(|e|matches!(e.event,RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid{..}|onchain::pallet::Event::FeeShareBurnt{..}))));
+    });
 }

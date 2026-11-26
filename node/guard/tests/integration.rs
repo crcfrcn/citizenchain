@@ -1029,9 +1029,10 @@ fn finalize_total_issuance_is_exact_and_overflow_is_rejected() {
 #[test]
 #[ignore = "requires explicitly supplied WASM_FILE"]
 fn candidate_runtime_interface_rules_are_enforced() {
-    let wasm = runtime::WASM_BINARY.expect("WASM_FILE is required; no skipped assertion");
-    // 当前父metadata包含FLAT_FEE；旧WASM不能再冒充本次候选通过检查。
+    let wasm = std::fs::read(std::env::var_os("WASM_FILE").expect("WASM_FILE is required; no skipped assertion")).expect("必须读取本轮准确Wasm");
+    // 当前父metadata包含成功收费标记与Utility27；旧Wasm不能冒充本轮候选。
     let parent_metadata = runtime::Runtime::metadata_at_version(16).expect("V16 metadata");
+    assert_eq!(crate::guard::runtime_policy::transfer_policy(parent_metadata.as_slice()).unwrap(),(true,true));
     let backend: sp_state_machine::InMemoryBackend<sp_runtime::traits::BlakeTwo256> = (
         sp_runtime::Storage::default(),
         sp_core::storage::StateVersion::V1,
@@ -1041,7 +1042,7 @@ fn candidate_runtime_interface_rules_are_enforced() {
         &backend,
         sp_core::H256::repeat_byte(1),
         &BTreeMap::new(),
-        wasm,
+        &wasm,
         Some(parent_metadata.as_slice()),
     )
     .unwrap();

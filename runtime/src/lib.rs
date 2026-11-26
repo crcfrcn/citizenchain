@@ -570,7 +570,11 @@ mod runtime {
     #[runtime::pallet_index(32)]
     pub type Election = election;
 
-    // pallet index 27、28 原机构管理员模块已退役。
+    // 经批准复用已退役27号；历史调用必须按执行父Runtime metadata解释。
+    #[runtime::pallet_index(27)]
+    pub type Utility = pallet_utility;
+
+    // 28号原机构管理员模块已退役。
 
     // 公权机构生命周期模块：只负责公权机构 CID 登记、创建、关闭。
     #[runtime::pallet_index(30)]

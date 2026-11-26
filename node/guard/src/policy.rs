@@ -36,8 +36,9 @@ const SYSTEM_EVENTS: &[u8] = b"Events";
 /// 链下费率字段内部仍按百分之一百分点计数；10 对应制度上限 0.1%。
 const OFFCHAIN_MAX_RATE_UNITS: u32 = 10;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum ProtectedFee {
+    Transfers { payer: [u8; 32], mode: String, items: Vec<TransferSpec> },
     Onchain {
         payer_account_id: [u8; 32],
         amount: u128,
@@ -52,10 +53,15 @@ fn protected_fee(
     call: &Value<()>,
     payer: Option<[u8; 32]>,
     remark_fee_enabled: bool,
+    execution_fee: bool,
 ) -> Result<Option<ProtectedFee>, String> {
+    if execution_fee {
+        if let Some(rule) = transfer_rule(call, payer)? { return Ok(Some(rule)); }
+    }
     let (pallet, fields) = variant(call).ok_or("交易缺少 RuntimeCall 类型")?;
     let call = only_field(fields).ok_or("交易 pallet 调用结构非法")?;
     let (name, fields) = variant(call).ok_or("交易缺少 pallet Call 类型")?;
+    if pallet == "Utility" {return Err("Utility缺少执行期收费规则".into());}
     let transfer =
         matches!(pallet, "Onchain" | "OnchainTransaction") && name == "transfer_with_remark";
     let vote = matches!(
@@ -114,6 +120,7 @@ fn protected_fee(
 
 fn expected_fee(rule: ProtectedFee) -> ([u8; 32], u128) {
     match rule {
+        ProtectedFee::Transfers { .. } => unreachable!("执行期转账由逐项事务结果核对"),
         crate::guard::runtime_policy::ProtectedFee::Onchain {
             payer_account_id,
             amount,
@@ -261,40 +268,9 @@ where
     let Some(raw) = read_post(&crate::guard::runtime_policy::storage_key::events()) else {
         return Ok(Vec::new());
     };
-    let (types, event_type) = event_storage_type(metadata_raw)?;
-    let mut input = raw.as_slice();
-    let decoded = scale_value::scale::decode_as_type(&mut input, event_type, &types)
-        .map_err(|_| "System::Events SCALE 解码失败".to_string())?
-        .remove_context();
-    if !input.is_empty() {
-        return Err("System::Events 存在尾随字节".into());
-    }
-    let ValueDef::Composite(Composite::Unnamed(records)) = decoded.value else {
-        return Err("System::Events 不是事件列表".into());
-    };
     let mut fees = Vec::new();
-    for record in &records {
-        let phase = named_field(record, "phase").ok_or("System::Events 缺少 phase")?;
-        let extrinsic = match variant(phase) {
-            Some(("ApplyExtrinsic", fields)) => Some(
-                only_field(fields)
-                    .and_then(integer)
-                    .and_then(|value| u32::try_from(value).ok())
-                    .ok_or("System::Events extrinsic phase 格式非法")?,
-            ),
-            Some(("Initialization" | "Finalization", fields)) if fields.is_empty() => None,
-            _ => return Err("System::Events phase 格式非法".into()),
-        };
-        let event = named_field(record, "event").ok_or("System::Events 缺少 event")?;
-        let (pallet, outer_fields) = variant(event).ok_or("System::Events event 格式非法")?;
-        if !matches!(
-            pallet,
-            "Onchain" | "OnchainTransaction" | "Offchain" | "OffchainTransaction"
-        ) {
-            continue;
-        }
-        let inner = only_field(outer_fields).ok_or("System::Events 业务事件格式非法")?;
-        let (name, fields) = variant(inner).ok_or("System::Events 业务事件类型非法")?;
+    for (extrinsic,pallet,name,fields) in records(&raw,metadata_raw)? {
+        let pallet=pallet.as_str();let name=name.as_str();let fields=&fields;
         if matches!(pallet, "Onchain" | "OnchainTransaction") && name == "FeePaid" {
             if !exact_fields(fields, &["account_id", "fee"]) {
                 return Err("FeePaid 字段格式非法".into());
@@ -418,12 +394,14 @@ struct ExtrinsicSchema {
     versions: Vec<u8>,
     extensions: BTreeMap<u8, Vec<(String, u32)>>,
     remark_fee_enabled: bool,
+    execution_fee: bool,
 }
 
 impl ExtrinsicSchema {
     fn new(raw: &[u8]) -> Result<Self, String> {
         let metadata = nodeclient::codec::decode_runtime_metadata(raw)?;
         let remark_fee_enabled = remark_fee_enabled(&metadata, None)?;
+        let execution_fee = execution_fee_enabled(&metadata)?;
         let (types, address, signature, call, versions, extensions) = match metadata {
             RuntimeMetadata::V14(meta) => {
                 if !matches!(meta.extrinsic.version, 4 | 5) {
@@ -513,6 +491,7 @@ impl ExtrinsicSchema {
             versions,
             extensions,
             remark_fee_enabled,
+            execution_fee,
         })
     }
 
@@ -591,7 +570,7 @@ impl ExtrinsicSchema {
         if !input.is_empty() {
             return Err("交易包含尾随字节".into());
         }
-        protected_fee(&call, payer, self.remark_fee_enabled)
+        protected_fee(&call, payer, self.remark_fee_enabled, self.execution_fee)
     }
 }
 
@@ -678,6 +657,11 @@ where
         let Some(rule) = rule else {
             continue;
         };
+        if let ProtectedFee::Transfers { payer, mode, items } = &rule {
+            let raw = read_post(&storage_key::events()).ok_or("缺少转账结果事件")?;
+            inspect_transfers(*payer, mode, items, &records(&raw, parent_metadata)?, index as u32)?;
+            continue;
+        }
         let ordinary_transfer = matches!(rule, ProtectedFee::Onchain { .. });
         let (expected_payer, expected_amount) = expected_fee(rule);
         let mut paid = events.iter().filter(|record| {
@@ -869,6 +853,11 @@ where
         &[],
     )?;
     let metadata: sp_core::OpaqueMetadata = decode_exact(&metadata_raw, "候选 metadata")?;
+    let parent_execution = parent_metadata.map(|raw| execution_fee_enabled(&nodeclient::codec::decode_runtime_metadata(raw)?)).transpose()?.unwrap_or(false);
+    let candidate_execution=execution_fee_enabled(&nodeclient::codec::decode_runtime_metadata(&metadata)?)?;
+    if parent_execution && !candidate_execution {
+        return Err("普通转账成功收费规则生效后禁止退回外层预扣".into());
+    }
     let parent_enabled = parent_metadata
         .map(|raw| remark_fee_enabled(&nodeclient::codec::decode_runtime_metadata(raw)?, None))
         .transpose()?;
@@ -963,3 +952,159 @@ pub mod storage_key {
 #[cfg(test)]
 #[path = "../tests/policy.rs"]
 mod tests;
+
+
+/// 由父metadata解释收费时点；缺失仅对应部署前的历史规则。
+fn execution_fee_enabled(metadata: &RuntimeMetadata) -> Result<bool, String> {
+    macro_rules! find { ($m:expr) => { $m.pallets.iter().filter(|p| matches!(p.name.as_str(), "Onchain" | "OnchainTransaction")).flat_map(|p| p.constants.iter()).filter(|c| c.name == "TransferFeeTiming").map(|c| c.value.as_slice()).collect::<Vec<_>>() }; }
+    let values = match metadata { RuntimeMetadata::V14(m) => find!(m), RuntimeMetadata::V15(m) => find!(m), RuntimeMetadata::V16(m) => find!(m), _ => return Err("费用metadata版本非法".into()) };
+    match values.as_slice() {
+        [] => Ok(false),
+        [raw] if decode_exact::<primitives::fee_policy::FeeTiming>(raw, "转账收费时点")? == primitives::fee_policy::FeeTiming::Execution => Ok(true),
+        _ => Err("普通转账收费时点重复或非法".into()),
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TransferSpec { to: [u8; 32], amount: u128, remark: Vec<u8> }
+
+fn call_parts(call: &Value<()>) -> Result<(&str, &str, &Composite<()>), String> {
+    let (pallet, fields) = variant(call).ok_or("调用类型非法")?;
+    let (name, fields) = variant(only_field(fields).ok_or("调用包装非法")?).ok_or("调用类型非法")?;
+    Ok((pallet, name, fields))
+}
+fn spec(fields: &Composite<()>) -> Result<TransferSpec, String> {
+    Ok(TransferSpec {
+        to: bytes(composite_field(fields, "beneficiary_account_id").ok_or("转账缺少收款人")?).and_then(|v| v.try_into().ok()).ok_or("收款账户非法")?,
+        amount: integer(composite_field(fields, "amount").ok_or("转账缺少金额")?).ok_or("金额非法")?,
+        remark: bytes(composite_field(fields, "remark").ok_or("转账缺少备注")?).ok_or("备注非法")?,
+    })
+}
+fn transfer_rule(call: &Value<()>, payer: Option<[u8; 32]>) -> Result<Option<ProtectedFee>, String> {
+    let (pallet, name, fields) = call_parts(call)?;
+    if pallet == "Onchain" && name == "transfer_with_remark" {
+        return Ok(Some(ProtectedFee::Transfers { payer: payer.ok_or("缺少签名付款人")?, mode: "transfer".into(), items: vec![spec(fields)?] }));
+    }
+    if pallet != "Utility" { return Ok(None); }
+    if !matches!(name, "batch" | "batch_all" | "force_batch") { return Err("禁止其它Utility入口".into()); }
+    let calls = composite_field(fields, "calls").ok_or("缺少批次清单")?;
+    let ValueDef::Composite(Composite::Unnamed(calls)) = &calls.value else { return Err("批次清单类型非法".into()); };
+    if calls.is_empty() || calls.len() > runtime::configs::batch_calls_limit() as usize { return Err("批次数量非法".into()); }
+    let items = calls.iter().map(|call| {
+        let (p, n, f) = call_parts(call)?;
+        if p != "Onchain" || n != "transfer_with_remark" { return Err("批次包含非普通转账或嵌套".into()); }
+        spec(f)
+    }).collect::<Result<Vec<_>, String>>()?;
+    Ok(Some(ProtectedFee::Transfers { payer: payer.ok_or("批次缺少签名付款人")?, mode: name.into(), items }))
+}
+
+type Record = (Option<u32>, String, String, Composite<()>);
+fn records(raw: &[u8], metadata: &[u8]) -> Result<Vec<Record>, String> {
+    let (types, ty) = event_storage_type(metadata)?;
+    let mut input = raw;
+    let value = scale_value::scale::decode_as_type(&mut input, ty, &types).map_err(|e| format!("父Runtime事件解码失败: {e}"))?.remove_context();
+    if !input.is_empty() { return Err("事件尾随字节".into()); }
+    let ValueDef::Composite(Composite::Unnamed(values)) = value.value else { return Err("事件列表非法".into()); };
+    values.iter().map(|v| {
+        let phase = named_field(v, "phase").and_then(variant).ok_or("事件phase非法")?;
+        let index = match phase { ("ApplyExtrinsic", f) => Some(only_field(f).and_then(integer).and_then(|n| u32::try_from(n).ok()).ok_or("事件索引非法")?), ("Initialization" | "Finalization", f) if f.is_empty() => None, _ => return Err("事件phase非法".into()) };
+        let (p, f) = named_field(v, "event").and_then(variant).ok_or("事件类型非法")?;
+        let (n, f) = only_field(f).and_then(variant).ok_or("事件包装非法")?;
+        Ok((index, p.into(), n.into(), f.clone()))
+    }).collect()
+}
+
+/// 维护备注和转账查询共用按执行父metadata解码的成功判定。
+pub fn extrinsic_succeeded(raw: &[u8], metadata: &[u8], index: u32) -> Result<(), String> {
+    if result_flag(&records(raw,metadata)?,index)? {Ok(())} else {Err("交易执行失败".into())}
+}
+fn result_flag(values:&[Record],index:u32)->Result<bool,String>{
+    let result=values.iter().filter(|(i,p,n,_)|*i==Some(index)&&p=="System"&&matches!(n.as_str(),"ExtrinsicSuccess"|"ExtrinsicFailed")).map(|(_,_,n,_)|n.as_str()).collect::<Vec<_>>();
+    match result.as_slice(){["ExtrinsicSuccess"]=>Ok(true),["ExtrinsicFailed"]=>Ok(false),_=>Err("交易没有唯一执行结果".into())}
+}
+
+/// 只读结果，不持有Credit，不做事后退款。
+pub struct TransferOutcome { pub state: &'static str, pub fees: Vec<u128>, pub items: Vec<&'static str>, pub error: Option<String> }
+
+fn inspect_transfers(payer: [u8; 32], mode: &str, items: &[TransferSpec], values: &[Record], index: u32) -> Result<TransferOutcome, String> {
+    let events = values.iter().filter(|e| e.0 == Some(index)).collect::<Vec<_>>();
+    let results = events.iter().filter(|e| e.1 == "System" && matches!(e.2.as_str(), "ExtrinsicSuccess" | "ExtrinsicFailed")).collect::<Vec<_>>();
+    if results.len() != 1 { return Err("缺少唯一外层结果".into()); }
+    let failed = results[0].2 == "ExtrinsicFailed";
+    let burn_count=events.iter().filter(|e| e.1=="Onchain" && e.2=="FeeShareBurnt").count();
+    let mut segment=(0usize,0usize,0usize);
+    let mut paid = Vec::new(); let mut principals = Vec::new(); let mut status = Vec::new(); let mut terminal = Vec::new();
+    for e in &events {
+        let f = &e.3;
+        match (e.1.as_str(), e.2.as_str()) {
+            ("Onchain", "FeeShareBurnt") => {segment.2+=1;},
+            ("Onchain", "FeePaid") => {
+                if !exact_fields(f,&["account_id","fee"]){return Err("手续费事件字段非法".into());}
+                segment.0+=1;
+                let account = composite_field(f,"account_id").and_then(bytes).ok_or("费用账户非法")?;
+                if account.as_slice() != payer { return Err("错误的手续费付款人".into()); }
+                paid.push(composite_field(f,"fee").and_then(integer).ok_or("费用金额非法")?);
+            },
+            ("Onchain", "TransferWithRemark") => {
+                if !exact_fields(f,&["from_account_id","beneficiary_account_id","amount","remark"]){return Err("本金事件字段非法".into());}
+                segment.1+=1;
+                if composite_field(f,"from_account_id").and_then(bytes).as_deref() != Some(payer.as_slice()) { return Err("本金付款人错误".into()); }
+                principals.push(spec(f)?);
+            },
+            ("Utility", "ItemCompleted") => {if !f.is_empty()||segment.0!=1||segment.1!=1 {return Err("成功项缺少唯一的本金或费用事件".into());} segment=(0,0,0);status.push("success");},
+            ("Utility", "ItemFailed") => {if !exact_fields(f,&["error"])||segment!=(0,0,0){return Err("失败项仍留下本金、收费或分账".into());}status.push("failed");},
+            ("Utility", "BatchInterrupted") => {
+                if !exact_fields(f,&["index","error"])||segment!=(0,0,0){return Err("中断项仍留下本金、收费或分账".into());}
+                if composite_field(f,"index").and_then(integer) != Some(status.len() as u128) { return Err("批次中断索引错误".into()); }
+                status.push("failed"); terminal.push("BatchInterrupted");
+            },
+            ("Utility", "BatchCompleted" | "BatchCompletedWithErrors") => terminal.push(e.2.as_str()),
+            _ => {},
+        }
+    }
+    if failed {
+        if burn_count!=0 || !paid.is_empty() || !principals.is_empty() || !status.is_empty() || !terminal.is_empty() { return Err("失败或整组回滚仍留下本金或收费".into()); }
+        return Ok(TransferOutcome { state: if mode == "batch_all" { "rolled_back" } else { "failed" }, fees: vec![0;items.len()], items: vec![if mode == "batch_all" { "rolled_back" } else { "failed" };items.len()], error: Some(format!("{:?}",results[0].3)) });
+    }
+    if mode!="transfer"&&segment!=(0,0,0){return Err("批次终态后残留未归属业务事件".into());}
+    if mode == "transfer" {
+        if !status.is_empty() || !terminal.is_empty() { return Err("单笔包含批次事件".into()); } status.push("success");
+    } else {
+        if mode == "batch" && terminal == ["BatchInterrupted"] { status.resize(items.len(), "not_executed"); }
+        else if status.len() != items.len() || terminal.len() != 1 || terminal[0] != (if status.contains(&"failed") { "BatchCompletedWithErrors" } else { "BatchCompleted" }) { return Err("批次终态与逐项结果不符".into()); }
+        if mode == "batch_all" && status.iter().any(|s| *s != "success") { return Err("原子批次出现部分成功".into()); }
+        if mode == "batch" && terminal != ["BatchInterrupted"] && status.contains(&"failed") { return Err("batch失败后仍继续".into()); }
+    }
+    if status.len() != items.len() { return Err("子项数量不符".into()); }
+    let expected = items.iter().zip(&status).filter(|(_,s)| **s == "success").map(|(i,_)| i.clone()).collect::<Vec<_>>();
+    let fees = expected.iter().map(|i| primitives::fee_policy::calculate_transfer_fee(i.amount,!i.remark.is_empty())).collect::<Vec<_>>();
+    if (fees.is_empty() && burn_count!=0) || principals != expected || paid != fees { return Err("成功项本金或逐笔手续费缺失、重复或不符".into()); }
+    let all_fees = items.iter().zip(&status).map(|(i,s)| if *s == "success" { primitives::fee_policy::calculate_transfer_fee(i.amount,!i.remark.is_empty()) } else {0}).collect();
+    Ok(TransferOutcome { state: if status.iter().all(|s| *s == "success") {"success"} else if status.contains(&"success") {"partial"} else {"failed"}, fees: all_fees, items: status, error: None })
+}
+
+/// 本地只读RPC复用与永久守卫相同的解析和金额校验。
+pub fn transfer_outcome(opaque: &sp_runtime::OpaqueExtrinsic, raw: &[u8], metadata: &[u8], index: u32) -> Result<TransferOutcome, String> {
+    let schema = ExtrinsicSchema::new(metadata)?;
+    let values = records(raw,metadata)?;
+    match schema.fee(opaque)?.ok_or("不是普通转账")? {
+        ProtectedFee::Transfers { payer, mode, items } => inspect_transfers(payer,&mode,&items,&values,index),
+        rule @ ProtectedFee::Onchain { .. } => {
+            let (payer,fee) = expected_fee(rule);
+            let paid = decode_events(&|key| (key == storage_key::events()).then(||raw.to_vec()),metadata)?;
+            let matching = paid.iter().filter(|e| matches!(e,FeeEvent::Paid{extrinsic:Some(i),..} if *i == index)).collect::<Vec<_>>();
+            if matching.len() != 1 || !matches!(matching[0],FeeEvent::Paid{account_id,fee:f,..} if *account_id==payer && *f==fee) { return Err("历史单笔收费不符".into()); }
+            let success=result_flag(&values,index)?;
+            Ok(TransferOutcome { state:if success {"success"} else {"failed"},fees:vec![fee],items:vec![if success {"success"} else {"failed"}],error:None })
+        },
+        _ => Err("不是普通转账".into()),
+    }
+}
+
+/// UI按真实父Runtime能力启用批量入口，部署前普通单笔继续遵守旧费用规则。
+pub fn transfer_policy(raw: &[u8]) -> Result<(bool,bool),String> {
+    let metadata=nodeclient::codec::decode_runtime_metadata(raw)?;
+    let execution=execution_fee_enabled(&metadata)?;
+    let utility=match &metadata {RuntimeMetadata::V14(m)=>m.pallets.iter().any(|p|p.name=="Utility"&&p.index==27),RuntimeMetadata::V15(m)=>m.pallets.iter().any(|p|p.name=="Utility"&&p.index==27),RuntimeMetadata::V16(m)=>m.pallets.iter().any(|p|p.name=="Utility"&&p.index==27),_=>false};
+    Ok((execution,execution&&utility))
+}

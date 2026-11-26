@@ -405,8 +405,8 @@ fn generated_dart_registries_are_current() {
     let expected = export_registry_dart().expect("Dart registry 必须可生成");
     assert_eq!(
         generated_sha256(&expected).expect("Dart原消费者金标摘要"),
-        "dcdaf867f977c48e27140c4fb40c08ec05def86ef1128648889158484a8d182e",
-        "Dart 动作登记表必须匹配岗位和人员任职调用合同"
+        "653b6162ef4d351c5de48a1a43f441bc3b8acdda9e514ee74c0fa16c83db11b9",
+        "Dart动作登记表必须匹配现行岗位与Utility调用合同"
     );
 }
 

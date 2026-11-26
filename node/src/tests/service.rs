@@ -139,6 +139,8 @@ fn mapping_backfill_stops_on_a_stuck_cursor_and_finishes_only_at_completion() {
 
 #[test]
 fn mapping_backfill_requires_success_of_its_exact_extrinsic() {
+    let metadata=runtime::Runtime::metadata_at_version(16).unwrap();
+    let succeeded=|bytes:&[u8],index|nodeguard::guard::runtime_policy::extrinsic_succeeded(bytes,metadata.as_slice(),index);
     let record = frame_system::EventRecord::<runtime::RuntimeEvent, runtime::Hash> {
         phase: frame_system::Phase::ApplyExtrinsic(1),
         event: runtime::RuntimeEvent::System(frame_system::Event::ExtrinsicSuccess {
@@ -147,12 +149,12 @@ fn mapping_backfill_requires_success_of_its_exact_extrinsic() {
         topics: vec![],
     };
     let mut bytes = vec![record].encode();
-    assert!(mapping_succeeded(&bytes, 1).is_ok());
-    assert!(mapping_succeeded(&bytes, 2).is_err());
+    assert!(succeeded(&bytes, 1).is_ok());
+    assert!(succeeded(&bytes, 2).is_err());
     bytes.push(0);
-    assert!(mapping_succeeded(&bytes, 1).is_err());
-    assert!(mapping_succeeded(&[0], 1).is_err());
-    assert!(mapping_succeeded(&[255], 1).is_err());
+    assert!(succeeded(&bytes, 1).is_err());
+    assert!(succeeded(&[0], 1).is_err());
+    assert!(succeeded(&[255], 1).is_err());
 }
 
 #[test]
@@ -714,4 +716,36 @@ fn ethereum_index_work_and_failure_do_not_block_the_single_native_worker() {
     });
     drop(manager.into_task_registry());
     runtime.shutdown_timeout(std::time::Duration::from_secs(2));
+}
+
+
+#[test]
+fn institution_maintenance_state_errors_never_become_completion() {
+    use crate::service::institution_progress;
+    assert!(institution_progress(|_|Ok(None)).unwrap().is_none());
+    assert!(institution_progress(|_|Err("读取失败".into())).is_err());
+    assert!(institution_progress(|key|Ok((key==b":citizenchain:entity-migration:progress:v1").then(||vec![255]))).is_err());
+    assert!(institution_progress(|key|Ok((key==b":citizenchain:entity-migration:result:v1").then(||vec![]))).is_err());
+}
+
+#[test]
+fn pending_maintenance_requires_exact_known_transaction_and_snapshot() {
+    use crate::service::pending_maintenance;
+    let good=serde_json::json!({"hash":format!("0x{}","11".repeat(32)),"from":757,"cursor":format!("00{}","22".repeat(32))});
+    assert_eq!(pending_maintenance(&serde_json::to_vec(&good).unwrap()).unwrap().1,757);
+    for field in ["hash","from","cursor"] {
+        let mut bad=good.clone();bad.as_object_mut().unwrap().remove(field);
+        assert!(pending_maintenance(&serde_json::to_vec(&bad).unwrap()).is_err());
+    }
+    let mut bad=good.clone();bad["cursor"]=serde_json::json!("02");
+    assert!(pending_maintenance(&serde_json::to_vec(&bad).unwrap()).is_err());
+}
+
+// 来自已核对最终块0xbb9bf93aa5ee00dd4084d5b085fa9af1b82a5deb591611277a719afa958a124f的公开不透明进度，不复制游标结构。
+#[test]
+fn institution_maintenance_uses_owned_runtime_validator_and_detects_stall(){
+    let raw=hex::decode("000179013fdf0b7e6001a27b1f4c2913ca162bf712dec7a3b586af00e7521974205e2036182e1e1881dfca99a361b90192d3b664685a4a3036382d43474f564c2d3533353634333535332d32303236e34d779621eb58fc1dac4213d790bcfa084c520000000000000000000000000000000000000000000000000000000000000000000000000000000000000000").unwrap();
+    let cursor=crate::service::institution_progress(|key|Ok((key==b":citizenchain:entity-migration:progress:v1").then(||raw.clone()))).unwrap().unwrap();
+    assert_eq!(cursor.len(),33);assert_eq!(cursor[0],0);
+    assert!(mapping_progressed(&cursor,Some(cursor.clone())).is_err());
 }

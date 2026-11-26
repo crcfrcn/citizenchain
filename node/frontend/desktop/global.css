@@ -4015,3 +4015,19 @@ select option:checked {
   text-align: center;
   margin-top: 8px;
 }
+
+/* 批量输入沿用钱包管理的外壳、按钮和圆点，布局只作用于本弹窗。 */
+.batch-transfer-label {display:flex;align-items:center;gap:12px;}
+.batch-transfer-modal {width:min(800px,calc(100vw - 32px));}
+.batch-transfer-groups {display:flex;flex-direction:column;gap:12px;}
+.batch-transfer-group {display:grid;grid-template-columns:13px minmax(0,150px) minmax(0,1fr) var(--scan-icon-size);gap:8px;align-items:start;}
+.batch-transfer-group > .wallet-radio {display:block;margin-top:12px;}
+.batch-transfer-group input,.batch-transfer-group textarea {width:100%;min-width:0;padding:8px 10px;box-sizing:border-box;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:13px;}
+.batch-transfer-group textarea {resize:vertical;line-height:20px;}
+.batch-transfer-mode {display:flex;flex-wrap:wrap;gap:16px;margin:16px 0 4px;border:0;padding:0;}
+.batch-transfer-mode legend {float:left;margin-right:12px;}
+.batch-transfer-mode label {display:flex;align-items:center;gap:6px;}
+.batch-transfer-hint {font-size:13px;color:var(--text-secondary);}
+.transfer-signing-item,.transfer-result {padding:10px 0;border-bottom:1px solid var(--border);overflow-wrap:anywhere;white-space:pre-wrap;}
+
+.transfer-scan-icon {display:inline-block;width:18px;height:18px;background-color:currentColor;mask:url('../../../icons/scan.svg') center/contain no-repeat;-webkit-mask:url('../../../icons/scan.svg') center/contain no-repeat;}

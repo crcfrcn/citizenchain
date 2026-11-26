@@ -23,7 +23,7 @@ fn transfer_with_remark_moves_balance_and_emits_bound_remark() {
             remark.clone(),
         ));
 
-        assert_eq!(Balances::free_balance(&from), 877);
+        assert_eq!(Balances::free_balance(&from), 767);
         assert_eq!(Balances::free_balance(&beneficiary_account_id), 1_123);
         assert!(System::events().iter().any(|record| matches!(
             &record.event,
@@ -993,7 +993,8 @@ fn charge_details_zero_amount_keeps_minimum_fee_and_rejects_tip() {
             _call: &RuntimeCall,
         ) -> primitives::fee_policy::FeeRoute<AccountId32, Balance> {
             primitives::fee_policy::FeeRoute::Onchain {
-                transaction_amount: 0,
+                fee_amount: primitives::fee_policy::calculate_onchain_fee(0),
+            timing: primitives::fee_policy::FeeTiming::Outer,
                 payer_account_id: who.clone(),
             }
         }

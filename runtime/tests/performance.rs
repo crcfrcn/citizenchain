@@ -30,9 +30,10 @@ fn native_transfer_dispatch_meets_declared_budget_and_preserves_balances() {
             ));
         }
         let average = started.elapsed().as_nanos() / count;
-        assert_eq!(Balances::free_balance(from), 999_000);
+        assert_eq!(Balances::free_balance(from), 889_000);
         assert_eq!(Balances::free_balance(to), 1_001_000);
-        assert_eq!(Balances::total_issuance(), issuance);
+        let burnt=System::events().iter().filter_map(|e|match e.event {RuntimeEvent::Onchain(onchain::pallet::Event::FeeShareBurnt {amount,..})=>Some(amount),_=>None}).sum::<u128>();
+        assert_eq!(Balances::total_issuance(), issuance - burnt);
         eprintln!("原生Runtime直接派发：{count}次，平均{average}ns，上限{budget}ns");
         assert!(average <= budget, "原生转账派发超过已声明性能预算");
     });
@@ -92,7 +93,8 @@ fn report_native_measurements_without_invented_budget() {
             let started = std::time::Instant::now();
             for _ in 0..1000 { assert_ok!(Onchain::transfer_with_remark(RuntimeOrigin::signed(from.clone()),to.clone(),1,remark.clone())); }
             let average = started.elapsed().as_nanos()/1000;
-            assert_eq!(Balances::free_balance(from),999_000); assert_eq!(Balances::free_balance(to),1_001_000); assert_eq!(Balances::total_issuance(),issuance);
+            assert_eq!(Balances::free_balance(from),889_000); assert_eq!(Balances::free_balance(to),1_001_000); let burnt=System::events().iter().filter_map(|e|match e.event {RuntimeEvent::Onchain(onchain::pallet::Event::FeeShareBurnt {amount,..})=>Some(amount),_=>None}).sum::<u128>();
+            assert_eq!(Balances::total_issuance(),issuance-burnt);
             transfer.push(average);
             eprintln!("MEASUREMENT_ONLY sample={sample} transfer_avg_ns={average} genesis_build_ns={genesis_ns} debug_assertions={}",cfg!(debug_assertions));
         });

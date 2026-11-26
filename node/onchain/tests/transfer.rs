@@ -1,9 +1,11 @@
 //! 验证转账金额和余额边界，以及冷签会话篡改、过期和重放拒绝。
 
-use crate::transfer::amount_yuan_to_fen;
-use crate::transfer::build_transfer_with_remark_call;
+use crate::transfer::parse_amount_fen;
+use crate::transfer::build_transfer_call;
+use crate::types::{TransferMode,TransferItem};
+use codec::Encode;
 use crate::transfer::calculate_transfer_fee;
-use crate::transfer::encode_compact_u32;
+
 use crate::transfer::ensure_spendable_balance;
 use crate::transfer::require_sign_mode;
 use crate::transfer::validate_persisted_store;
@@ -12,26 +14,15 @@ use crate::wallet::SignMode;
 use crate::wallet::Wallet;
 use crate::wallet::WalletStore;
 
-#[test]
-fn transfer_amount_rejects_nonfinite_and_below_one_fen() {
-    for amount in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, -1.0, 0.0, 0.009] {
-        assert!(amount_yuan_to_fen(amount).is_err());
-    }
-    assert_eq!(amount_yuan_to_fen(0.01).unwrap(), 1);
+fn transfer_call(dest:&[u8],amount:u128,remark:&str)->Result<Vec<u8>,String>{
+    let address=nodeclient::signing::account_id_to_ss58(dest)?;
+    build_transfer_call(TransferMode::Transfer,&[TransferItem{to_address:address,amount_fen:amount.to_string(),remark:remark.into()}]).map(|call|call.encode())
 }
-
 #[test]
-fn transfer_amount_rejects_finite_values_outside_u128() {
-    for amount in [1.0e40, f64::MAX, (u128::MAX as f64) / 100.0] {
-        assert!(amount.is_finite());
-        assert_eq!(
-            amount_yuan_to_fen(amount),
-            Err("转账金额超出允许范围".to_string())
-        );
-    }
-    // 金额边界拒绝不引入新的业务上限，原有普通金额仍按分舍入。
-    assert_eq!(amount_yuan_to_fen(104.99).unwrap(), 10_499);
-    assert!(amount_yuan_to_fen(1.0e30).is_ok());
+fn transfer_amount_is_exact_positive_integer_fen(){
+    for value in ["","0","01","-1","0.1","1e3","NaN","340282366920938463463374607431768211456"] {assert!(parse_amount_fen(value).is_err());}
+    assert_eq!(parse_amount_fen("10499").unwrap(),10499);
+    assert_eq!(parse_amount_fen(&u128::MAX.to_string()).unwrap(),u128::MAX);
 }
 
 #[test]
@@ -51,7 +42,7 @@ fn transfer_balance_overflow_is_rejected_before_rpc() {
 fn cold_transfer_rejects_changed_expired_and_consumed_sessions_before_rpc() {
     let signer = format!("0x{}", "11".repeat(32));
     let payload_hash = "11".repeat(32);
-    let call = build_transfer_with_remark_call(&[0xAA; 32], 10_500, "转账").unwrap();
+    let call = transfer_call(&[0xAA; 32], 10_500, "转账").unwrap();
     // 这些已登记会话必须在接触RPC前拒绝；测试不连接生产节点或读取私钥。
     for scenario in [
         "call",
@@ -178,22 +169,22 @@ fn persisted_store_rejects_invalid_account_identity() {
 
 #[test]
 fn compact_u32_single_byte() {
-    assert_eq!(encode_compact_u32(0), vec![0x00]);
-    assert_eq!(encode_compact_u32(1), vec![0x04]);
-    assert_eq!(encode_compact_u32(63), vec![0xfc]);
+    assert_eq!(codec::Compact(0u32).encode(), vec![0x00]);
+    assert_eq!(codec::Compact(1u32).encode(), vec![0x04]);
+    assert_eq!(codec::Compact(63u32).encode(), vec![0xfc]);
 }
 
 #[test]
 fn compact_u32_two_bytes() {
-    assert_eq!(encode_compact_u32(64), vec![0x01, 0x01]);
-    assert_eq!(encode_compact_u32(16383), vec![0xfd, 0xff]);
+    assert_eq!(codec::Compact(64u32).encode(), vec![0x01, 0x01]);
+    assert_eq!(codec::Compact(16383u32).encode(), vec![0xfd, 0xff]);
 }
 
 #[test]
 fn transfer_with_remark_call_data_uses_onchain_transaction_pallet() {
     let dest = [0xAAu8; 32];
     let call =
-        build_transfer_with_remark_call(&dest, 25_000, "ok").expect("call data should build");
+        transfer_call(&dest, 25_000, "ok").expect("call data should build");
 
     assert_eq!(&call[0..2], &[0x04, 0x00]);
     assert_eq!(&call[2..34], &dest);
@@ -205,7 +196,7 @@ fn transfer_with_remark_call_data_uses_onchain_transaction_pallet() {
 #[test]
 fn transfer_remark_rejects_more_than_99_bytes() {
     let dest = [0xAAu8; 32];
-    let err = build_transfer_with_remark_call(&dest, 1, &"a".repeat(100))
+    let err = transfer_call(&dest, 1, &"a".repeat(100))
         .expect_err("overlong remark should be rejected");
     assert!(err.contains("99"));
 }
@@ -246,4 +237,15 @@ fn transfer_checks_spendable_amount_including_fee_instead_of_display_total() {
     assert!(error.contains("可用 4.00 元"));
     assert!(error.contains("需要 4.01 元"));
     assert!(crate::transfer::ensure_balance(0, 1, 0).is_err());
+}
+
+
+#[test]
+fn batch_resources_are_checked_before_address_resolution_and_single_is_not_guessed() {
+    let item=TransferItem{to_address:nodeclient::signing::account_id_to_ss58(&[0xAA;32]).unwrap(),amount_fen:"100".into(),remark:String::new()};
+    let call=build_transfer_call(TransferMode::ForceBatch,&[item.clone()]).unwrap();
+    assert_eq!(&call.encode()[..2],&[27,4]);
+    assert!(build_transfer_call(TransferMode::Transfer,&[item.clone(),item.clone()]).is_err());
+    let excessive=vec![item;runtime::configs::batch_calls_limit() as usize];
+    assert!(build_transfer_call(TransferMode::ForceBatch,&excessive).unwrap_err().contains("资源限制"));
 }

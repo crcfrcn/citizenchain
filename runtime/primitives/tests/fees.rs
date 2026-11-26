@@ -61,3 +61,13 @@ fn offchain_perbill_to_bp_conversion_stable() {
     assert_eq!(OFFCHAIN_FEE_RATE_MIN.deconstruct() / 100_000, 1);
     assert_eq!(OFFCHAIN_FEE_RATE_MAX.deconstruct() / 100_000, 10);
 }
+
+#[test]
+fn transfer_fee_goldens_and_per_item_rounding() {
+    for (amount,fee) in [(1,10),(100,10),(10_499,10),(10_500,11),(100_000,100)] {
+        assert_eq!(calculate_transfer_fee(amount,false),fee);
+        assert_eq!(calculate_transfer_fee(amount,true),fee+100);
+    }
+    assert_eq!((0..3).map(|_|calculate_transfer_fee(10_500,false)).sum::<u128>(),33);
+    assert!(calculate_transfer_fee(u128::MAX,true)>0);
+}

@@ -30,6 +30,7 @@ frame_benchmarking::define_benchmarks!(
     [frame_system, SystemBench::<Runtime>]
     [frame_system_extensions, SystemExtensionsBench::<Runtime>]
     [pallet_balances, Balances]
+    [pallet_utility, Utility]
     [pallet_revive, Revive]
     [pallet_timestamp, Timestamp]
     [prbbankissue, PrbBankIssue]

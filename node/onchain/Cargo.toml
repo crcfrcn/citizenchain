@@ -15,6 +15,11 @@ autotests = false
 workspace = true
 
 [dependencies]
+frame-support = { workspace = true, default-features = true }
+pallet-utility = { workspace = true, default-features = true }
+runtime = { workspace = true }
+onchain = { path = "../../runtime/transaction/onchain", default-features = true }
+codec = { workspace = true, default-features = true }
 hex = "=0.4.3"
 nodeclient = { path = "../client" }
 nodecontrol = { path = "../control" }
@@ -27,9 +32,6 @@ tauri = { version = "=2.11.5", features = [] }
 
 [dev-dependencies]
 chain-signing = { path = "../../crates/signing" }
-codec = { workspace = true, default-features = true }
-onchain = { path = "../../runtime/transaction/onchain", default-features = true }
 qr-protocol = { path = "../../crates/protocol" }
-runtime = { workspace = true }
 
 [features]

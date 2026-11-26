@@ -4,20 +4,17 @@ use crate::wallet::Wallet;
 
 use crate::wallet::WalletStore;
 
-use crate::transfer::amount_yuan_to_fen;
-use crate::transfer::build_transfer_with_remark_call;
-use crate::transfer::calculate_transfer_fee;
-use crate::transfer::ensure_spendable_balance;
 use crate::transfer::local_miner_wallet;
 use crate::transfer::normalize_account_id;
 use crate::transfer::require_wallet_sign_mode;
 use crate::transfer::submit_hot_transfer_inner;
 use crate::transfer::validate_persisted_store;
-use crate::transfer::validate_transfer_remark;
 use crate::transfer::wallet_store_for_frontend;
 use crate::types::TransferSignRequestResult;
 use crate::types::TransferSubmitResult;
 use std::sync::Mutex;
+use codec::Encode;
+use crate::types::{TransferMode, TransferItem};
 
 // ──── 钱包管理命令 ────
 
@@ -149,9 +146,8 @@ pub fn get_wallet_balance(account_id: String) -> Result<Option<String>, String> 
 pub fn build_cold_transfer_request(
     app: tauri::AppHandle,
     account_id: String,
-    to_ss58_address: String,
-    amount_yuan: f64,
-    remark: String,
+    mode: TransferMode,
+    transfers: Vec<TransferItem>,
 ) -> Result<TransferSignRequestResult, String> {
     let wallet = require_wallet_sign_mode(&app, &account_id, crate::wallet::SignMode::Cold)?;
     // sr25519 AccountId32 与签名公钥字节相同；签名者只取自后端钱包事实。
@@ -159,26 +155,9 @@ pub fn build_cold_transfer_request(
     let signer_public_key_bytes = hex::decode(signer_public_key.trim_start_matches("0x"))
         .map_err(|e| format!("发送方公钥解码失败: {e}"))?;
 
-    // 校验收款地址
-    let destination_account_id_bytes =
-        nodeclient::signing::resolve_recipient_account_id(&to_ss58_address)?;
-    let destination_account_id = format!("0x{}", hex::encode(destination_account_id_bytes));
-    if destination_account_id == signer_public_key {
-        return Err("收款地址不能与发送方相同".to_string());
-    }
-
-    let amount_fen = amount_yuan_to_fen(amount_yuan)?;
-    validate_transfer_remark(&remark)?;
-
-    // 前端预估费和链上实扣费统一复用 runtime 手续费公式。
-    let fee_fen = calculate_transfer_fee(amount_fen, &remark);
-    let fee_yuan = fee_fen as f64 / 100.0;
-
-    // 校验余额
-    ensure_spendable_balance(&signer_public_key, amount_fen, fee_fen)?;
-
-    let call_data =
-        build_transfer_with_remark_call(&destination_account_id_bytes, amount_fen, &remark)?;
+    let (transfers, fee_fen) = crate::transfer::normalize_transfers(&signer_public_key, mode, transfers)?;
+    let call_data = crate::transfer::build_transfer_call(mode, &transfers)?.encode();
+    let scan_from = crate::transfer::scan_from()?;
 
     // 获取链上参数并构建签名载荷
     let result = nodeclient::signing::build_sign_request_from_call_data(
@@ -194,7 +173,8 @@ pub fn build_cold_transfer_request(
         sign_nonce: result.sign_nonce,
         sign_block_number: result.sign_block_number,
         call_data_hex: format!("0x{}", hex::encode(&call_data)),
-        fee_yuan,
+        fee_fen: fee_fen.to_string(),
+        scan_from,
     })
 }
 
@@ -216,6 +196,7 @@ pub fn submit_cold_transfer(
     let call_data_clean = call_data_hex.strip_prefix("0x").unwrap_or(&call_data_hex);
     let call_data = hex::decode(call_data_clean).map_err(|e| format!("call_data 解码失败: {e}"))?;
 
+    let scan_from = crate::transfer::scan_from()?;
     let result = nodeclient::signing::verify_and_submit(
         &request_id,
         &wallet.account_id,
@@ -228,6 +209,7 @@ pub fn submit_cold_transfer(
 
     Ok(TransferSubmitResult {
         tx_hash: result.tx_hash,
+        scan_from,
     })
 }
 
@@ -236,9 +218,8 @@ pub fn submit_cold_transfer(
 pub async fn submit_hot_transfer(
     app: tauri::AppHandle,
     account_id: String,
-    to_ss58_address: String,
-    amount_yuan: f64,
-    remark: String,
+    mode: TransferMode,
+    transfers: Vec<TransferItem>,
     unlock_password: String,
 ) -> Result<TransferSubmitResult, String> {
     require_wallet_sign_mode(&app, &account_id, crate::wallet::SignMode::Hot)?;
@@ -256,9 +237,8 @@ pub async fn submit_hot_transfer(
         submit_hot_transfer_inner(
             &app_for_task,
             account_id,
-            to_ss58_address,
-            amount_yuan,
-            remark,
+            mode,
+            transfers,
         )
     })
     .await
@@ -288,4 +268,26 @@ pub async fn submit_hot_transfer(
 #[tauri::command]
 pub fn join_qr_frames(frames: Vec<String>) -> Result<Option<String>, String> {
     nodeclient::signing::join_qr_frames(frames)
+}
+
+/// 有界读取最终结果，不签名、不自动重发。
+#[tauri::command]
+pub fn get_transfer_result(tx_hash: String, cursor: u32) -> Result<serde_json::Value, String> {
+    nodedesktop::rpc::rpc_post("transaction_getTransferResult", serde_json::json!([tx_hash, cursor, 16]), std::time::Duration::from_secs(45), nodedesktop::constants::RPC_RESPONSE_LIMIT_SMALL)
+}
+
+/// 只读当前Runtime能力，不以节点编译期版本代替链上部署状态。
+#[tauri::command]
+pub fn get_transfer_policy() -> Result<serde_json::Value,String> {
+    nodedesktop::rpc::rpc_post("transaction_transferPolicy",serde_json::json!([]),std::time::Duration::from_secs(15),nodedesktop::constants::RPC_RESPONSE_LIMIT_SMALL)
+}
+
+/// 签名前只读解析实际收款账户与整分报价，冷热钱包共用，不签名或扣款。
+#[tauri::command]
+pub fn prepare_transfer(app:tauri::AppHandle,account_id:String,mode:TransferMode,transfers:Vec<TransferItem>)->Result<serde_json::Value,String>{
+    let account=normalize_account_id(&account_id)?;
+    let store=wallet_store_for_frontend(&app,crate::wallet::load(&app)?)?;
+    if !store.wallets.iter().any(|wallet|wallet.account_id==account){return Err("付款钱包不存在".into());}
+    let (transfers,fee)=crate::transfer::normalize_transfers(&account,mode,transfers)?;
+    Ok(serde_json::json!({"transfers":transfers,"feeFen":fee.to_string()}))
 }

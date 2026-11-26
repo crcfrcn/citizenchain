@@ -1,202 +1,156 @@
-// 采集收款地址、精确金额和备注，展示费用并发起转账。
-
-import { ADDRESS_INPUT_PLACEHOLDER } from "../client/ss58";
-import { AddressScanModal } from "../desktop/scanner";
-import { calculateTransferFeeYuan } from "./fee";
-import type { Wallet } from "./types";
-import scanIcon from "../../../icons/scan.svg?url";
-import citizenCoinLogo from "../../../icons/gmb.png?url";
-import { useEffect, useState } from 'react';
-
+// 单笔与批量共用当前钱包；分组仅用于输入，签名前展开为确定清单。
+import { ADDRESS_INPUT_PLACEHOLDER, normalizeSs58Address } from '../client/ss58';
+import { AddressScanModal } from '../desktop/scanner';
+import { parseYuanToFen, formatFen, quoteTransfers } from './fee';
+import type { Wallet, TransferDraft, TransferItem } from './types';
+import citizenCoinLogo from '../../../icons/gmb.png?url';
+import { useEffect, useRef, useState } from 'react';
 type Props = {
-  activeWallet: Wallet | null;
-  nodeReady?: boolean;
-  balance: string | null;
-  balanceError?: string | null;
-  onRetryBalance?: () => void;
-  onSubmit: (toAddress: string, amountYuan: number, remark: string) => void;
-  disabled?: boolean;
-  resetVersion?: number;
+    activeWallet: Wallet | null;
+    batchEnabled?: boolean;
+    nodeReady?: boolean;
+    balance: string | null;
+    balanceError?: string | null;
+    submitError?: string | null;
+    onRetryBalance?: () => void;
+    onSubmit: (draft: TransferDraft) => void;
+    disabled?: boolean;
+    resetVersion?: number;
 };
-
-const MAX_TRANSFER_REMARK_BYTES = 99;
-
-/** 千分位格式化（元）：1234567.89 → "1,234,567.89" */
-function fmtYuan(v: number): string {
-  const fixed = v.toFixed(2);
-  const [int, dec] = fixed.split('.');
-  return `${int.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${dec}`;
+type Group = {
+    id: number;
+    amount: string;
+    addresses: string;
+};
+function completeAddress(value: string) {
+    if (/^0x[0-9a-fA-F]{40}$/.test(value))
+        return true;
+    try {
+        normalizeSs58Address(value);
+        return true;
+    }
+    catch {
+        return false;
+    }
 }
-
-/** 分 → 千分位元 */
-function fenToYuan(fenStr: string): string {
-  const fen = BigInt(fenStr);
-  const neg = fen < 0n;
-  const abs = neg ? -fen : fen;
-  const yuan = abs / 100n;
-  const rem = abs % 100n;
-  const yuanStr = yuan.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  const dec = rem.toString().padStart(2, '0');
-  return `${neg ? '-' : ''}${yuanStr}.${dec}`;
-}
-
-/** 去掉逗号后解析数字 */
-function parseAmount(s: string): number {
-  const clean = s.replace(/,/g, '').trim();
-  if (clean === '' || clean === '.') return 0;
-  const v = parseFloat(clean);
-  return isNaN(v) ? 0 : v;
-}
-
-/** 给纯数字字符串的整数部分加千分位，保留用户正在输入的小数部分 */
-function addThousandSep(s: string): string {
-  const clean = s.replace(/,/g, '');
-  // 允许空、纯小数点等输入中间状态
-  if (clean === '' || clean === '.') return clean;
-  const dotIdx = clean.indexOf('.');
-  const intPart = dotIdx >= 0 ? clean.slice(0, dotIdx) : clean;
-  const decPart = dotIdx >= 0 ? clean.slice(dotIdx) : '';
-  const formatted = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return formatted + decPart;
-}
-
-function utf8ByteLength(value: string): number {
-  return new TextEncoder().encode(value).length;
-}
-
-export function TransferForm({ activeWallet, nodeReady = true, balance, balanceError, onRetryBalance, onSubmit, disabled, resetVersion = 0 }: Props) {
-  const [toAddress, setToAddress] = useState('');
-  // 金额用字符串存储，显示带千分位
-  const [amountText, setAmountText] = useState('');
-  const [remark, setRemark] = useState('');
-  const [showScan, setShowScan] = useState(false);
-
-  // 只有提交成功返回哈希才重置金额和备注，保留地址供下一笔转账使用。
-  useEffect(() => {
-    setAmountText('');
-    setRemark('');
-  }, [resetVersion]);
-
-  const amount = parseAmount(amountText);
-  const fee = calculateTransferFeeYuan(amount, remark);
-  const total = amount + fee;
-  const remarkBytes = utf8ByteLength(remark);
-  const formDisabled = disabled || !activeWallet;
-  const remarkTooLong = remarkBytes > MAX_TRANSFER_REMARK_BYTES;
-  const canSubmit =
-    amount > 0 && toAddress.trim().length > 0 && !remarkTooLong && !formDisabled;
-
-  const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    // 只允许数字、逗号、小数点
-    const filtered = raw.replace(/[^0-9.,]/g, '');
-    setAmountText(addThousandSep(filtered));
-  };
-
-  const handleSubmit = () => {
-    if (!canSubmit) return;
-    onSubmit(toAddress.trim(), amount, remark);
-  };
-
-  return (
-    <div className="transfer-form">
-      {/* 余额 */}
-      <div className="transfer-form-balance-row">
-        {/* 名称和 finalized 总余额来自同一当前钱包；实际可支配余额由后端独立校验。 */}
-        <span className="transfer-form-balance-label">{activeWallet?.name ?? '-'}</span>
-        <span className="transfer-form-balance-value">
-          {!activeWallet || !nodeReady ? '-' : balanceError != null ? '查询失败' : balance != null
-            ? `${fenToYuan(balance)} 元`
-            : '查询中...'
-          }
-        </span>
-      </div>
-
-      {activeWallet && nodeReady && balanceError != null && (
-        <div className="error" role="alert">
-          余额查询失败：{balanceError}
-          {onRetryBalance && <button type="button" onClick={onRetryBalance}>重试查询</button>}
-        </div>
-      )}
-
-      {!activeWallet && (
-        <p className="transfer-form-status-hint">请先在钱包管理中添加钱包</p>
-      )}
-
-      {/* 收款地址 */}
-      <div className="transfer-form-field">
-        <label>收款地址</label>
-        <div className="address-input-row">
-          <input
-            type="text"
-            value={toAddress}
-            onChange={(e) => setToAddress(e.target.value)}
-            placeholder={ADDRESS_INPUT_PLACEHOLDER}
-            disabled={formDisabled}
-          />
-          <button type="button" className="scan-icon-btn" onClick={() => setShowScan(true)} disabled={formDisabled} title="扫码填入">
-            <span aria-hidden="true" style={{display:"inline-block",width:18,height:18,backgroundColor:"currentColor",maskImage:`url("${scanIcon}")`,WebkitMaskImage:`url("${scanIcon}")`,maskSize:"contain",WebkitMaskSize:"contain",maskRepeat:"no-repeat",WebkitMaskRepeat:"no-repeat"}} />
-          </button>
-        </div>
-      </div>
-
-      {showScan && (
-        <AddressScanModal
-          onResult={(result) => {
-            // 账户码只声明账户，不带金额；金额一律由本端手工填写。
-            setToAddress(result.ss58Address);
-            setShowScan(false);
-          }}
-          onClose={() => setShowScan(false)}
-        />
-      )}
-
-      {/* 转账金额 — text 输入，千分位实时格式化 */}
-      <div className="transfer-form-field">
-        <label>转账金额</label>
-        <div className="transfer-form-amount-row">
-          <input
-            type="text"
-            inputMode="decimal"
-            value={amountText}
-            onChange={handleAmountChange}
-            placeholder="0.00"
-            disabled={formDisabled}
-          />
-          <img className="transfer-form-currency" src={citizenCoinLogo} alt="公民币" title="公民币" />
-        </div>
-      </div>
-
-      <div className="transfer-form-field">
-        <label htmlFor="transfer-form-remark">转账备注（选填）</label>
-        <textarea
-          id="transfer-form-remark"
-          className="transfer-form-remark"
-          value={remark}
-          onChange={(e) => setRemark(e.target.value)}
-          placeholder="输入备注收1.00元备注手续费。"
-          disabled={formDisabled}
-        />
-        <span className={`transfer-form-remark-counter${remarkTooLong ? ' is-error' : ''}`}>
-          {remarkBytes}/{MAX_TRANSFER_REMARK_BYTES} 字节
-        </span>
-      </div>
-
-      {/* 手续费 & 合计 */}
-      <div className="transfer-form-summary">
-        <div className="transfer-form-summary-line">
-          <span>手续费</span>
-          <span>{amount > 0 ? fmtYuan(fee) : '0.00'} 元</span>
-        </div>
-        <div className="transfer-form-summary-line total">
-          <span>合计</span>
-          <span>{amount > 0 ? fmtYuan(total) : '0.00'} 元</span>
-        </div>
-      </div>
-
-      <button className="transfer-form-submit" disabled={!canSubmit} onClick={handleSubmit}>
-        {disabled ? '签名中...' : '签名交易'}
-      </button>
-    </div>
-  );
+function ScanIcon() { return <span aria-hidden="true" className="transfer-scan-icon"/>; }
+export function TransferForm({ activeWallet, batchEnabled = true, nodeReady = true, balance, balanceError, submitError, onRetryBalance, onSubmit, disabled, resetVersion = 0 }: Props) {
+    const [toAddress, setToAddress] = useState(''), [amount, setAmount] = useState(''), [remark, setRemark] = useState('');
+    const [open, setOpen] = useState(false), [mode, setMode] = useState<'batch_all' | 'force_batch'>('batch_all');
+    const [groups, setGroups] = useState<Group[]>([{ id: 0, amount: '', addresses: '' }]);
+    const nextId = useRef(1);
+    const dialogRef = useRef<HTMLElement>(null);
+    useEffect(() => { if (open)
+        dialogRef.current?.querySelector<HTMLInputElement>('input')?.focus(); }, [open]);
+    const [deleting, setDeleting] = useState<number | null>(null), [scan, setScan] = useState<number | 'single' | null>(null), [error, setError] = useState<string | null>(null);
+    const locked = Boolean(disabled || !activeWallet || !nodeReady);
+    useEffect(() => { setAmount(''); setRemark(''); setOpen(false); setGroups([{ id: 0, amount: '', addresses: '' }]); setDeleting(null); setError(null); }, [resetVersion]);
+    const patch = (id: number, change: Partial<Group>) => setGroups(prev => prev.map(g => g.id === id ? { ...g, ...change } : g));
+    const single = (): TransferItem[] => [{ toAddress: toAddress.trim(), amountFen: parseYuanToFen(amount), remark }];
+    const batch = (): TransferItem[] => groups.flatMap((group, groupIndex) => {
+        const amountFen = parseYuanToFen(group.amount);
+        const lines = group.addresses.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+        if (!lines.length)
+            throw Error(`第${groupIndex + 1}组缺少收款地址`);
+        return lines.map((address, lineIndex) => {
+            if (!completeAddress(address))
+                throw Error(`第${groupIndex + 1}组第${lineIndex + 1}行地址无效`);
+            return { toAddress: address, amountFen, remark: '' };
+        });
+    });
+    let singleFee = '0', singleTotal = '0';
+    try {
+        const quote = quoteTransfers(single());
+        singleFee = quote.fee.toString();
+        singleTotal = quote.total.toString();
+    }
+    catch { }
+    let batchQuote: {
+        amount: bigint;
+        fee: bigint;
+        total: bigint;
+    } | null = null, count = 0, batchError: string | null = null;
+    try {
+        const items = batch();
+        count = items.length;
+        batchQuote = quoteTransfers(items);
+    }
+    catch (e) {
+        batchError = e instanceof Error ? e.message : String(e);
+    }
+    const submit = (isBatch: boolean) => {
+        try {
+            if (locked)
+                return;
+            const transfers = isBatch ? batch() : single();
+            if (!isBatch && !completeAddress(toAddress.trim()))
+                throw Error('收款地址无效');
+            if (new TextEncoder().encode(remark).length > 99 && !isBatch)
+                throw Error('转账备注不能超过99字节');
+            quoteTransfers(transfers);
+            setError(null);
+            onSubmit({ mode: isBatch ? mode : 'transfer', transfers });
+        }
+        catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+        }
+    };
+    const amountInput = (value: string, change: (v: string) => void, label: string, placeholder = '请输入金额') => <input aria-label={label} type="text" inputMode="decimal" placeholder={placeholder} value={value} disabled={locked} onChange={e => change(e.target.value)}/>;
+    return <div className="transfer-form">
+    <div className="transfer-form-balance-row"><span className="transfer-form-balance-label">{activeWallet?.name ?? '-'}</span><span className="transfer-form-balance-value">{!activeWallet || !nodeReady ? '-' : balanceError ? '查询失败' : balance != null ? `${formatFen(balance)} 元` : '查询中...'}</span></div>
+    {balanceError && <div className="error" role="alert">余额查询失败：{balanceError}{onRetryBalance && <button type="button" onClick={onRetryBalance}>重试查询</button>}</div>}
+    {!activeWallet && <p className="transfer-form-status-hint">请先在钱包管理中添加钱包</p>}
+    <div className="transfer-form-field"><div className="batch-transfer-label"><label>收款地址</label><button type="button" className="metric-help-button" title={batchEnabled ? undefined : '链上批量转账尚未启用'} disabled={locked || !batchEnabled} onClick={() => { setOpen(true); setError(null); }}>批量转账</button></div><div className="address-input-row"><input aria-label="收款地址" placeholder={ADDRESS_INPUT_PLACEHOLDER} value={toAddress} disabled={locked} onChange={e => setToAddress(e.target.value)}/><button type="button" className="scan-icon-btn" title="扫码填入" disabled={locked} onClick={() => setScan('single')}><ScanIcon /></button></div></div>
+    <div className="transfer-form-field"><label>转账金额</label><div className="transfer-form-amount-row">{amountInput(amount, setAmount, '转账金额', '0.00')}<img className="transfer-form-currency" src={citizenCoinLogo} alt="公民币" title="公民币"/></div></div>
+    <div className="transfer-form-field"><label htmlFor="transfer-form-remark">转账备注（选填）</label><textarea id="transfer-form-remark" className="transfer-form-remark" placeholder="输入备注收1.00元备注手续费。" value={remark} disabled={locked} onChange={e => setRemark(e.target.value)}/><span className="transfer-form-remark-counter">{new TextEncoder().encode(remark).length}/99 字节</span></div>
+    <div className="transfer-form-summary"><div className="transfer-form-summary-line"><span>预计手续费</span><span>{formatFen(singleFee)} 元</span></div><div className="transfer-form-summary-line total"><span>合计</span><span>{formatFen(singleTotal)} 元</span></div></div>
+    {(error || submitError) && !open && <div className="error" role="alert">{error ?? submitError}</div>}
+    <button className="transfer-form-submit" disabled={locked || !toAddress.trim() || singleTotal === '0' || new TextEncoder().encode(remark).length > 99} onClick={() => submit(false)}>{disabled ? '签名中...' : '签名交易'}</button>
+    {open && <div className="wallet-manager-modal-mask"><section ref={dialogRef} onKeyDown={event => {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                }
+                if (event.key !== 'Tab' || scan !== null)
+                    return;
+                const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), textarea:not(:disabled)'));
+                const first = elements[0], last = elements[elements.length - 1];
+                if (event.shiftKey && document.activeElement === first) {
+                    event.preventDefault();
+                    last?.focus();
+                }
+                else if (!event.shiftKey && document.activeElement === last) {
+                    event.preventDefault();
+                    first?.focus();
+                }
+            }} className="wallet-manager-modal batch-transfer-modal" role="dialog" aria-modal="true" aria-labelledby="batch-transfer-title">
+      <header className="wallet-manager-header"><button type="button" className="wallet-manager-add" disabled={locked} onClick={() => { setGroups(prev => [...prev, { id: nextId.current++, amount: '', addresses: '' }]); setDeleting(null); }}>添加</button><h3 id="batch-transfer-title">批量转账</h3><button type="button" className="wallet-manager-close" aria-label="关闭批量转账" disabled={Boolean(disabled)} onClick={() => setOpen(false)}>&times;</button></header>
+      <div className="wallet-manager-body"><div className="batch-transfer-groups">{groups.map((g, i) => <div className="batch-transfer-group" key={g.id}>
+        {i === 0 ? <span className="wallet-radio hot" aria-label="默认组不可删除"/> : <button type="button" className={`wallet-radio cold${deleting === g.id ? ' confirm' : ''}`} disabled={locked} aria-label={`${deleting === g.id ? '确认删除' : '删除'}第${i + 1}组`} onClick={() => { if (deleting === g.id) {
+                setGroups(prev => prev.filter(v => v.id !== g.id));
+                setDeleting(null);
+            }
+            else
+                setDeleting(g.id); }}/>}
+        {amountInput(g.amount, v => patch(g.id, { amount: v }), `第${i + 1}组金额`)}
+        <textarea aria-label={`第${i + 1}组地址`} placeholder={ADDRESS_INPUT_PLACEHOLDER} rows={Math.min(8, Math.max(1, g.addresses.split('\n').length))} value={g.addresses} disabled={locked} onChange={e => { let value = e.target.value; const last = value.split('\n').slice(-1)[0]?.trim() ?? ''; if (last && completeAddress(last))
+                value += '\n'; patch(g.id, { addresses: value }); }}/>
+        <button type="button" className="scan-icon-btn" title={`扫描第${i + 1}组地址`} disabled={locked} onClick={() => setScan(g.id)}><ScanIcon /></button>
+      </div>)}</div></div>
+      <fieldset className="batch-transfer-mode" disabled={locked}><legend>交易模式选择：</legend><label><input type="radio" name="batch-mode" checked={mode === 'batch_all'} onChange={() => setMode('batch_all')}/>整批成功</label><label><input type="radio" name="batch-mode" checked={mode === 'force_batch'} onChange={() => setMode('force_batch')}/>逐笔成功</label></fieldset>
+      <p className="batch-transfer-hint">{mode === 'batch_all' ? '任一笔失败，整批本金和手续费回滚。' : '各笔独立执行，失败不影响后续，仅成功项收费。'}</p>
+      <div className="transfer-form-summary"><div>转账笔数：{count}</div><div>本金合计：{formatFen(batchQuote?.amount ?? 0n)} 元</div><div>预计手续费（全部成功）：{formatFen(batchQuote?.fee ?? 0n)} 元</div><div>合计：{formatFen(batchQuote?.total ?? 0n)} 元</div></div>
+      {(error || submitError || batchError) && groups.some(g => g.amount || g.addresses) && <div className="error" role="alert">{error ?? submitError ?? batchError}</div>}
+      <button className="transfer-form-submit" disabled={locked || !batchQuote} onClick={() => submit(true)}>签名交易</button>
+    </section></div>}
+    {scan !== null && <AddressScanModal onResult={result => { if (scan === 'single')
+        setToAddress(result.ss58Address);
+    else {
+        const group = groups.find(g => g.id === scan);
+        if (group) {
+            const prefix = group.addresses.trimEnd();
+            patch(scan, { addresses: (prefix ? prefix + '\n' : '') + result.ss58Address + '\n' });
+        }
+    } setScan(null); }} onClose={() => setScan(null)}/>}
+  </div>;
 }

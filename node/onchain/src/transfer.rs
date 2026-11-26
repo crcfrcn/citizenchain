@@ -12,16 +12,13 @@ use crate::wallet::WalletStore;
 
 use crate::types::TransferSubmitResult;
 use std::collections::HashSet;
+use frame_support::{dispatch::GetDispatchInfo,traits::Get};
 
 const TRANSFER_RPC_TIMEOUT: Duration = Duration::from_secs(45);
 
 const EXISTENTIAL_DEPOSIT_FEN: u128 = primitives::core_const::ACCOUNT_EXISTENTIAL_DEPOSIT;
 
 // 1.11 元
-const ONCHAIN_TRANSACTION_PALLET_INDEX: u8 = 4;
-
-const TRANSFER_WITH_REMARK_CALL_INDEX: u8 = 0;
-
 const MAX_TRANSFER_REMARK_BYTES: usize = 99;
 
 pub(crate) fn normalize_account_id(account_id: &str) -> Result<String, String> {
@@ -29,32 +26,88 @@ pub(crate) fn normalize_account_id(account_id: &str) -> Result<String, String> {
         .map_err(|_| "account_id 格式无效，应为小写 0x + 64 位十六进制".to_string())
 }
 
-pub(crate) fn amount_yuan_to_fen(amount_yuan: f64) -> Result<u128, String> {
-    if !amount_yuan.is_finite() {
-        return Err("转账金额格式无效".to_string());
+/// 金额仅接受规范十进制整分，拒绝浮点、指数和溢出。
+pub fn parse_amount_fen(value: &str) -> Result<u128, String> {
+    if value.is_empty() || value.len()>39 || !value.bytes().all(|b| b.is_ascii_digit()) || value.starts_with('0') {
+        return Err("金额必须为正整数分".into());
     }
-    if amount_yuan < 0.01 {
-        return Err("转账金额不能小于 0.01 元".to_string());
-    }
-    let rounded_fen = (amount_yuan * 100.0).round();
-    // u128::MAX 转为 f64 会舍入到 2^128，上界必须排除等号，避免饱和转换。
-    if !rounded_fen.is_finite() || rounded_fen >= u128::MAX as f64 {
-        return Err("转账金额超出允许范围".to_string());
-    }
-    let amount_fen = rounded_fen as u128;
-    if amount_fen == 0 {
-        return Err("转账金额不能为零".to_string());
-    }
-    Ok(amount_fen)
+    value.parse().map_err(|_| "转账金额超出允许范围".into())
 }
 
 pub(crate) fn calculate_transfer_fee(amount_fen: u128, remark: &str) -> u128 {
-    let fee = primitives::fee_policy::calculate_onchain_fee(amount_fen);
-    if remark.is_empty() {
-        fee
-    } else {
-        fee.saturating_add(primitives::fee_policy::FLAT_FEE)
+    primitives::fee_policy::calculate_transfer_fee(amount_fen, !remark.is_empty())
+}
+
+fn validate_transfer_count(mode:crate::types::TransferMode,count:usize)->Result<(),String>{
+    if count==0||count>runtime::configs::batch_calls_limit() as usize {return Err("转账清单数量超出官方限制".into());}
+    if mode==crate::types::TransferMode::Transfer&&count!=1 {return Err("单笔入口必须只有一个收款项".into());}
+    // 官方Utility还会追加开销；仅子项预算已超限时先拒绝，避免无意义的地址RPC解析。
+    let leaf=<<runtime::Runtime as onchain::pallet::Config>::WeightInfo as onchain::weights::WeightInfo>::transfer_with_remark();
+    if runtime::configs::RuntimeBlockWeights::get().get(frame_support::dispatch::DispatchClass::Normal).max_extrinsic.is_some_and(|max|leaf.saturating_mul(count as u64).any_gt(max)){return Err("转账清单超过链上单笔资源限制，请减少收款项".into());}
+    Ok(())
+}
+
+/// 官方类型负责清单、备注及调用编码，不维护手写SCALE格式。
+pub fn build_transfer_call(mode: crate::types::TransferMode, items: &[crate::types::TransferItem]) -> Result<runtime::RuntimeCall, String> {
+    use crate::types::TransferMode;
+    validate_transfer_count(mode,items.len())?;
+    let mut calls = Vec::with_capacity(items.len());
+    let mut total = 0u128;
+    let mut fees = 0u128;
+    for item in items {
+        if item.to_address.len()>64 {return Err("收款地址过长".into());}
+        let account = nodeclient::signing::account_id_from_ss58_address(&item.to_address)?;
+        let amount = parse_amount_fen(&item.amount_fen)?;
+        validate_transfer_remark(&item.remark)?;
+        total = total.checked_add(amount).ok_or("本金合计溢出")?;
+        fees = fees.checked_add(calculate_transfer_fee(amount, &item.remark)).ok_or("手续费合计溢出")?;
+        calls.push(runtime::RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
+            beneficiary_account_id: account.into(), amount,
+            remark: item.remark.as_bytes().to_vec().try_into().map_err(|_| "备注过长")?,
+        }));
     }
+    total.checked_add(fees).ok_or("总支出溢出")?;
+    let call=match mode {
+        TransferMode::Transfer if calls.len() == 1 => calls.remove(0),
+        TransferMode::Transfer => return Err("单笔入口必须只有一个收款项".into()),
+        TransferMode::Batch => runtime::RuntimeCall::Utility(pallet_utility::Call::batch { calls }),
+        TransferMode::BatchAll => runtime::RuntimeCall::Utility(pallet_utility::Call::batch_all { calls }),
+        TransferMode::ForceBatch => runtime::RuntimeCall::Utility(pallet_utility::Call::force_batch { calls }),
+    };
+    let info=call.get_dispatch_info();
+    if runtime::configs::RuntimeBlockWeights::get().get(info.class).max_extrinsic.is_some_and(|max|info.call_weight.any_gt(max)) {
+        return Err("转账清单超过链上单笔资源限制，请减少收款项".into());
+    }
+    Ok(call)
+}
+
+pub(crate) fn normalize_transfers(account_id: &str, mode: crate::types::TransferMode, mut items: Vec<crate::types::TransferItem>) -> Result<(Vec<crate::types::TransferItem>, u128), String> {
+    validate_transfer_count(mode,items.len())?;
+    let mut total = 0u128;
+    let mut fee = 0u128;
+    for item in &mut items {
+        if item.to_address.len()>64 {return Err("收款地址过长".into());}
+        let recipient = nodeclient::signing::resolve_recipient_account_id(&item.to_address)?;
+        if format!("0x{}", hex::encode(recipient)) == account_id { return Err("收款账户不能与付款账户相同".into()); }
+        item.to_address = nodeclient::signing::account_id_to_ss58(&recipient)?;
+        let amount = parse_amount_fen(&item.amount_fen)?;
+        validate_transfer_remark(&item.remark)?;
+        total = total.checked_add(amount).ok_or("本金合计溢出")?;
+        fee = fee.checked_add(calculate_transfer_fee(amount, &item.remark)).ok_or("手续费合计溢出")?;
+    }
+    build_transfer_call(mode, &items)?;
+    // force_batch允许前项失败后继续，不能用全组余额检查拒绝可支付的后项。
+    if !matches!(mode, crate::types::TransferMode::ForceBatch | crate::types::TransferMode::Batch) {
+        ensure_spendable_balance(account_id, total, fee)?;
+    }
+    Ok((items, fee))
+}
+
+pub(crate) fn scan_from() -> Result<u32, String> {
+    let hash = nodeclient::query::fetch_finalized_head()?;
+    let header = nodedesktop::rpc::rpc_post("chain_getHeader", serde_json::json!([hash]), TRANSFER_RPC_TIMEOUT, RPC_RESPONSE_LIMIT_SMALL)?;
+    let number = header.get("number").and_then(|x| x.as_str()).ok_or("最终块高度缺失")?;
+    u32::from_str_radix(number.trim_start_matches("0x"), 16).map_err(|_| "最终块高度无效".into())
 }
 
 pub(crate) fn validate_transfer_remark(remark: &str) -> Result<(), String> {
@@ -89,9 +142,9 @@ fn ensure_balance(available: u128, total_needed: u128, fee_fen: u128) -> Result<
     if available < total_needed {
         return Err(format!(
             "余额不足：可用 {} 元，需要 {} 元（含手续费 {} 元）",
-            nodeclient::signing::format_amount(available as f64 / 100.0),
-            nodeclient::signing::format_amount(total_needed as f64 / 100.0),
-            nodeclient::signing::format_amount(fee_fen as f64 / 100.0),
+            format!("{}.{:02}",available/100,available%100),
+            format!("{}.{:02}",total_needed/100,total_needed%100),
+            format!("{}.{:02}",fee_fen/100,fee_fen%100),
         ));
     }
     Ok(())
@@ -216,91 +269,19 @@ pub(crate) fn require_wallet_sign_mode(
 pub(crate) fn submit_hot_transfer_inner(
     app: &tauri::AppHandle,
     account_id: String,
-    to_ss58_address: String,
-    amount_yuan: f64,
-    remark: String,
+    mode: crate::types::TransferMode,
+    transfers: Vec<crate::types::TransferItem>,
 ) -> Result<TransferSubmitResult, String> {
-    // 阻塞任务内再次读取 Hot 事实，避免密码校验期间本机密钥发生变化后继续签名。
-    let hot_wallet = require_wallet_sign_mode(app, &account_id, crate::wallet::SignMode::Hot)?;
-    let destination_account_id_bytes =
-        nodeclient::signing::resolve_recipient_account_id(&to_ss58_address)?;
-    // 解析后固定实际收款账户；现有矿工 RPC 继续消费标准 SS58，不再解释原始输入。
-    let to_ss58_address = nodeclient::signing::account_id_to_ss58(&destination_account_id_bytes)?;
-    let destination_account_id = format!("0x{}", hex::encode(destination_account_id_bytes));
-    if destination_account_id == hot_wallet.account_id {
-        return Err("收款地址不能与矿工热钱包相同".to_string());
-    }
-
-    let amount_fen = amount_yuan_to_fen(amount_yuan)?;
-    validate_transfer_remark(&remark)?;
-    let fee_fen = calculate_transfer_fee(amount_fen, &remark);
-    ensure_spendable_balance(&hot_wallet.account_id, amount_fen, fee_fen)?;
-
-    // 真正的私钥签名只发生在节点 RPC 内部；一次性令牌避免外部本机 RPC 直接花费矿工余额。
+    let hot_wallet = require_wallet_sign_mode(app, &account_id, SignMode::Hot)?;
+    let (transfers, _) = normalize_transfers(&hot_wallet.account_id, mode, transfers)?;
+    let scan_from = scan_from()?;
     let auth_token = nodedesktop::security::issue_miner_transfer_token()?;
-    let result = nodedesktop::rpc::rpc_post(
-        "transaction_submitMinerTransfer",
-        serde_json::json!([
-            to_ss58_address,
-            amount_fen.to_string(),
-            remark,
-            auth_token.clone()
-        ]),
-        TRANSFER_RPC_TIMEOUT,
-        RPC_RESPONSE_LIMIT_SMALL,
-    );
-    if result.is_err() {
-        nodedesktop::security::revoke_miner_transfer_token(&auth_token);
-    }
-    let result = result?;
-    let tx_hash = result
-        .as_str()
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .ok_or("节点未返回交易哈希")?
-        .to_string();
-
-    Ok(TransferSubmitResult { tx_hash })
-}
-
-// ──── 编码工具 ────
-
-/// 构造 Onchain::transfer_with_remark 的 SCALE 编码 call data。
-///
-/// 格式：[pallet=4][call=0][beneficiary:AccountId32][amount:u128_le][remark:BoundedVec<u8>]
-pub(crate) fn build_transfer_with_remark_call(
-    destination_account_id: &[u8],
-    amount_fen: u128,
-    remark: &str,
-) -> Result<Vec<u8>, String> {
-    if destination_account_id.len() != 32 {
-        return Err("收款账户公钥长度无效".to_string());
-    }
-    validate_transfer_remark(remark)?;
-
-    let remark_bytes = remark.as_bytes();
-    let remark_len = encode_compact_u32(remark_bytes.len() as u32);
-    let mut call_data = Vec::with_capacity(2 + 32 + 16 + remark_len.len() + remark_bytes.len());
-    call_data.push(ONCHAIN_TRANSACTION_PALLET_INDEX);
-    call_data.push(TRANSFER_WITH_REMARK_CALL_INDEX);
-    call_data.extend_from_slice(destination_account_id);
-    call_data.extend_from_slice(&amount_fen.to_le_bytes());
-    call_data.extend_from_slice(&remark_len);
-    call_data.extend_from_slice(remark_bytes);
-    Ok(call_data)
-}
-
-/// SCALE Compact<u32> 编码，用于备注字节长度。
-fn encode_compact_u32(value: u32) -> Vec<u8> {
-    if value < 0x40 {
-        vec![(value as u8) << 2]
-    } else if value < 0x4000 {
-        let v = (value << 2) | 0x01;
-        vec![v as u8, (v >> 8) as u8]
-    } else {
-        let v = (value << 2) | 0x02;
-        v.to_le_bytes().to_vec()
-    }
+    let result = nodedesktop::rpc::rpc_post("transaction_submitMinerTransfer",
+        serde_json::json!([hot_wallet.account_id, mode, transfers, auth_token.clone()]), TRANSFER_RPC_TIMEOUT, RPC_RESPONSE_LIMIT_SMALL);
+    if result.is_err() { nodedesktop::security::revoke_miner_transfer_token(&auth_token); }
+    let value = result?;
+    let tx_hash = value.as_str().filter(|s| !s.is_empty()).ok_or("节点未返回交易哈希")?.to_owned();
+    Ok(TransferSubmitResult { tx_hash, scan_from })
 }
 
 #[cfg(test)]

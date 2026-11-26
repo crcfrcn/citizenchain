@@ -14,10 +14,12 @@ use sp_core::{sr25519, Pair as _};
 use sp_runtime::AccountId32;
 
 fn local_metadata() -> Vec<u8> {
-    // 与正式 Metadata Runtime API 相同；V14 不包含版本1认证管线。
-    runtime::Runtime::metadata_at_version(16)
-        .expect("V16 metadata exists")
-        .to_vec()
+    let raw=runtime::Runtime::metadata_at_version(16).expect("V16 metadata exists").to_vec();
+    let mut metadata=nodeclient::codec::decode_runtime_metadata(&raw).unwrap();
+    let RuntimeMetadata::V16(meta)=&mut metadata else {panic!("V16");};
+    meta.pallets.retain(|p|p.name!="Utility");
+    for pallet in &mut meta.pallets {pallet.constants.retain(|c|c.name!="TransferFeeTiming");}
+    RuntimeMetadataPrefixed(frame_metadata::META_RESERVED,metadata).encode()
 }
 
 fn unit_code_updated_metadata() -> Vec<u8> {
@@ -883,4 +885,41 @@ fn historical_settlement_uses_only_metadata_storage_prefix_and_keeps_rate_limits
             .cloned())
         .is_err()
     );
+}
+
+
+#[test]
+fn execution_fees_follow_real_official_batch_results_and_reject_tampered_fee() {
+    use sp_runtime::{BuildStorage,traits::Dispatchable};
+    for (atomic,all_failed) in [(false,false),(true,false),(false,true)] {
+        let storage=runtime::RuntimeGenesisConfig::default().build_storage().unwrap();
+        sp_io::TestExternalities::new(storage).execute_with(|| {
+            let pair=sr25519::Pair::from_seed(&[77;32]);
+            let payer=chain_signing::account_id_from_public(pair.public());
+            let recipient=AccountId32::new([201;32]); let absent=AccountId32::new([202;32]);
+            runtime::System::set_block_number(1);
+            runtime::Balances::force_set_balance(runtime::RuntimeOrigin::root(),payer.clone().into(),50_000).unwrap();
+            runtime::Balances::force_set_balance(runtime::RuntimeOrigin::root(),recipient.clone().into(),111).unwrap();
+            runtime::System::reset_events();runtime::System::note_finished_initialize();
+            let make=|to,amount|RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark{beneficiary_account_id:to,amount,remark:Default::default()});
+            let calls=if all_failed {vec![make(absent.clone(),1),make(absent,1)]} else {vec![make(recipient.clone(),100),make(absent,1),make(recipient,10_500)]};
+            let encoded=(27u8,if atomic {2u8}else{4u8},calls).encode();
+            let call=RuntimeCall::decode(&mut encoded.as_slice()).unwrap();
+            let body:Vec<sp_runtime::OpaqueExtrinsic>=vec![chain_signing::build_signed_extrinsic_local(call.clone(),sp_core::H256::repeat_byte(1),0,&pair).into()];
+            let info=Default::default();
+            let result=call.dispatch(runtime::RuntimeOrigin::signed(payer));
+            runtime::System::note_applied_extrinsic(&result,info);
+            let metadata=runtime::Runtime::metadata_at_version(16).unwrap();
+            let raw=runtime::System::events().encode();
+            check_block(&body,|key|(key==storage_key::events()).then(||raw.clone()),metadata.as_slice()).unwrap();
+            let result=transfer_outcome(&body[0],&raw,metadata.as_slice(),0).unwrap();
+            assert_eq!(result.fees,if all_failed {vec![0,0]} else if atomic {vec![0,0,0]}else{vec![10,0,11]});
+            assert_eq!(result.state,if all_failed {"failed"} else if atomic {"rolled_back"}else{"partial"});
+            if !atomic && !all_failed {
+                let mut changed=runtime::System::events();
+                for event in &mut changed {if let RuntimeEvent::Onchain(onchain::pallet::Event::FeePaid{fee,..})=&mut event.event {*fee+=1;break;}}
+                assert!(check_block(&body,|key|(key==storage_key::events()).then(||changed.encode()),metadata.as_slice()).is_err());
+            }
+        });
+    }
 }

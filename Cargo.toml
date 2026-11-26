@@ -177,6 +177,7 @@ pallet-transaction-payment-rpc-runtime-api = { git = "https://github.com/crcfrcn
 
 # Pallets
 pallet-assets = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
+pallet-utility = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
 pallet-balances = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
 pallet-grandpa = { git = "https://github.com/crcfrcn/polkadot-sdk.git", rev = "05e0e9efcd4db73f92be9d0e1f804ee01bda5ac4", default-features = false }
 # Revive自带REVM执行后端，与现有FRAME组件固定为同一SDK来源和提交。

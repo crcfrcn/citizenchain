@@ -4,7 +4,7 @@ use crate::pallet::{BalanceOf, Call, Config, Event, Pallet, TransferRemarkOf};
 use frame_benchmarking::v2::*;
 use frame_support::traits::{Currency, Get};
 use frame_system::RawOrigin;
-use sp_runtime::traits::{CheckedAdd, One, Zero};
+use sp_runtime::traits::{CheckedAdd, One, Zero, SaturatedConversion};
 use sp_std::vec;
 
 struct Transfer<T: Config> {
@@ -23,8 +23,10 @@ fn prepare_transfer<T: Config>() -> Result<Transfer<T>, BenchmarkError> {
     }
     let minimum = T::Currency::minimum_balance();
     let amount = minimum.max(One::one());
+    let maximum_fee: BalanceOf<T> = primitives::fee_policy::calculate_transfer_fee(amount.saturated_into(), true).saturated_into();
     let balance = minimum
         .checked_add(&amount)
+        .and_then(|value| value.checked_add(&maximum_fee))
         .ok_or(BenchmarkError::Stop("转账基准余额超出类型范围"))?;
     // 收款账户从零开始，真实执行新账户入账；付款后仍保留最低余额。
     drop(T::Currency::make_free_balance_be(
@@ -45,7 +47,7 @@ fn prepare_transfer<T: Config>() -> Result<Transfer<T>, BenchmarkError> {
 fn verify_transfer<T: Config>(transfer: Transfer<T>, remark: TransferRemarkOf<T>) {
     assert_eq!(
         T::Currency::free_balance(&transfer.caller),
-        transfer.balance - transfer.amount,
+        transfer.balance - transfer.amount - BalanceOf::<T>::saturated_from(primitives::fee_policy::calculate_transfer_fee(transfer.amount.saturated_into(), !remark.is_empty())),
     );
     assert_eq!(
         T::Currency::free_balance(&transfer.beneficiary),

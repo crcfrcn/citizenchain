@@ -107,6 +107,8 @@ impl fullnodeissue::Config for Test {
 
 impl crate::pallet::Config for Test {
     type WeightInfo = ();
+    type FeeCharger = OnchainExecutionFeeCharger<Test, Balances, ()>;
+    type TransferFeeTiming = TestTransferTiming;
     type Currency = Balances;
     type MaxTransferRemarkLen = frame_support::traits::ConstU32<99>;
     // 与 runtime 同口径：只转发 `primitives::fee_policy`，测试也不另立数字。
@@ -117,6 +119,7 @@ impl crate::pallet::Config for Test {
 }
 
 frame_support::parameter_types! {
+    pub const TestTransferTiming: primitives::fee_policy::FeeTiming = primitives::fee_policy::TRANSFER_FEE_TIMING;
     pub const TestOnchainFeeRate: sp_runtime::Perbill = primitives::fee_policy::ONCHAIN_FEE_RATE;
 }
 
@@ -170,7 +173,8 @@ impl CallFeeRoute<AccountId32, RuntimeCall, Balance> for FeeRouteOnchain {
         _call: &RuntimeCall,
     ) -> primitives::fee_policy::FeeRoute<AccountId32, Balance> {
         primitives::fee_policy::FeeRoute::Onchain {
-            transaction_amount: 50_000,
+            fee_amount: primitives::fee_policy::calculate_transfer_fee(50_000, matches!(_call, RuntimeCall::Onchain(crate::pallet::Call::transfer_with_remark { remark, .. }) if !remark.is_empty())),
+            timing: primitives::fee_policy::FeeTiming::Outer,
             payer_account_id: who.clone(),
         }
     }
@@ -228,7 +232,8 @@ impl CallFeeRoute<AccountId32, RuntimeCall, Balance> for FeeRouteTinyOnchain {
         _call: &RuntimeCall,
     ) -> primitives::fee_policy::FeeRoute<AccountId32, Balance> {
         primitives::fee_policy::FeeRoute::Onchain {
-            transaction_amount: 1,
+            fee_amount: primitives::fee_policy::calculate_transfer_fee(1, matches!(_call, RuntimeCall::Onchain(crate::pallet::Call::transfer_with_remark { remark, .. }) if !remark.is_empty())),
+            timing: primitives::fee_policy::FeeTiming::Outer,
             payer_account_id: who.clone(),
         }
     }
@@ -241,7 +246,8 @@ impl CallFeeRoute<AccountId32, RuntimeCall, Balance> for FeeRouteTinyAccount2 {
         _call: &RuntimeCall,
     ) -> primitives::fee_policy::FeeRoute<AccountId32, Balance> {
         primitives::fee_policy::FeeRoute::Onchain {
-            transaction_amount: 1,
+            fee_amount: primitives::fee_policy::calculate_transfer_fee(1, matches!(_call, RuntimeCall::Onchain(crate::pallet::Call::transfer_with_remark { remark, .. }) if !remark.is_empty())),
+            timing: primitives::fee_policy::FeeTiming::Outer,
             payer_account_id: account(2),
         }
     }

@@ -524,6 +524,7 @@ impl Contains<RuntimeCall> for RuntimeCallFilter {
                     | pallet_revive::Call::eth_instantiate_with_code { .. }
             )
             }
+            RuntimeCall::Utility(_) => transfer_batch(call).is_some(),
             // Balances 只作为底层余额账本和内部 Currency 能力保留。
             // 外部单账户链上转账唯一入口是 Onchain::transfer_with_remark。
             RuntimeCall::Balances(_) => false,
@@ -766,7 +767,20 @@ parameter_types! {
     pub const RuntimeOnchainFeeRate: Perbill = primitives::fee_policy::ONCHAIN_FEE_RATE;
 }
 
+impl pallet_utility::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RuntimeCall = RuntimeCall;
+    type PalletsOrigin = crate::OriginCaller;
+    type WeightInfo = pallet_utility::weights::SubstrateWeight<Runtime>;
+}
+
+parameter_types! {
+    pub const TransferFeeTiming: primitives::fee_policy::FeeTiming = primitives::fee_policy::TRANSFER_FEE_TIMING;
+}
+
 impl onchain::pallet::Config for Runtime {
+    type FeeCharger = onchain::OnchainExecutionFeeCharger<Runtime, Balances, OnchainExecutionFeeDistributor>;
+    type TransferFeeTiming = TransferFeeTiming;
     type WeightInfo = crate::evm_accounts::EvmOnchainWeight;
     type Currency = Balances;
     type MaxTransferRemarkLen = ConstU32<99>;
@@ -810,13 +824,34 @@ impl OnUnbalanced<Credit<AccountId, Balances>> for RuntimeDustHandler {
 
 pub struct RuntimeFeeRouter;
 
+/// 只允许三个官方入口包含非空、无嵌套的普通转账清单。
+pub fn batch_calls_limit() -> u32 {
+    crate::Utility::pallet_constants_metadata().into_iter().find(|c| c.name == "batched_calls_limit")
+        .and_then(|c| u32::decode(&mut c.value.as_slice()).ok()).unwrap_or(0)
+}
+
+pub(crate) fn transfer_batch(call: &RuntimeCall) -> Option<&[RuntimeCall]> {
+    let calls = match call {
+        RuntimeCall::Utility(pallet_utility::Call::batch { calls } | pallet_utility::Call::batch_all { calls } | pallet_utility::Call::force_batch { calls }) => calls,
+        _ => return None,
+    };
+    if calls.is_empty() || calls.len() > batch_calls_limit() as usize { return None; }
+    calls.iter().all(|call| matches!(call, RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark { .. }))).then_some(calls.as_slice())
+}
+
+fn transfer_fee_route(who: &AccountId, fee_amount: Balance) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
+    primitives::fee_policy::FeeRoute::Onchain { fee_amount, payer_account_id: who.clone(), timing: primitives::fee_policy::TRANSFER_FEE_TIMING }
+}
+
+
 fn signer_onchain_route(
     who: &AccountId,
     transaction_amount: Balance,
 ) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
     primitives::fee_policy::FeeRoute::Onchain {
-        transaction_amount,
+        fee_amount: primitives::fee_policy::calculate_onchain_fee(transaction_amount),
         payer_account_id: who.clone(),
+        timing: primitives::fee_policy::FeeTiming::Outer,
     }
 }
 
@@ -851,8 +886,9 @@ fn is_authorized_institution_actor(who: &AccountId, cid_number: &[u8], role_code
 fn institution_charge(cid_number: &[u8]) -> primitives::fee_policy::FeeRoute<AccountId, Balance> {
     match exact_institution_fee_account(cid_number) {
         Some(payer_account_id) => primitives::fee_policy::FeeRoute::Onchain {
-            transaction_amount: 0,
+            fee_amount: primitives::fee_policy::ONCHAIN_MIN_FEE,
             payer_account_id,
+            timing: primitives::fee_policy::FeeTiming::Outer,
         },
         None => primitives::fee_policy::FeeRoute::Reject,
     }
@@ -954,9 +990,15 @@ impl onchain::CallFeeRoute<AccountId, RuntimeCall, Balance> for RuntimeFeeRouter
             },
             RuntimeCall::Revive(_) => FeeRoute::Reject,
             RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark {
-                amount,
-                ..
-            }) => signer_onchain_route(who, *amount),
+                amount, remark, ..
+            }) => transfer_fee_route(who, primitives::fee_policy::calculate_transfer_fee(*amount, !remark.is_empty())),
+            RuntimeCall::Utility(_) => {
+                let Some(calls) = transfer_batch(call) else { return FeeRoute::Reject; };
+                match calls.iter().try_fold(0u128, |sum, call| {
+                    let RuntimeCall::Onchain(onchain::pallet::Call::transfer_with_remark { amount, remark, .. }) = call else { return None; };
+                    sum.checked_add(primitives::fee_policy::calculate_transfer_fee(*amount, !remark.is_empty()))
+                }) { Some(fee) => transfer_fee_route(who, fee), None => FeeRoute::Reject }
+            },
 
             // 个人多签不是机构；创建提案和管理员变更属于普通链上操作，只有 cast 才是投票。
             RuntimeCall::Personal(personal::pallet::Call::propose_create {

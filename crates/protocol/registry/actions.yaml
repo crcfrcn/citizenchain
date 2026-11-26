@@ -432,6 +432,8 @@
     - recipient_account_id
     - amount_yuan
     - remark
+    - fee_yuan
+    - fee_policy
 
 - action_key: propose_create_personal
   action_code: 0x0700
@@ -1655,3 +1657,54 @@
   required_fields:
     - proposal_id
     - approve
+
+- action_key: batch
+  action_code: 0x1b00
+  action_label_zh: 遇错停止
+  kind: chain_call
+  qr_kind: sign_request
+  pallet: Utility
+  call: batch
+  decoder: batch
+  hash_only_allowed: false
+  signing_category: chain_tx
+  required_fields:
+    - transfers
+    - transfer_count
+    - amount_yuan
+    - fee_yuan
+    - fee_policy
+
+- action_key: batch_all
+  action_code: 0x1b02
+  action_label_zh: 整批成功
+  kind: chain_call
+  qr_kind: sign_request
+  pallet: Utility
+  call: batch_all
+  decoder: batch_all
+  hash_only_allowed: false
+  signing_category: chain_tx
+  required_fields:
+    - transfers
+    - transfer_count
+    - amount_yuan
+    - fee_yuan
+    - fee_policy
+
+- action_key: force_batch
+  action_code: 0x1b04
+  action_label_zh: 逐笔成功
+  kind: chain_call
+  qr_kind: sign_request
+  pallet: Utility
+  call: force_batch
+  decoder: force_batch
+  hash_only_allowed: false
+  signing_category: chain_tx
+  required_fields:
+    - transfers
+    - transfer_count
+    - amount_yuan
+    - fee_yuan
+    - fee_policy

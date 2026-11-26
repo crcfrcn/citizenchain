@@ -1,4 +1,4 @@
-//! 定义带备注原生转账的执行及数据库读写权重。
+//! 本金沿用原基准；执行期费用的四个账户操作追加官方payment权重上界。
 
 #![cfg_attr(rustfmt, rustfmt_skip)]
 #![allow(unused_parens)]
@@ -25,6 +25,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(0, 3593))
 			.saturating_add(T::DbWeight::get().reads(1))
 			.saturating_add(T::DbWeight::get().writes(1))
+            .saturating_add(<pallet_transaction_payment::weights::SubstrateWeight<T> as pallet_transaction_payment::WeightInfo>::charge_transaction_payment().saturating_mul(4))
 	}
 }
 impl WeightInfo for () {
@@ -39,5 +40,6 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(0, 3593))
 			.saturating_add(RocksDbWeight::get().reads(1))
 			.saturating_add(RocksDbWeight::get().writes(1))
+            .saturating_add(<() as pallet_transaction_payment::WeightInfo>::charge_transaction_payment().saturating_mul(4))
 	}
 }

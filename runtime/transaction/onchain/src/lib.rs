@@ -45,6 +45,10 @@ pub mod pallet {
         type Currency: Currency<Self::AccountId>;
         /// 本调用完整执行成本，由所属基准测量。
         type WeightInfo: crate::weights::WeightInfo;
+        /// 与本金处于同一事务的既有执行期收费器。
+        type FeeCharger: primitives::fee_policy::OnchainFeeCharger<Self::AccountId, BalanceOf<Self>>;
+        #[pallet::constant]
+        type TransferFeeTiming: Get<primitives::fee_policy::FeeTiming>;
 
         /// 普通转账备注最大 UTF-8 字节数。
         #[pallet::constant]
@@ -148,6 +152,11 @@ pub mod pallet {
                 from != beneficiary_account_id,
                 Error::<T>::SelfTransferNotAllowed
             );
+
+            // FRAME自动事务层保证本金、手续费、分账和事件一起成功或回滚。
+            <T::FeeCharger as primitives::fee_policy::OnchainFeeCharger<T::AccountId, BalanceOf<T>>>::charge(
+                &from, amount, !remark.is_empty(),
+            )?;
 
             T::Currency::transfer(
                 &from,
@@ -259,12 +268,9 @@ where
         transaction_amount: <C as Currency<T::AccountId>>::Balance,
         has_remark: bool,
     ) -> Result<<C as Currency<T::AccountId>>::Balance, sp_runtime::DispatchError> {
-        let mut fee_u128 = primitives::fee_policy::calculate_onchain_fee(
-            transaction_amount.saturated_into::<u128>(),
+        let fee_u128 = primitives::fee_policy::calculate_transfer_fee(
+            transaction_amount.saturated_into::<u128>(), has_remark,
         );
-        if has_remark {
-            fee_u128 = fee_u128.saturating_add(primitives::fee_policy::FLAT_FEE);
-        }
         let fee = fee_u128.saturated_into();
         let imbalance = C::withdraw(
             payer_account_id,
@@ -303,11 +309,13 @@ where
         tip: Self::Balance,
     ) -> Result<Self::LiquidityInfo, TransactionValidityError> {
         // 框架金额不参与制度收费，实际金额与付款账户只能来自唯一 FeeRoute。
-        let Some((payer_account_id, fee)) =
-            charge_details::<T, Currency, FeeRouteProvider>(who, call, dispatch_info, tip)?
+        let Some((payer_account_id, fee, timing)) =
+            settlement_details::<T, Currency, FeeRouteProvider>(who, call, dispatch_info, tip)?
         else {
             return Ok(None);
         };
+
+        if timing == primitives::fee_policy::FeeTiming::Execution { return Ok(None); }
 
         // Exact + Preserve：要么从明确账户完整扣款并保留 ED，要么整笔交易失败。
         let credit = Currency::withdraw(
@@ -336,11 +344,12 @@ where
         _fee_with_tip: Self::Balance,
         tip: Self::Balance,
     ) -> Result<(), TransactionValidityError> {
-        let Some((payer_account_id, fee)) =
-            charge_details::<T, Currency, FeeRouteProvider>(who, call, dispatch_info, tip)?
+        let Some((payer_account_id, fee, timing)) =
+            settlement_details::<T, Currency, FeeRouteProvider>(who, call, dispatch_info, tip)?
         else {
             return Ok(());
         };
+        if timing == primitives::fee_policy::FeeTiming::Execution { return Ok(()); }
         match Currency::can_withdraw(&payer_account_id, fee) {
             frame_support::traits::tokens::WithdrawConsequence::Success => Ok(()),
             _ => Err(InvalidTransaction::Payment.into()),
@@ -356,7 +365,7 @@ where
         liquidity_info: Self::LiquidityInfo,
     ) -> Result<(), TransactionValidityError> {
         // PROTOCOL: no post-dispatch refund.
-        // 本制度按五类费用模型固定收费，协议上明确"不做执行后退款"。
+        // 外层预扣分支沿用原不退款规则；普通转账的执行期费用由业务事务原子回滚。
         // `_corrected_fee_with_tip` 和 `_tip` 仅为框架接口参数；tip 已在预检阶段禁用。
         if let Some(fee_credit) = liquidity_info {
             Router::on_unbalanced(fee_credit);
@@ -519,7 +528,7 @@ pub type ChargeDetails<AccountId, Balance> = Option<(AccountId, Balance)>;
 
 /// 只读查询现有收费明细，供交易报价与实际扣款共同使用。
 ///
-/// 本函数消费唯一 FeeRoute，普通转账非空备注加收 FLAT_FEE，不扣款、不分账、不发事件。
+/// 本函数读取唯一路由的精确报价，不扣款、不分账、不发事件；执行期报价不代表已收费。
 /// 报价不代替付款余额检查；余额检查和实际扣款仍由 OnchainChargeAdapter 执行。
 /// 返回类型同时绑定 runtime 账户和 Currency 余额，保持两者的编译期一致性。
 #[allow(clippy::type_complexity)]
@@ -539,37 +548,32 @@ where
         CallFeeRoute<T::AccountId, T::RuntimeCall, <Currency as Inspect<T::AccountId>>::Balance>,
     T::RuntimeCall: IsSubType<pallet::Call<T>>,
 {
-    // tip 不属于交易费；非零 tip 在入池预检和区块执行中都直接拒绝。
-    if !tip.is_zero() {
-        return Err(InvalidTransaction::Payment.into());
-    }
+    settlement_details::<T, Currency, FeeRouteProvider>(who, call, _dispatch_info, tip)
+        .map(|details| details.map(|(payer, fee, _)| (payer, fee)))
+}
 
-    use primitives::fee_policy::FeeRoute;
+fn settlement_details<T, Currency, FeeRouteProvider>(
+    who: &T::AccountId,
+    call: &T::RuntimeCall,
+    _dispatch_info: &DispatchInfoOf<T::RuntimeCall>,
+    tip: <Currency as Inspect<T::AccountId>>::Balance,
+) -> Result<
+    Option<(T::AccountId, <Currency as Inspect<T::AccountId>>::Balance, primitives::fee_policy::FeeTiming)>,
+    TransactionValidityError,
+>
+where
+    T: TxPaymentConfig + pallet::Config,
+    Currency: Balanced<T::AccountId>,
+    FeeRouteProvider:
+        CallFeeRoute<T::AccountId, T::RuntimeCall, <Currency as Inspect<T::AccountId>>::Balance>,
+    T::RuntimeCall: IsSubType<pallet::Call<T>>,
+{
+    use primitives::fee_policy::{FeeRoute, FeeTiming};
+    if !tip.is_zero() { return Err(InvalidTransaction::Payment.into()); }
     match FeeRouteProvider::fee_route(who, call) {
-        FeeRoute::Onchain {
-            transaction_amount,
-            payer_account_id,
-        } => {
-            // 只有链上交易费按金额套 0.1% 费率；机构普通操作传零金额，固定落最低费。
-            let amount_u128: u128 = transaction_amount.saturated_into();
-            let mut fee_u128 = primitives::fee_policy::calculate_onchain_fee(amount_u128);
-            if matches!(call.is_sub_type(), Some(pallet::Call::transfer_with_remark { remark, .. }) if !remark.is_empty())
-            {
-                fee_u128 = fee_u128.saturating_add(primitives::fee_policy::FLAT_FEE);
-            }
-            let fee = fee_u128.saturated_into();
-            Ok(Some((payer_account_id, fee)))
-        }
-        FeeRoute::Vote { payer_account_id } => {
-            let fee = primitives::fee_policy::FLAT_FEE.saturated_into();
-            Ok(Some((payer_account_id, fee)))
-        }
-        FeeRoute::Offchain { .. } => {
-            // 链下费用由 offchain 执行器按同一个路由结果和批次规则收取，
-            // 不进入链上 80/10/10 分账，当前适配器不得重复扣款。
-            Ok(None)
-        }
-        FeeRoute::Free => Ok(None),
+        FeeRoute::Onchain { fee_amount, payer_account_id, timing } => Ok(Some((payer_account_id, fee_amount, timing))),
+        FeeRoute::Vote { payer_account_id } => Ok(Some((payer_account_id, primitives::fee_policy::FLAT_FEE.saturated_into(), FeeTiming::Outer))),
+        FeeRoute::Offchain { .. } | FeeRoute::Free => Ok(None),
         FeeRoute::Reject => Err(InvalidTransaction::Call.into()),
     }
 }

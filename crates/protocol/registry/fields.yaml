@@ -312,3 +312,15 @@
   field_label_zh: 删除批次
 - field_key: contact_list
   field_label_zh: 删除联系人及版本
+
+- field_key: transfers
+  field_label_zh: 完整转账清单
+
+- field_key: transfer_count
+  field_label_zh: 转账笔数
+
+- field_key: fee_yuan
+  field_label_zh: 预计手续费
+
+- field_key: fee_policy
+  field_label_zh: 手续费处理
