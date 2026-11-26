@@ -13,19 +13,132 @@ use crate::constitution::needs_full_invariant_check;
 use crate::constitution::verify_manifest_from_reader;
 use crate::constitution::ImmutableReference;
 use crate::constitution::CONSTITUTION_LAW_ID;
+use nodeclient::codec::RuntimeStorage;
 use nodeclient::types::FullBackend;
 use nodeclient::types::FullClient;
 use runtime::opaque::Block;
-use sc_client_api::backend::Backend as _;
 use sc_consensus::BlockCheckParams;
 use sc_consensus::BlockImport;
 use sc_consensus::BlockImportParams;
 use sc_consensus::ImportResult;
+use sc_consensus::ImportedState;
+use sp_api::Metadata as _;
 use sp_consensus::Error as ConsensusError;
 use sp_runtime::traits::Block as BlockT;
 use sp_storage::StorageKey;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+/// 宪法判定只消费同一已执行区块的逻辑视图；物理定位和真实搬迁由共有接口解释。
+/// 原始delta、父状态及全部永久断言保持，不把set_code所在块误作已完成名称迁移。
+pub(crate) fn check_transition(
+    reference: &ImmutableReference,
+    before: &RuntimeStorage,
+    after: &RuntimeStorage,
+    raw: &BTreeMap<Vec<u8>, Option<Vec<u8>>>,
+    read_parent: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, String>,
+) -> Result<(), String> {
+    let delta = before.transition_changes(after, raw, &read_parent)?;
+    let raw_post = |key: &[u8]| match raw.get(key) {
+        Some(value) => Ok(value.clone()),
+        None => read_parent(key),
+    };
+    let prefix = crate::constitution::storage_key::pallet_prefix();
+    let moved = before.key(&prefix, true) != after.key(&prefix, true);
+    if moved {
+        for key in raw.keys() {
+            let logical = before.logical_key(key)?;
+            if logical.starts_with(&prefix) {
+                let source = before.key(&logical, true);
+                if read_parent(&source)?.is_some() && raw_post(&source)?.is_some() {
+                    return Err("宪法搬迁后仍保留已存在的来源记录".into());
+                }
+            }
+        }
+    }
+    if !moved && !needs_full_invariant_check(&delta) {
+        return Ok(());
+    }
+    let parent = |key: &[u8]| before.read(key, &read_parent);
+    check_frozen_constitution_records(&delta, &parent)?;
+    // 永久规则的Option接口只表达缺失；读取错误另行保留，不能被当成合法空值。
+    let read_error = std::cell::RefCell::new(None);
+    let post = |key: &[u8]| match after.read(key, &raw_post) {
+        Ok(value) => value,
+        Err(reason) => {
+            read_error.borrow_mut().get_or_insert(reason);
+            None
+        }
+    };
+    let verdict = (|| {
+        let law_bytes = post(&crate::constitution::storage_key::law(CONSTITUTION_LAW_ID))
+            .ok_or_else(|| "目标状态缺宪法 Law(0)".to_string())?;
+        let law = decode_law_head(&law_bytes).map_err(|e| format!("宪法 Law 解码失败:{e:?}"))?;
+        check_version_key_range(
+            delta
+                .iter()
+                .filter_map(|(key, value)| value.as_ref().map(|_| key)),
+            law.latest_version,
+        )
+        .map_err(|e| format!("宪法版本键范围非法:{e:?}"))?;
+        let parent_law_bytes = parent(&crate::constitution::storage_key::law(CONSTITUTION_LAW_ID))?
+            .ok_or_else(|| "父状态缺宪法 Law(0)".to_string())?;
+        let parent_law = decode_law_head(&parent_law_bytes)
+            .map_err(|e| format!("父状态宪法 Law 解码失败:{e:?}"))?;
+        if law.latest_version < parent_law.latest_version {
+            return Err(format!(
+                "宪法 latest_version 从 {} 回退到 {}",
+                parent_law.latest_version, law.latest_version
+            ));
+        }
+        check_immutable_articles(&post, reference)
+            .map_err(|reason| format!("宪法不变式被破坏:{reason:?}"))?;
+        for key in delta.keys() {
+            if let Some(version) =
+                crate::constitution::storage_key::constitution_version_from_key(key).or_else(|| {
+                    crate::constitution::storage_key::constitution_proof_version_from_key(key)
+                })
+            {
+                check_immutable_version(&post, reference, version)
+                    .map_err(|reason| format!("宪法历史版本 {version} 非法:{reason:?}"))?;
+            }
+        }
+        Ok(())
+    })();
+    match read_error.into_inner() {
+        Some(reason) => Err(reason),
+        None => verdict,
+    }
+}
+
+/// 完整导入仍只承认主trie；同一逻辑宪法键的重复来源或非所属前缀不能伪装为有效状态。
+pub(crate) fn check_imported_constitution(
+    reference: &ImmutableReference,
+    layout: &RuntimeStorage,
+    block: <Block as BlockT>::Hash,
+    rows: &BTreeMap<Vec<u8>, Vec<u8>>,
+) -> Result<(), String> {
+    let prefix = crate::constitution::storage_key::pallet_prefix();
+    let mut logical = BTreeMap::new();
+    for (key, value) in rows {
+        let mapped = layout.logical_key(key)?;
+        if !mapped.starts_with(&prefix) {
+            continue;
+        }
+        if layout.key(&mapped, true) != *key || logical.insert(mapped, value.clone()).is_some() {
+            return Err("完整状态宪法存储键归属冲突".into());
+        }
+    }
+    // 仅把主trie逻辑键交给原判定；此视图不提交、不计算物理根，原导入材料保持原样。
+    let view = ImportedState {
+        block,
+        state: sc_client_api::KeyValueStates::from([(
+            Vec::new(),
+            (logical.into_iter().collect::<Vec<_>>(), Vec::new()),
+        )]),
+    };
+    check_imported_state_immutable(&view, reference)
+}
 
 /// 在区块进入规范链之前校验宪法四类永久记录；合法返回 `Ok`，非法统一拒块。
 pub struct ConstitutionGuard<I> {
@@ -55,7 +168,7 @@ impl<I> ConstitutionGuard<I> {
         }
     }
 
-    fn build_reference(
+    pub(crate) fn build_reference(
         genesis: Result<Arc<crate::guard::GenesisState>, String>,
     ) -> Result<ImmutableReference, String> {
         let state = genesis?;
@@ -87,7 +200,36 @@ impl<I> ConstitutionGuard<I> {
             StateAction::ApplyChanges(StorageChanges::Import(imported)) => imported,
             _ => return Err("warp 状态非 ApplyChanges(Import) 形态,无法提交前校验".into()),
         };
-        check_imported_state_immutable(imported, self.reference.as_ref().map_err(Clone::clone)?)
+        let mut rows = BTreeMap::new();
+        for (key, value) in imported
+            .state
+            .0
+            .iter()
+            .filter(|level| level.parent_storage_keys.is_empty() && level.state_root.is_empty())
+            .flat_map(|level| level.key_values.iter())
+        {
+            if rows.insert(key.clone(), value.clone()).is_some() {
+                return Err("完整状态包含重复主存储键".into());
+            }
+        }
+        let writer = if *params.header.number() == 0 {
+            params.post_hash()
+        } else {
+            *params.header.parent_hash()
+        };
+        let metadata = self
+            .client
+            .runtime_api()
+            .metadata(writer)
+            .map_err(|e| format!("宪法状态写入Runtime元数据不可读:{e}"))?;
+        let layout = RuntimeStorage::from_metadata(metadata.as_slice())?
+            .with_state(|key| Ok(rows.get(key).cloned()))?;
+        check_imported_constitution(
+            self.reference.as_ref().map_err(Clone::clone)?,
+            &layout,
+            imported.block,
+            &rows,
+        )
     }
 
     /// 读取父状态并把 delta 覆盖为目标后置状态，再执行全部宪法不变式。
@@ -96,69 +238,32 @@ impl<I> ConstitutionGuard<I> {
         parent_hash: <Block as BlockT>::Hash,
         delta: BTreeMap<Vec<u8>, Option<Vec<u8>>>,
     ) -> Result<(), String> {
-        let reference = self.reference.as_ref().map_err(Clone::clone)?;
-        if !needs_full_invariant_check(&delta) {
-            return Ok(());
-        }
-        // 历史版本与修宪凭据一旦进入父状态即永久冻结。仅复核后置值“仍合法”是不够的，
-        // 否则恶意 runtime 可以把旧记录替换成另一份同样过阈值的内容而不被发现。
-        check_frozen_constitution_records(&delta, |key| {
+        let read_parent = |key: &[u8]| {
             self.client
                 .storage(parent_hash, &StorageKey(key.to_vec()))
                 .map(|value| value.map(|data| data.0))
-                .map_err(|error| format!("读取父状态宪法永久记录失败:{error}"))
-        })?;
-        let read_post = |key: &[u8]| -> Option<Vec<u8>> {
-            match delta.get(key) {
-                Some(value) => value.clone(),
-                None => self
-                    .client
-                    .storage(parent_hash, &StorageKey(key.to_vec()))
-                    .ok()
-                    .flatten()
-                    .map(|data| data.0),
-            }
+                .map_err(|error| format!("读取父状态宪法失败:{error}"))
         };
-        let law_bytes = read_post(&crate::constitution::storage_key::law(CONSTITUTION_LAW_ID))
-            .ok_or_else(|| "目标状态缺宪法 Law(0)".to_string())?;
-        let law = decode_law_head(&law_bytes).map_err(|e| format!("宪法 Law 解码失败:{e:?}"))?;
-        check_version_key_range(
-            delta
-                .iter()
-                .filter_map(|(key, value)| value.as_ref().map(|_| key)),
-            law.latest_version,
-        )
-        .map_err(|e| format!("宪法版本键范围非法:{e:?}"))?;
-        let parent_law_bytes = self
+        let read_post = |key: &[u8]| match delta.get(key) {
+            Some(value) => Ok(value.clone()),
+            None => read_parent(key),
+        };
+        // 父状态归实际写入者，本块后置状态归执行父块代码；不能用set_code后的新metadata猜前缀。
+        let before =
+            RuntimeStorage::at_state(&self.client, parent_hash)?.with_state(&read_parent)?;
+        let metadata = self
             .client
-            .storage(
-                parent_hash,
-                &StorageKey(crate::constitution::storage_key::law(CONSTITUTION_LAW_ID)),
-            )
-            .map_err(|e| format!("读取父状态宪法 Law 失败:{e}"))?
-            .ok_or_else(|| "父状态缺宪法 Law(0)".to_string())?;
-        let parent_law = decode_law_head(&parent_law_bytes.0)
-            .map_err(|e| format!("父状态宪法 Law 解码失败:{e:?}"))?;
-        if law.latest_version < parent_law.latest_version {
-            return Err(format!(
-                "宪法 latest_version 从 {} 回退到 {}",
-                parent_law.latest_version, law.latest_version
-            ));
-        }
-        check_immutable_articles(read_post, reference)
-            .map_err(|reason| format!("宪法不变式被破坏:{reason:?}"))?;
-        // 任一历史版本 RAW key 被新增、修改或删除时，都按目标后置状态单独复核该版本。
-        for key in delta.keys() {
-            if let Some(version) =
-                crate::constitution::storage_key::constitution_version_from_key(key).or_else(|| {
-                    crate::constitution::storage_key::constitution_proof_version_from_key(key)
-                })
-            {
-                check_immutable_version(&read_post, reference, version)
-                    .map_err(|reason| format!("宪法历史版本 {version} 非法:{reason:?}"))?;
-            }
-        }
-        Ok(())
+            .runtime_api()
+            .metadata(parent_hash)
+            .map_err(|e| format!("执行Runtime宪法元数据不可读:{e}"))?;
+        let after = RuntimeStorage::from_metadata(metadata.as_slice())?.with_state(read_post)?;
+        check_transition(
+            self.reference.as_ref().map_err(Clone::clone)?,
+            &before,
+            &after,
+            &delta,
+            read_parent,
+        )
     }
 
     /// 对普通导入形态取得可验证的后置 storage delta；`Ok` 为合法，任何 `Err` 都拒块。

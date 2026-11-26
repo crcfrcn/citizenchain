@@ -124,3 +124,166 @@ fn frozen_chainspec_builds_verified_constitution_reference_without_block_zero_da
         "改动输入不能冒用冻结信任锚"
     );
 }
+
+fn constitution_fixture() -> &'static (ImmutableReference, BTreeMap<Vec<u8>, Vec<u8>>) {
+    static FIXTURE: std::sync::OnceLock<(ImmutableReference, BTreeMap<Vec<u8>, Vec<u8>>)> =
+        std::sync::OnceLock::new();
+    FIXTURE.get_or_init(|| {
+        use sc_service::ChainSpec as _;
+        let spec = node::chain::ChainSpec::from_json_bytes(
+            include_bytes!("../../citizenchain.json").to_vec(),
+        )
+        .unwrap();
+        let storage = spec.as_storage_builder().build_storage().unwrap();
+        let executor = sc_executor::WasmExecutor::<sp_io::SubstrateHostFunctions>::default();
+        let version = sc_service::resolve_state_version_from_wasm::<
+            _,
+            sp_runtime::traits::BlakeTwo256,
+        >(&storage, &executor)
+        .unwrap();
+        let genesis = crate::guard::GenesisState::new(storage, version).unwrap();
+        let prefix = crate::constitution::storage_key::pallet_prefix();
+        let rows = genesis
+            .baseline_entries()
+            .into_iter()
+            .filter(|(key, _)| key.starts_with(&prefix))
+            .collect();
+        let reference =
+            ConstitutionGuard::<CountingImport>::build_reference(Ok(Arc::new(genesis))).unwrap();
+        (reference, rows)
+    })
+}
+
+fn legislation_layout(name: &str) -> RuntimeStorage {
+    use codec::Encode as _;
+    let bytes = runtime::Runtime::metadata_at_version(16).unwrap();
+    let mut metadata = nodeclient::codec::decode_runtime_metadata(bytes.as_slice()).unwrap();
+    let frame_metadata::RuntimeMetadata::V16(value) = &mut metadata else {
+        panic!("需要V16元数据")
+    };
+    let pallet = value.pallets.iter_mut().find(|p| p.index == 25).unwrap();
+    pallet.name = name.into();
+    pallet.storage.as_mut().unwrap().prefix = name.into();
+    RuntimeStorage::from_metadata(
+        &frame_metadata::RuntimeMetadataPrefixed(0x6174_656d, metadata).encode(),
+    )
+    .unwrap()
+}
+
+fn physical_constitution(layout: &RuntimeStorage) -> BTreeMap<Vec<u8>, Vec<u8>> {
+    constitution_fixture()
+        .1
+        .iter()
+        .map(|(key, value)| (layout.key(key, true), value.clone()))
+        .collect()
+}
+
+#[test]
+fn code_upgrade_checks_constitution_using_the_writer_metadata() {
+    // 任意实际metadata名称均可定位；不存在新名称下的值时，不能因此把旧合法状态当作缺失。
+    for name in ["LegislationYuan", "ExecutedLaws", "Legislation"] {
+        let layout = legislation_layout(name);
+        let state = physical_constitution(&layout);
+        let untouched = state.clone();
+        let raw = BTreeMap::from([(sp_storage::well_known_keys::CODE.to_vec(), Some(vec![1]))]);
+        assert_eq!(
+            check_transition(&constitution_fixture().0, &layout, &layout, &raw, |key| Ok(
+                state.get(key).cloned()
+            )),
+            Ok(()),
+            "{name}"
+        );
+        assert_eq!(state, untouched);
+        assert_eq!(
+            check_imported_constitution(
+                &constitution_fixture().0,
+                &layout,
+                sp_core::H256::repeat_byte(1),
+                &state
+            ),
+            Ok(())
+        );
+    }
+}
+
+#[test]
+fn constitution_prefix_move_requires_same_frozen_records_and_deleted_sources() {
+    let before = legislation_layout("LegislationYuan");
+    let after = legislation_layout("Legislation");
+    let state = physical_constitution(&before);
+    let mut moved = BTreeMap::new();
+    for (logical, value) in &constitution_fixture().1 {
+        moved.insert(before.key(logical, true), None);
+        moved.insert(after.key(logical, true), Some(value.clone()));
+    }
+    let verify = |raw: &BTreeMap<Vec<u8>, Option<Vec<u8>>>| {
+        check_transition(&constitution_fixture().0, &before, &after, raw, |key| {
+            Ok(state.get(key).cloned())
+        })
+    };
+    assert_eq!(verify(&moved), Ok(()));
+    assert!(
+        verify(&BTreeMap::new()).is_err(),
+        "不能仅换metadata而不搬迁真实宪法"
+    );
+    let law = crate::constitution::storage_key::law(CONSTITUTION_LAW_ID);
+    let mut retained_source = moved.clone();
+    retained_source.remove(&before.key(&law, true));
+    assert!(verify(&retained_source).is_err());
+    for logical in [
+        crate::constitution::storage_key::manifest(),
+        crate::constitution::storage_key::law_version(CONSTITUTION_LAW_ID, 1),
+    ] {
+        let mut tampered = moved.clone();
+        tampered.insert(after.key(&logical, true), Some(vec![0]));
+        assert!(verify(&tampered).is_err(), "搬迁不能掩盖manifest或历史篡改");
+    }
+    let mut deleted = moved;
+    deleted.insert(after.key(&law, true), None);
+    assert!(verify(&deleted).is_err());
+}
+
+#[test]
+fn old_namespace_tampering_and_wrong_namespace_rows_remain_rejected() {
+    let layout = legislation_layout("LegislationYuan");
+    let state = physical_constitution(&layout);
+    for logical in [
+        crate::constitution::storage_key::law(CONSTITUTION_LAW_ID),
+        crate::constitution::storage_key::manifest(),
+        crate::constitution::storage_key::law_version(CONSTITUTION_LAW_ID, 1),
+        crate::constitution::storage_key::constitution_guard_vote_proof(1),
+    ] {
+        let raw = BTreeMap::from([(layout.key(&logical, true), Some(vec![0]))]);
+        assert!(
+            check_transition(&constitution_fixture().0, &layout, &layout, &raw, |key| Ok(
+                state.get(key).cloned()
+            ))
+            .is_err()
+        );
+    }
+    let law = crate::constitution::storage_key::law(CONSTITUTION_LAW_ID);
+    let wrong = BTreeMap::from([(law.clone(), state[&layout.key(&law, true)].clone())]);
+    assert!(check_imported_constitution(
+        &constitution_fixture().0,
+        &layout,
+        sp_core::H256::repeat_byte(1),
+        &wrong
+    )
+    .is_err());
+    let mut collision = state.clone();
+    collision.extend(wrong);
+    assert!(check_imported_constitution(
+        &constitution_fixture().0,
+        &layout,
+        sp_core::H256::repeat_byte(1),
+        &collision
+    )
+    .is_err());
+    let raw = BTreeMap::from([(sp_storage::well_known_keys::CODE.to_vec(), Some(vec![1]))]);
+    assert_eq!(
+        check_transition(&constitution_fixture().0, &layout, &layout, &raw, |_| Err(
+            "实际存储读取失败".into()
+        )),
+        Err("实际存储读取失败".into())
+    );
+}

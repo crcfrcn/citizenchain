@@ -149,6 +149,165 @@ fn runtime_storage_rejects_invalid_or_ambiguous_metadata() {
     assert_eq!(identity.key(&key, true), key);
 }
 
+/// 用原状态及用户已签名的池内交易重放首个升级块；不另签、不提交、不更改原快照。
+fn replay_signed_upgrade(
+    snapshot: &serde_json::Value,
+    state: &BTreeMap<Vec<u8>, Vec<u8>>,
+    backend: &sp_state_machine::InMemoryBackend<sp_runtime::traits::BlakeTwo256>,
+    version: sp_storage::StateVersion,
+    candidate: &[u8],
+    layout: &RuntimeStorage,
+    metadata: &[u8],
+    reference: &crate::constitution::ImmutableReference,
+) {
+    use codec::DecodeAll;
+    use sp_core::traits::{CallContext, RuntimeCode, WrappedRuntimeCode};
+    use sp_runtime::traits::{Hash as _, Header as _};
+    let path = std::env::var_os("CITIZENCHAIN_UPGRADE_EXTRINSIC")
+        .expect("必须交付用户已签名的真实升级交易");
+    let request: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    let bytes = |value: &str| hex::decode(value.trim_start_matches("0x")).unwrap();
+    let signed = bytes(request["extrinsic"].as_str().unwrap());
+    assert_eq!(
+        format!(
+            "{:#x}",
+            sp_core::H256::from(sp_crypto_hashing::blake2_256(&signed))
+        ),
+        request["tx_hash"].as_str().unwrap()
+    );
+    assert!(
+        signed
+            .windows(candidate.len())
+            .any(|part| part == candidate),
+        "已签名交易必须包含本轮准确正式Wasm"
+    );
+    let parent = sp_core::H256::from_slice(&bytes(snapshot["at"].as_str().unwrap()));
+    let number = u32::from_str_radix(
+        snapshot["header"]["number"]
+            .as_str()
+            .unwrap()
+            .trim_start_matches("0x"),
+        16,
+    )
+    .unwrap()
+        + 1;
+    let digest = sp_runtime::Digest {logs: snapshot["header"]["digest"]["logs"]
+        .as_array().unwrap().iter()
+        .map(|value| sp_runtime::DigestItem::decode_all(&mut bytes(value.as_str().unwrap()).as_slice()).unwrap())
+        .filter(|item| matches!(item, sp_runtime::DigestItem::PreRuntime(id, _) if *id == POW_ENGINE_ID))
+        .collect()};
+    assert_eq!(
+        digest.logs.len(),
+        1,
+        "沿用真实父块的公开PoW作者，不伪造新身份"
+    );
+    let header = runtime::opaque::Header::new(
+        number,
+        Default::default(),
+        Default::default(),
+        parent,
+        digest,
+    );
+    let fetcher = WrappedRuntimeCode(state[sp_storage::well_known_keys::CODE].as_slice().into());
+    let code = RuntimeCode {
+        code_fetcher: &fetcher,
+        heap_pages: None,
+        hash: sp_crypto_hashing::blake2_256(&state[sp_storage::well_known_keys::CODE]).to_vec(),
+    };
+    let executor = sc_executor::WasmExecutor::<sp_io::SubstrateHostFunctions>::default();
+    let mut overlay = sp_state_machine::OverlayedChanges::default();
+    let invoke =
+        |overlay: &mut sp_state_machine::OverlayedChanges<sp_runtime::traits::BlakeTwo256>,
+         method: &str,
+         data: &[u8]| {
+            // 与真实客户端一样，让实际执行器读取候选版本；不以测试常量替代set_code校验。
+            let mut context = sp_state_machine::BasicExternalities::new_empty();
+            context.register_extension(sp_core::traits::ReadRuntimeVersionExt::new(
+                executor.clone(),
+            ));
+            let output = sp_state_machine::StateMachine::new(
+                backend,
+                overlay,
+                &executor,
+                method,
+                data,
+                context.extensions(),
+                &code,
+                CallContext::Onchain { import: false },
+            )
+            .execute()
+            .unwrap_or_else(|e| panic!("真实升级API {method} 失败:{e:?}"));
+            output
+        };
+    invoke(&mut overlay, "Core_initialize_block", &header.encode());
+    let timestamp = timestamp_extrinsic(request["timestamp"].as_u64().unwrap()).encode();
+    for encoded in [&timestamp, &signed] {
+        let result = sp_runtime::ApplyExtrinsicResult::decode_all(
+            &mut invoke(&mut overlay, "BlockBuilder_apply_extrinsic", encoded).as_slice(),
+        )
+        .unwrap();
+        assert_eq!(result, Ok(Ok(())), "真实已签升级及时间戳均须执行成功");
+    }
+    let finalized = runtime::opaque::Header::decode_all(
+        &mut invoke(&mut overlay, "BlockBuilder_finalize_block", &[]).as_slice(),
+    )
+    .unwrap();
+    let changes = overlay.drain_storage_changes(backend, version).unwrap();
+    assert_eq!(changes.transaction_storage_root, *finalized.state_root());
+    assert_eq!(
+        sp_runtime::traits::BlakeTwo256::ordered_trie_root(vec![timestamp, signed], version),
+        *finalized.extrinsics_root()
+    );
+    let delta: BTreeMap<_, _> = changes.main_storage_changes.into_iter().collect();
+    assert_eq!(
+        delta.get(sp_storage::well_known_keys::CODE),
+        Some(&Some(candidate.to_vec()))
+    );
+    crate::guard::runtime_policy::check_candidate_runtime(
+        backend,
+        parent,
+        &delta,
+        candidate,
+        Some(metadata),
+    )
+    .expect("真实升级块的候选Runtime接口及永久规则必须通过");
+    let parent = |key: &[u8]| Ok(state.get(key).cloned());
+    let post = |key: &[u8]| {
+        Ok(delta
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| state.get(key).cloned()))
+    };
+    let before = layout.clone().with_state(parent).unwrap();
+    // set_code所在块仍由旧Runtime执行；不能拿已写入的新代码解释未搬迁的宪法。
+    let after = layout.clone().with_state(post).unwrap();
+    crate::constitution::guard::check_transition(reference, &before, &after, &delta, parent)
+        .unwrap();
+    assert!(
+        !state.contains_key(&crate::constitution::storage_key::law(0)),
+        "这个真实旧状态必须复现原来按新前缀直读失败的条件"
+    );
+    let mut imported = state.clone();
+    for (key, value) in delta {
+        if let Some(value) = value {
+            imported.insert(key, value);
+        } else {
+            imported.remove(&key);
+        }
+    }
+    crate::constitution::guard::check_imported_constitution(
+        reference,
+        &after,
+        finalized.hash(),
+        &imported,
+    )
+    .unwrap();
+    eprintln!(
+        "真实已签升级首块{number}宪法守卫通过，交易{}；仅离线执行，未提交",
+        request["tx_hash"]
+    );
+}
+
 /// 使用完整真实Wasm差量核对三阶段存储视图及永久事实；不把离线合成账户当作主链交易。
 /// 归档初始准备合并到首个差量；PoW、费用及签名执行仍由独立真实导入用例验证。
 #[test]
@@ -227,6 +386,24 @@ fn replayed_migration_preserves_storage_views_and_permanent_facts() {
     let spec =
         node::chain::ChainSpec::from_json_bytes(include_bytes!("../../citizenchain.json").to_vec())
             .unwrap();
+    let constitution =
+        crate::constitution::guard::ConstitutionGuard::<CountingImport>::build_reference(Ok(
+            Arc::new(
+                GenesisState::new(spec.as_storage_builder().build_storage().unwrap(), version)
+                    .unwrap(),
+            ),
+        ))
+        .unwrap();
+    replay_signed_upgrade(
+        &snapshot,
+        &state,
+        &memory,
+        version,
+        &code,
+        &old_layout,
+        old_metadata.as_slice(),
+        &constitution,
+    );
     let reference = crate::guard::cid_lifecycle::GenesisReference::from_frozen(
         &GenesisState::new(spec.as_storage_builder().build_storage().unwrap(), version).unwrap(),
     )
@@ -319,6 +496,14 @@ fn replayed_migration_preserves_storage_views_and_permanent_facts() {
             .with_state(physical)
             .unwrap();
         let after = new_layout.clone().with_state(physical_post).unwrap();
+        crate::constitution::guard::check_transition(
+            &constitution,
+            &before,
+            &after,
+            &raw,
+            physical,
+        )
+        .unwrap_or_else(|e| panic!("迁移区块{}宪法守卫失败:{e}", header.number()));
         runtime::guard_migration_transition(
             |key| state.get(key).cloned(),
             |key| {
@@ -503,7 +688,7 @@ fn replayed_migration_preserves_storage_views_and_permanent_facts() {
 
 #[derive(Default)]
 pub(super) struct CountingImport {
-    pub(super) imports: AtomicUsize,
+    pub(super) imports: Arc<AtomicUsize>,
 }
 
 #[async_trait::async_trait]
@@ -844,15 +1029,19 @@ fn normal_import_uses_only_its_verified_execution_result() {
     let identity =
         crate::guard::testing::TestGenesisIdentity::from_chain_spec(config.chain_spec.as_ref())
             .unwrap();
+    let genesis =
+        crate::guard::testing::TestGenesisIdentity::genesis_state(config.chain_spec.as_ref());
     let guard = NodeGuard::new_for_test(
         ObserveImport {
             changes: changes.clone(),
         },
-        client,
-        backend,
+        client.clone(),
+        backend.clone(),
         identity,
-        crate::guard::testing::TestGenesisIdentity::genesis_state(config.chain_spec.as_ref()),
+        genesis.clone(),
     );
+    // 与生产导入顺序一致，独立宪法包装器也必须实际执行；不能只覆盖内层制度守卫。
+    let guard = crate::constitution::guard::ConstitutionGuard::new(guard, client, backend, genesis);
     let result = rt.block_on(guard.import_block(p)).unwrap();
     assert!(matches!(result, ImportResult::Imported(_)));
     assert_eq!(*changes.lock().unwrap(), expected);
@@ -895,11 +1084,20 @@ fn complete_state_import_checks_root_rules_and_runtime_before_delegating() {
             .unwrap();
     let genesis =
         crate::guard::testing::TestGenesisIdentity::genesis_state(config.chain_spec.as_ref());
+    let imports = Arc::new(AtomicUsize::new(0));
     let guard = NodeGuard::new_for_test(
-        CountingImport::default(),
+        CountingImport {
+            imports: imports.clone(),
+        },
         partial.client.clone(),
         partial.backend.clone(),
         identity,
+        genesis.clone(),
+    );
+    let guard = crate::constitution::guard::ConstitutionGuard::new(
+        guard,
+        partial.client.clone(),
+        partial.backend.clone(),
         genesis,
     );
     let original = config
@@ -950,10 +1148,10 @@ fn complete_state_import_checks_root_rules_and_runtime_before_delegating() {
         let result = rt.block_on(guard.import_block(params)).unwrap();
         if case == "valid" {
             assert_eq!(result, ImportResult::AlreadyInChain);
-            assert_eq!(guard.inner.imports.load(Ordering::SeqCst), 1);
+            assert_eq!(imports.load(Ordering::SeqCst), 1);
         } else {
             assert_eq!(result, ImportResult::KnownBad, "{case}");
-            assert_eq!(guard.inner.imports.load(Ordering::SeqCst), 0, "{case}");
+            assert_eq!(imports.load(Ordering::SeqCst), 0, "{case}");
         }
         assert_eq!(partial.client.info().best_number, 0);
     }
