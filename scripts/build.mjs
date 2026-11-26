@@ -164,7 +164,7 @@ export function stagePostgresResources(source, destination) {
   }
   for (const name of ['bin', 'lib', 'share']) copy(join(sourceRoot, name), join(destination, name));
 }
-// Homebrew保留上游版本并附加发行标识；只接受完整版本，不能以17匹配17.11。
+// Homebrew保留上游版本并附加发行标识；只接受完整版本，不能以19匹配19.0。
 export function postgresVersion(output) {
   return /^postgres \(PostgreSQL\) (\d+\.\d+(?:\.\d+)?)(?: \(Homebrew\))?$/u.exec(output.trim())?.[1];
 }
@@ -214,11 +214,38 @@ export async function preparePostgres(work, environment, {run = runBuildProcess,
     await invoke('/usr/bin/make', ['-j4'], source);
     await invoke('/usr/bin/make', ['install'], source);
     copyFileSync(join(source, 'COPYRIGHT'), join(distribution, 'COPYRIGHT'));
+    // PostgreSQL 19的initdb也链接libpq；搬迁前修正本分发内部的临时安装路径。
+    if (process.platform === 'darwin') await relocatePostgresLibraries(distribution, invoke);
     if (!await matches(distribution)) fail('新准备的PostgreSQL不完整或版本不符');
     if (existsSync(cache)) fail('PostgreSQL缓存已存在但不可复用，请检查后重试');
     renameSync(distribution, cache);
     return cache;
   } finally { if (scratch) rmSync(scratch, {recursive: true, force: true}); rmSync(lock, {recursive: true}); }
+}
+async function relocatePostgresLibraries(distribution, invoke) {
+  const files = directory => readdirSync(directory, {withFileTypes: true}).flatMap(entry => {
+    const file = join(directory, entry.name);
+    return entry.isDirectory() ? files(file) : entry.isFile() ? [file] : [];
+  });
+  for (const file of files(distribution)) {
+    const bytes = readFileSync(file);
+    if (bytes.length < 4 || ![0xfeedfacf, 0xcffaedfe, 0xcafebabe, 0xbebafeca].includes(bytes.readUInt32LE(0))) continue;
+    const ownId = (await invoke('/usr/bin/otool', ['-D', file])).stdout.trim().split('\n')[1];
+    const links = (await invoke('/usr/bin/otool', ['-L', file])).stdout.split('\n').slice(1);
+    let changed = false;
+    for (const line of links) {
+      const dependency = /^\s+(.+?) \(compatibility version /u.exec(line)?.[1];
+      if (!dependency || dependency === ownId || !dependency.startsWith(distribution + sep)) continue;
+      if (!existsSync(dependency) || !inside(distribution, realpathSync(dependency))) fail('PostgreSQL内部动态库缺失或越界');
+      await invoke('/usr/bin/install_name_tool', ['-change', dependency, '@loader_path/' + relative(dirname(file), dependency), file]);
+      changed = true;
+    }
+    if (ownId?.startsWith(distribution + sep)) {
+      await invoke('/usr/bin/install_name_tool', ['-id', '@loader_path/' + basename(file), file]);
+      changed = true;
+    }
+    if (changed) await invoke('/usr/bin/codesign', ['--force', '--sign', '-', file]);
+  }
 }
 function walk(path) {
   return readdirSync(path).flatMap(name => {

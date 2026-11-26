@@ -142,11 +142,11 @@ try{
  });
  assert.deepEqual(captured,['cargo','protoc']);
  await assert.rejects(checkTools({CARGO:'cargo'},async()=>({stdout:'cargo 1.97.1 (fixture)'})),/protoc/);count++;
- assert.equal(postgresVersion('postgres (PostgreSQL) 17.11 (Homebrew)\n'),'17.11');
- assert.equal(postgresVersion('postgres (PostgreSQL) 17.110'),'17.110');
- assert.equal(postgresVersion('postgres (PostgreSQL) 17.11 unexpected'),undefined);count++;
+ assert.equal(postgresVersion('postgres (PostgreSQL) 19.0 (Homebrew)\n'),'19.0');
+ assert.equal(postgresVersion('postgres (PostgreSQL) 19.10'),'19.10');
+ assert.equal(postgresVersion('postgres (PostgreSQL) 19.0 unexpected'),undefined);count++;
  const installed=join(work,'installed');distribution(installed);
- const version=async(file,args)=>({stdout:args[0]==='--version'?'postgres (PostgreSQL) 17.11 (Homebrew)\n':[join(file,'../..','bin'),join(file,'../..','lib'),join(file,'../..','share/postgresql')].join('\n')});
+ const version=async(file,args)=>({stdout:args[0]==='--version'?'postgres (PostgreSQL) 19.0 (Homebrew)\n':[join(file,'../..','bin'),join(file,'../..','lib'),join(file,'../..','share/postgresql')].join('\n')});
  const cache=join(work,'cache');
  let calls=[];
  const reuse=async(file,args)=>{calls.push(file);assert.deepEqual(args,executable(file)==='pg_config'?['--bindir','--pkglibdir','--sharedir']:['--version']);return version(file,args);};
@@ -166,11 +166,11 @@ try{
  await assert.rejects(preparePostgres(work,{}, {run:async()=>{throw Error('broken executable');},candidates:[installed],cache}),/broken executable/);count++;
  const fresh=join(work,'fresh');let downloads=0,dist;
  const build=async(file,args)=>{
-  if(executable(file)==='curl'){downloads++;assert.ok(args.at(-1).endsWith('/v17.11/postgresql-17.11.tar.bz2'));writeFileSync(args[args.indexOf('--output')+1],'archive');}
-  else if(executable(file)==='tar'){const source=join(args.at(-1),'postgresql-17.11');mkdirSync(source);writeFileSync(join(source,'COPYRIGHT'),'license');}
+  if(executable(file)==='curl'){downloads++;assert.ok(args.at(-1).endsWith('/v19.0/postgresql-19.0.tar.bz2'));writeFileSync(args[args.indexOf('--output')+1],'archive');}
+  else if(executable(file)==='tar'){const source=join(args.at(-1),'postgresql-19.0');mkdirSync(source);writeFileSync(join(source,'COPYRIGHT'),'license');}
   else if(executable(file)==='configure'){dist=args[0].slice('--prefix='.length);}
   else if(executable(file)==='make'&&args[0]==='install')distribution(dist);
-  return executable(file)==='pg_config'?version(file,args):{stdout:'postgres (PostgreSQL) 17.11\n'};
+  return executable(file)==='pg_config'?version(file,args):{stdout:'postgres (PostgreSQL) 19.0\n'};
  };
  assert.equal(await preparePostgres(work,{}, {run:build,candidates:[],cache:fresh}),fresh);
  assert.equal(downloads,1);assert.equal(existsSync(fresh+'.lock'),false);count++;
