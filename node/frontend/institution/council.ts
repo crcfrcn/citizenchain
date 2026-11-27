@@ -1,4 +1,4 @@
-// 封装机构治理、本机岗位授权及余额订阅，并定义公开响应模型。
+// 封装机构治理、岗位激活及余额订阅，并定义公开响应模型。
 
 import { invoke } from "../client/tauri";
 import type { ProposalDisplayMeta, ProposalFullInfo, ProposalListItem, ProposalPageResult, UserVoteStatus } from "../proposal/types";

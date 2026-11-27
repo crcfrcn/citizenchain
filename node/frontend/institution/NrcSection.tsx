@@ -1,4 +1,4 @@
-// 组合国家储委会机构列表、岗位任职及详情页面。
+// 组合国家储委会委员列表及详情页面。
 
 import { AssignmentsPage } from "./index";
 import { InstitutionDetailPage } from "./InstitutionDetailPage";
@@ -25,6 +25,7 @@ export function NrcSection() {
     return (
       <AssignmentsPage
         cidNumber={NRC_CID_NUMBER}
+        orgType={0}
         accountRef={{ cidNumber: NRC_CID_NUMBER, institutionCode: 'NRC' }}
         onBack={backToDetail}
       />

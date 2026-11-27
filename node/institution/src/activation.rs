@@ -1,4 +1,4 @@
-//! 本机岗位授权：复用现有钱包持有证明，所选人员、岗位和真实绑定固定在一次性会话。
+//! 岗位激活：复用现有钱包持有证明，所选人员、岗位和真实绑定固定在一次性会话。
 use crate::roles::{InstitutionRolesState, RoleAccess};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -39,7 +39,7 @@ fn load(app: &AppHandle) -> Result<Vec<RoleAccess>, String> {
     match std::fs::read_to_string(path(app)?) {
         Ok(raw) => serde_json::from_str::<StoredAccess>(&raw)
             .map(|s| s.accesses)
-            .map_err(|e| format!("本机岗位授权记录损坏:{e}")),
+            .map_err(|e| format!("岗位激活记录损坏:{e}")),
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(Vec::new()),
         Err(e) => Err(e.to_string()),
     }
@@ -131,11 +131,11 @@ pub async fn build_role_access_request(
             payload: nodeclient::signing::payload_b64(&payload),
         },
     };
-    let mut items = sessions().lock().map_err(|_| "本机授权会话锁异常")?;
+    let mut items = sessions().lock().map_err(|_| "激活会话锁异常")?;
     let now = now_secs()?;
     items.retain(|_, s| s.expires_at >= now);
     if items.len() >= 256 {
-        return Err("本机岗位授权请求已达上限".into());
+        return Err("岗位激活请求已达上限".into());
     }
     items.insert(
         request_id.clone(),
@@ -164,9 +164,9 @@ pub async fn verify_role_access(
 ) -> Result<RoleAccess, String> {
     let session = sessions()
         .lock()
-        .map_err(|_| "本机授权会话锁异常")?
+        .map_err(|_| "激活会话锁异常")?
         .remove(&request_id)
-        .ok_or("本机授权会话不存在或已消费")?;
+        .ok_or("激活会话不存在或已消费")?;
     let response: nodeclient::signing::QrSignResponse =
         serde_json::from_str(&response_json).map_err(|e| e.to_string())?;
     let public = nodedesktop::validation::normalize_public_key(&signer_public_key)?;
@@ -180,13 +180,13 @@ pub async fn verify_role_access(
         || public != session.signer_public_key
         || actual_public != public
     {
-        return Err("授权响应与本机冻结请求不一致或已过期".into());
+        return Err("激活响应与本机冻结请求不一致或已过期".into());
     }
     let hash = hex::encode(nodeclient::signing::sha256_hash_public(&session.payload));
     if expected_payload_hash.trim_start_matches("0x") != hash
         || payload_hex.trim_start_matches("0x") != hex::encode(&session.payload)
     {
-        return Err("授权载荷或摘要与原会话不一致".into());
+        return Err("激活载荷或摘要与原会话不一致".into());
     }
     let account: [u8; 32] = hex::decode(session.access.account_id.trim_start_matches("0x"))
         .map_err(|e| e.to_string())?
@@ -209,7 +209,7 @@ pub async fn verify_role_access(
         return Err("签名期间人员绑定或岗位任职已变化".into());
     }
     if session.expires_at < now_secs()? {
-        return Err("确认期间本机授权证明已过期".into());
+        return Err("确认期间激活证明已过期".into());
     }
     let mut access = access;
     access.activated_at_ms = now_secs()?.checked_mul(1000).ok_or("时间超限")?;
@@ -231,7 +231,7 @@ pub async fn get_role_access(
     expected_institution_code: Option<String>,
 ) -> Result<Vec<RoleAccess>, String> {
     if !nodecontrol::identity::current_status(&app)?.running {
-        return Err("节点未运行，不能读取有效本机岗位授权".into());
+        return Err("节点未运行，不能读取有效岗位激活".into());
     }
     let records = load(&app)?;
     let state =
@@ -263,7 +263,7 @@ pub fn revoke_role_access(
         !(a.cid_number == cid_number && a.person_cid == person_cid && a.role_code == role_code)
     });
     if before == records.len() {
-        return Err("本机岗位授权不存在".into());
+        return Err("岗位激活不存在".into());
     }
     save(&app, records)?;
     nodedesktop::security::append_audit_log(&app, "role_access", "revoked")

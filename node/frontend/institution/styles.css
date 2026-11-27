@@ -809,3 +809,202 @@ body:has(.institution-transfer-dialog[open]) {
     grid-template-areas: "source" "destination" "remark" "proposer";
   }
 }
+
+/* 三个储委会／储行任职页：按2da4e79恢复原卡片布局，仅作用本页。 */
+.institution-roster .institution-assignment-card {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.institution-roster .institution-assignment-top {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.institution-roster .institution-assignment-card .admin-card-index {
+  display: inline-flex;
+  min-width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(96, 165, 250, 0.14);
+  color: #bfdbfe;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.institution-roster .institution-assignment-top {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color, #334155);
+}
+
+.institution-roster .institution-assignment-person {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.institution-roster .institution-assignment-dot {
+  flex: 0 0 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.institution-roster .institution-assignment-name { min-width: 0; }
+
+.institution-roster .institution-assignment-top-action {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.institution-roster .institution-assignment-top-action .activated-tag,
+.institution-roster .institution-assignment-top-action .activate-button {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  margin-left: 0;
+}
+
+.institution-roster .institution-assignment-account {
+  display: grid;
+  gap: 7px;
+}
+
+.institution-roster .institution-admin-list-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(300px, 1fr));
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.institution-roster .institution-admin-list-grid .institution-assignment-card {
+  align-content: start;
+  gap: 6px;
+  padding: 10px 12px;
+}
+
+.institution-roster .institution-admin-list-grid .institution-assignment-top {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.institution-roster .institution-admin-list-grid .institution-assignment-role {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.institution-roster .institution-admin-list-grid .institution-assignment-top-action {
+  flex-shrink: 0;
+}
+
+.institution-roster .institution-admin-list-grid .institution-assignment-account {
+  gap: 3px;
+}
+
+.institution-roster .institution-assignment-list-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.institution-roster .institution-assignment-role {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: #f8fafc;
+  font-weight: 700;
+}
+
+.institution-roster .institution-assignment-role code {
+  color: #93c5fd;
+  font-size: 11px;
+}
+
+.institution-roster .institution-assignment-field {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px;
+  min-height: 20px;
+  align-items: start;
+}
+
+.institution-roster .institution-assignment-label {
+  color: #93a4b8;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.institution-roster .institution-assignment-value {
+  min-height: 18px;
+  overflow-wrap: anywhere;
+  color: #e5edf6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.institution-roster .admin-list-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.institution-roster .admin-list-header h2 {
+  margin: 0;
+}
+
+.institution-roster .admin-list-summary {
+  font-size: 13px;
+  color: #64748b;
+}
+
+.institution-roster .admin-card-activated {
+  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.06);
+}
+
+.institution-roster .admin-card-index {
+  font-size: 13px;
+  font-weight: 600;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.institution-roster .activated-tag {
+  font-size: 11px;
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.15);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.institution-roster .activate-button {
+  font-size: 11px;
+  color: #60a5fa;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.institution-roster .activate-button:hover {
+  background: rgba(59, 130, 246, 0.2);
+}

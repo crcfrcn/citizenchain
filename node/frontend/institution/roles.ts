@@ -1,4 +1,4 @@
-// 岗位读取、本机授权及账户余额的唯一原生调用。
+// 岗位读取、激活及账户余额的唯一原生调用。
 import {invoke} from '../client/tauri';
 import type {RoleAccess,RoleAccessRequest,InstitutionRolesState,InstitutionRef} from './assignments';
 export const rolesApi={

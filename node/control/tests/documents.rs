@@ -49,7 +49,7 @@ fn bundled_whitepaper_uses_root_source_and_embeds_both_original_images() {
 }
 
 #[test]
-fn chapter_five_places_primitives_after_genesis_and_renumbers_following_modules() {
+fn chapter_five_matches_current_module_groups() {
     let source = include_str!("../../../CitizenChainWhitepaper.md");
     let headings: Vec<_> = source
         .lines()
@@ -60,7 +60,6 @@ fn chapter_five_places_primitives_after_genesis_and_renumbers_following_modules(
         "primitives",
         "votingengine",
         "governance",
-        "admins",
         "public",
         "entity",
         "issuance",
@@ -71,5 +70,64 @@ fn chapter_five_places_primitives_after_genesis_and_renumbers_following_modules(
     for (index, (heading, name)) in headings.iter().zip(names).enumerate() {
         assert!(heading.starts_with(&format!("## 5.{}.", index + 1)));
         assert!(heading.contains(&format!(">5.{}. {name}</span>", index + 1)));
+    }
+}
+
+#[test]
+fn personal_belongs_to_misc_and_entitybase_has_no_independent_state() {
+    let source = include_str!("../../../CitizenChainWhitepaper.md");
+    let manifest = include_str!("../../../runtime/Cargo.toml");
+    // 白皮书归属同时核对真实模块声明，防止个人多签重新进入实体模组。
+    for (name, path, heading) in [
+        ("entitybase", "entity/entitybase", "5.6.1.实体基础库"),
+        ("personal", "misc/personal", "5.9.5.个人多签"),
+    ] {
+        assert!(manifest.contains(&format!("{name} = {{ path = \"{path}\"")));
+        assert!(source.contains(&format!("### {heading}<br>")));
+    }
+    let entity = source
+        .split("## 5.6.实体模组")
+        .nth(1)
+        .unwrap()
+        .split("## 5.7.发行模组")
+        .next()
+        .unwrap();
+    assert!(!entity.contains("personal"));
+    assert!(entity.contains("不独立保存链上业务状态，也不提供独立交易入口"));
+    let misc = source
+        .split("## 5.9.其他模组")
+        .nth(1)
+        .unwrap()
+        .split("# 6.节点程序")
+        .next()
+        .unwrap();
+    assert!(misc.contains("### 5.9.5.个人多签"));
+    assert!(misc.contains("不以取得公民 CID 为创建或参与条件"));
+    assert!(misc.contains("neither creation nor participation requires a citizen CID"));
+}
+
+#[test]
+fn retired_modules_and_institution_administrator_titles_do_not_return() {
+    let source = include_str!("../../../CitizenChainWhitepaper.md");
+    for retired in [
+        "管理员",
+        "admins",
+        "personaladmin",
+        "privateadmin",
+        "publicadmin",
+        "personalentity",
+        "administrator",
+    ] {
+        assert!(!source.contains(retired), "旧名称残留：{retired}");
+    }
+    for role in [
+        "国家储委会委员",
+        "省储委会委员",
+        "省储行董事",
+        "省专员",
+        "首席大法官",
+        "护宪大法官",
+    ] {
+        assert!(source.contains(role), "岗位称谓缺失：{role}");
     }
 }

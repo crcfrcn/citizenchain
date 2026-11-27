@@ -24,7 +24,7 @@ export default defineConfig(({ command }): UserConfig => {
   build: {
     outDir: process.env.CITIZENCHAIN_FRONTEND_DIST || join(tmpdir(), 'citizenchain', 'node-frontend')
   },
-  // 白皮书由节点运行时读取官网静态正文；公民宪法由链上 runtime API 返回。
+  // 白皮书由节点编译内置正文和配图；公民宪法由链上 runtime API 返回。
   publicDir: false,
   clearScreen: false,
   preview: { https, host: host ?? "127.0.0.1", port: 5173, strictPort: true },

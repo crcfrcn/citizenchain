@@ -1,4 +1,4 @@
-// 组合省储委会机构列表、岗位任职及详情页面。
+// 组合省储委会机构列表、委员及详情页面。
 
 import { AssignmentsPage } from "./index";
 import { InstitutionListView } from "./InstitutionListView";
@@ -24,6 +24,7 @@ export function PrcSection() {
     return (
       <AssignmentsPage
         cidNumber={view.cidNumber}
+        orgType={view.orgType}
         accountRef={{ cidNumber: view.cidNumber }}
         onBack={() => backToDetail(view.cidNumber)}
       />

@@ -6,7 +6,7 @@ import {resolve} from 'node:path';
 import {rolesApi} from '../institution/roles';
 import {TransferProposalDialog} from '../multisig/TransferProposalDialog';
 import {open as pickUpgradeFile} from '@tauri-apps/plugin-dialog';
-const mocks=vi.hoisted(()=>({invoke:vi.fn(),listen:vi.fn()}));
+const mocks=vi.hoisted(()=>({invoke:vi.fn(),listen:vi.fn(),activationScan:undefined as ((s:string)=>void)|undefined,activationScanError:undefined as ((s:string)=>void)|undefined}));
 vi.mock('../client/tauri',()=>({invoke:mocks.invoke,sanitizeError:String}));
 vi.mock('@tauri-apps/api/event',()=>({listen:mocks.listen}));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn(async () => '/tmp/fixture-runtime.wasm') }));
@@ -14,6 +14,7 @@ const api=rolesApi as unknown as Record<string,(...args:unknown[])=>Promise<unkn
 beforeEach(()=>{
   mocks.invoke.mockReset();
   mocks.listen.mockReset().mockResolvedValue(() => {});
+  mocks.activationScan=undefined;mocks.activationScanError=undefined;
 });
 it("buildRoleAccessRequest保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["buildRoleAccessRequest"](...["public","44","person","ROLE",{"cidNumber":"44","institutionCode":"NRC"}])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("build_role_access_request", {"signerPublicKey":"public","cidNumber":"44","personCid":"person","roleCode":"ROLE","expectedInstitutionCode":"NRC"}); });
 it("getRoleAccess保留唯一IPC合同且返回真实回执", async () => { const receipt = { receipt: '合成回执' }; mocks.invoke.mockResolvedValueOnce(receipt); await expect(api["getRoleAccess"](...["44"])).resolves.toBe(receipt); expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith("get_role_access", {"cidNumber":"44","expectedInstitutionCode":null}); });
@@ -24,6 +25,9 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { InstitutionDetailPage } from '../institution/InstitutionDetailPage';
 import { accountIdToSs58 } from '../client/ss58';
 import {AssignmentsPage} from '../institution/AssignmentsPage';
+import {NrcSection} from '../institution/NrcSection';
+import {PrcSection} from '../institution/PrcSection';
+import {PrbSection} from '../institution/PrbSection';
 import { InstitutionAssignmentCard } from '../institution/InstitutionAssignmentCard';
 
 // 2da4e79：本轮重构前省级目录的原始布局金标。
@@ -123,7 +127,7 @@ it.each([{familyName:'合成',givenName:'人员',name:'合成人员'},{familyNam
 });
 
 vi.mock('../desktop/signing', () => ({
-  CitizenSignatureModal:({open,title,onScan,onCancel}:{open:boolean;title:string;onScan:(s:string)=>void;onCancel:()=>void})=>open?<section role="dialog" aria-label={title}><button onClick={()=>onScan('模拟签名响应')}>扫描授权响应</button><button onClick={onCancel}>取消授权</button></section>:null,
+  CitizenSignatureModal:({open,title,onScan,onScanError,onCancel,countdownSeconds,status='ready',statusTitle,error}:{open:boolean;title:string;onScan:(s:string)=>void;onScanError:(s:string)=>void;onCancel:()=>void;countdownSeconds?:number;status?:string;statusTitle?:string;error?:string|null})=>{if(open&&status==='ready'){mocks.activationScan=onScan;mocks.activationScanError=onScanError;}return open?<section role="dialog" aria-label={title}><span>有效时间: {countdownSeconds} 秒</span>{status==='ready'?<button onClick={()=>onScan('模拟签名响应')}>扫描激活响应</button>:<p>{statusTitle}{error}</p>}<button onClick={onCancel}>关闭激活</button></section>:null;},
   CitizenSignaturePanel: ({ onScan }: { onScan: (result: string) => void }) => (
     <button type="button" onClick={() => onScan('模拟签名响应')}>扫描签名响应</button>
   ),
@@ -670,33 +674,269 @@ it('省储委会在链上没有划转发起权时不可打开手续费划转', a
   view.unmount();
 });
 
-function assignmentState(){return {cidNumber:'role-test',roles:[{roleCode:'R1',roleName:'岗位一',seats:2,active:true,termRequired:false,permissions:[],assignments:[{personCid:'same-person',accountId:signerAccountId,bindingRevision:'1',familyName:'合成',givenName:'人员',termStart:0,termEnd:0,assignmentSource:0,assignmentSourceLabel:'创世',assignmentSourceRef:'0x00',active:true,effective:true}]},{roleCode:'R2',roleName:'岗位二',seats:3,active:true,termRequired:false,permissions:[],assignments:[{personCid:'same-person',accountId:signerAccountId,bindingRevision:'1',familyName:'合成',givenName:'人员',termStart:0,termEnd:0,assignmentSource:0,assignmentSourceLabel:'创世',assignmentSourceRef:'0x00',active:true,effective:true}]}]};}
-it('同人多岗位的本机授权固定所选人员岗位，取消不消费证明',async()=>{
- mocks.invoke.mockImplementation(async c=>c==='get_institution_roles'?assignmentState():c==='get_role_access'?[]:c==='build_role_access_request'?{requestId:'role-request',requestJson:'original',expectedPayloadHash:'hash',payloadHex:'0x00'}:null);
- const view=render(<AssignmentsPage cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);
- fireEvent.click((await screen.findAllByRole('button',{name:'授权本机'}))[1]);await screen.findByRole('dialog',{name:'本机授权 · 岗位二'});
- expect(mocks.invoke).toHaveBeenCalledWith('build_role_access_request',expect.objectContaining({cidNumber:'role-test',personCid:'same-person',roleCode:'R2',signerPublicKey:signerAccountId}));
- fireEvent.click(screen.getByRole('button',{name:'取消授权'}));expect(mocks.invoke.mock.calls.some(([c])=>c==='verify_role_access')).toBe(false);view.unmount();
+function activationRequest(seconds=300){return {requestId:'role-request',requestJson:JSON.stringify({e:Math.floor(Date.now()/1000)+seconds}),expectedPayloadHash:'hash',payloadHex:'0x00'};}
+// 同一人兼任委员／董事和法代，页面仍只能激活指定的委员／董事岗位。
+function assignmentState(orgType=0){
+ const person={personCid:'same-person',accountId:signerAccountId,bindingRevision:'1',familyName:'合成',givenName:'人员',termStart:0,termEnd:0,assignmentSource:0,assignmentSourceLabel:'创世',assignmentSourceRef:'0x00',active:true,effective:true};
+ return {cidNumber:'role-test',roles:[
+  {roleCode:orgType===2?'DIRECTOR':'COMMITTEE_MEMBER',roleName:orgType===2?'董事':'委员',seats:19,active:true,termRequired:false,permissions:[],assignments:[{...person}]},
+  {roleCode:'LR',roleName:'法定代表人',seats:1,active:true,termRequired:false,permissions:[],assignments:[{...person}]},
+ ]};
+}
+function mockAssignmentCalls(implementation:(command:string,args:{cidNumber:string})=>unknown){
+ mocks.invoke.mockImplementation(async(c,args)=>c==='get_account_balances'?{}:implementation(c,args));
+}
+it('同人多岗位的激活固定所选人员岗位，取消不消费证明',async()=>{
+ mockAssignmentCalls(async c=>c==='get_institution_roles'?assignmentState():c==='get_role_access'?[]:c==='build_role_access_request'?activationRequest():null);
+ const view=render(<AssignmentsPage orgType={0} cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);
+ fireEvent.click((await screen.findAllByRole('button',{name:'激活'}))[0]);await screen.findByRole('dialog',{name:'激活 · 委员'});
+ expect(mocks.invoke).toHaveBeenCalledWith('build_role_access_request',expect.objectContaining({cidNumber:'role-test',personCid:'same-person',roleCode:'COMMITTEE_MEMBER',signerPublicKey:signerAccountId}));
+ fireEvent.click(screen.getByRole('button',{name:'关闭激活'}));expect(mocks.invoke.mock.calls.some(([c])=>c==='verify_role_access')).toBe(false);view.unmount();
 });
-it('离页后迟到的岗位授权请求不能重新打开签名或确认授权',async()=>{
- let finish!:(v:unknown)=>void;mocks.invoke.mockImplementation(async c=>c==='get_institution_roles'?assignmentState():c==='get_role_access'?[]:new Promise(resolve=>{finish=resolve;}));
- const view=render(<AssignmentsPage cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);fireEvent.click((await screen.findAllByRole('button',{name:'授权本机'}))[0]);await waitFor(()=>expect(finish).toBeDefined());view.unmount();await act(async()=>finish({requestId:'late',requestJson:'original',expectedPayloadHash:'hash',payloadHex:'0x00'}));expect(screen.queryByRole('dialog')).toBeNull();expect(mocks.invoke.mock.calls.some(([c])=>c==='verify_role_access')).toBe(false);
+it('离页后迟到的激活请求不能重新打开签名或确认激活',async()=>{
+ let finish!:(v:unknown)=>void;mockAssignmentCalls(async c=>c==='get_institution_roles'?assignmentState():c==='get_role_access'?[]:new Promise(resolve=>{finish=resolve;}));
+ const view=render(<AssignmentsPage orgType={0} cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);fireEvent.click((await screen.findAllByRole('button',{name:'激活'}))[0]);await waitFor(()=>expect(finish).toBeDefined());view.unmount();await act(async()=>finish({...activationRequest(),requestId:'late'}));expect(screen.queryByRole('dialog')).toBeNull();expect(mocks.invoke.mock.calls.some(([c])=>c==='verify_role_access')).toBe(false);
 });
 it('岗位读取失败显示错误并可重读，不当作空岗位',async()=>{
- let failed=true;mocks.invoke.mockImplementation(async c=>{if(c==='get_role_access')return[];if(failed)throw Error('合成链读失败');return assignmentState();});
- const view=render(<AssignmentsPage cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);expect((await screen.findByRole('alert')).textContent).toContain('合成链读失败');expect(screen.queryByText('岗位空缺')).toBeNull();failed=false;fireEvent.click(screen.getByRole('button',{name:'重读'}));expect(await screen.findAllByRole('button',{name:'授权本机'})).toHaveLength(2);view.unmount();
+ let failed=true;mockAssignmentCalls(async c=>{if(c==='get_role_access')return[];if(failed)throw Error('合成链读失败');return assignmentState();});
+ const view=render(<AssignmentsPage orgType={0} cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);expect((await screen.findByRole('alert')).textContent).toContain('合成链读失败');expect(screen.queryByText('岗位空缺')).toBeNull();failed=false;fireEvent.click(screen.getByRole('button',{name:'重读'}));expect(await screen.findAllByRole('button',{name:'激活'})).toHaveLength(1);view.unmount();
 });
 
 it('切换机构后解除旧请求等待，迟到响应不能覆盖新机构',async()=>{
  let finish!:(v:unknown)=>void;
- mocks.invoke.mockImplementation(async(c,args)=>c==='get_institution_roles'?{...assignmentState(),cidNumber:args.cidNumber}:c==='get_role_access'?[]:new Promise(resolve=>{finish=resolve;}));
- const view=render(<AssignmentsPage cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);
+ mockAssignmentCalls(async(c,args)=>c==='get_institution_roles'?{...assignmentState(),cidNumber:args.cidNumber}:c==='get_role_access'?[]:new Promise(resolve=>{finish=resolve;}));
+ const view=render(<AssignmentsPage orgType={0} cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);
  try{
-  fireEvent.click((await screen.findAllByRole('button',{name:'授权本机'}))[0]);
+  fireEvent.click((await screen.findAllByRole('button',{name:'激活'}))[0]);
   await waitFor(()=>expect(finish).toBeDefined());
-  view.rerender(<AssignmentsPage cidNumber="new-role-test" accountRef={{cidNumber:'new-role-test'}} onBack={()=>{}}/>);
-  await waitFor(()=>expect((screen.getAllByRole('button',{name:'授权本机'})[0] as HTMLButtonElement).disabled).toBe(false));
-  await act(async()=>finish({requestId:'late',requestJson:'original',expectedPayloadHash:'hash',payloadHex:'0x00'}));
+  view.rerender(<AssignmentsPage orgType={0} cidNumber="new-role-test" accountRef={{cidNumber:'new-role-test'}} onBack={()=>{}}/>);
+  await waitFor(()=>expect((screen.getAllByRole('button',{name:'激活'})[0] as HTMLButtonElement).disabled).toBe(false));
+  await act(async()=>finish({...activationRequest(),requestId:'late'}));
   expect(screen.queryByRole('dialog')).toBeNull();
  }finally{view.unmount();}
+});
+
+
+it('激活需验证成功才更新所选卡片；验证中防重复、不可关闭，重新进入恢复记录',async()=>{
+ let finish!:(v:unknown)=>void;
+ let saved:unknown[]=[];
+ mockAssignmentCalls(async c=>c==='get_institution_roles'?assignmentState():c==='get_role_access'?saved:c==='build_role_access_request'?activationRequest():new Promise(resolve=>{finish=resolve;}));
+ const props={orgType:0,cidNumber:'role-test',accountRef:{cidNumber:'role-test'},onBack:()=>{}};
+ const view=render(<AssignmentsPage {...props}/>);
+ fireEvent.click((await screen.findAllByRole('button',{name:'激活'}))[0]);
+ const dialog=await screen.findByRole('dialog',{name:'激活 · 委员'});
+ const scan=within(dialog).getByRole('button',{name:'扫描激活响应'});
+ const lateScan=mocks.activationScan!,lateError=mocks.activationScanError!;
+ act(()=>{fireEvent.click(scan);fireEvent.click(scan);});
+ await screen.findByText('正在验证激活签名');
+ expect(screen.queryByText('已激活')).toBeNull();
+ expect(mocks.invoke.mock.calls.filter(([c])=>c==='verify_role_access')).toHaveLength(1);
+ expect(mocks.invoke).toHaveBeenCalledWith('verify_role_access',{requestId:'role-request',signerPublicKey:signerAccountId,expectedPayloadHash:'hash',payloadHex:'0x00',responseJson:'模拟签名响应'});
+ fireEvent.click(within(dialog).getByRole('button',{name:'关闭激活'}));
+ expect(screen.getByRole('dialog')).toBe(dialog);
+ saved=[{cidNumber:'role-test',personCid:'same-person',roleCode:'COMMITTEE_MEMBER',accountId:signerAccountId,bindingRevision:'1',activatedAtMs:1}];
+ await act(async()=>finish(saved[0]));
+ await screen.findByText('激活成功');
+ act(()=>{lateScan('迟到的重复响应');lateError('迟到的扫码错误');});
+ expect(screen.getByText('激活成功')).toBeTruthy();
+ expect(mocks.invoke.mock.calls.filter(([c])=>c==='verify_role_access')).toHaveLength(1);
+ expect(screen.getAllByText('已激活')).toHaveLength(1);
+ fireEvent.click(within(dialog).getByRole('button',{name:'关闭激活'}));
+ expect(screen.queryByRole('dialog')).toBeNull();
+ view.unmount();
+ const reopened=render(<AssignmentsPage {...props}/>);
+ await screen.findByText('已激活');
+ expect(screen.queryAllByRole('button',{name:'激活'})).toHaveLength(0);
+ reopened.unmount();
+});
+
+it('激活验证失败保留错误、不激活，关闭后生成全新请求而不重扫已消费的证明',async()=>{
+ mockAssignmentCalls(async c=>{if(c==='get_institution_roles')return assignmentState();if(c==='get_role_access')return[];if(c==='build_role_access_request')return activationRequest();throw Error('签名期间人员绑定或岗位任职已变化');});
+ const view=render(<AssignmentsPage orgType={0} cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);
+ fireEvent.click((await screen.findAllByRole('button',{name:'激活'}))[0]);
+ fireEvent.click(await screen.findByRole('button',{name:'扫描激活响应'}));
+ await screen.findByText(/激活失败.*签名期间人员绑定或岗位任职已变化/);
+ expect(screen.queryByText('已激活')).toBeNull();
+ expect(screen.queryByRole('button',{name:'扫描激活响应'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'关闭激活'}));
+ fireEvent.click(screen.getAllByRole('button',{name:'激活'})[0]);
+ await screen.findByRole('button',{name:'扫描激活响应'});
+ expect(mocks.invoke.mock.calls.filter(([c])=>c==='build_role_access_request')).toHaveLength(2);
+ expect(mocks.invoke.mock.calls.filter(([c])=>c==='verify_role_access')).toHaveLength(1);
+ view.unmount();
+});
+
+it('激活按签名请求实际到期倒计时，到期停止扫码，成功提示按原流程自动关闭',async()=>{
+ mockAssignmentCalls(async c=>c==='get_institution_roles'?assignmentState():c==='get_role_access'?[]:c==='build_role_access_request'?activationRequest():{cidNumber:'role-test',personCid:'same-person',roleCode:'COMMITTEE_MEMBER',accountId:signerAccountId,bindingRevision:'1',activatedAtMs:1});
+ const view=render(<AssignmentsPage orgType={0} cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);
+ try{
+  await screen.findAllByRole('button',{name:'激活'});
+  vi.useFakeTimers();vi.setSystemTime(new Date('2026-11-27T02:00:00Z'));
+  await act(async()=>fireEvent.click(screen.getAllByRole('button',{name:'激活'})[0]));
+  expect(screen.getByText('有效时间: 300 秒')).toBeTruthy();
+  await act(async()=>vi.advanceTimersByTimeAsync(299000));
+  expect(screen.getByText('有效时间: 1 秒')).toBeTruthy();
+  await act(async()=>vi.advanceTimersByTimeAsync(1000));
+  expect(screen.getByText('激活失败签名请求已过期，请重新激活')).toBeTruthy();
+  expect(screen.queryByRole('button',{name:'扫描激活响应'})).toBeNull();
+  expect(mocks.invoke.mock.calls.some(([c])=>c==='verify_role_access')).toBe(false);
+  fireEvent.click(screen.getByRole('button',{name:'关闭激活'}));
+  await act(async()=>fireEvent.click(screen.getAllByRole('button',{name:'激活'})[0]));
+  await act(async()=>fireEvent.click(screen.getByRole('button',{name:'扫描激活响应'})));
+  expect(screen.getByText('激活成功')).toBeTruthy();
+  await act(async()=>vi.advanceTimersByTimeAsync(1999));
+  expect(screen.getByRole('dialog')).toBeTruthy();
+  await act(async()=>vi.advanceTimersByTimeAsync(1));
+  expect(screen.queryByRole('dialog')).toBeNull();
+  expect(screen.getAllByText('已激活')).toHaveLength(1);
+ }finally{view.unmount();vi.useRealTimers();}
+});
+
+it('无效激活请求不展示二维码，禁用岗位或无当前绑定不得激活，旧绑定记录不显示已激活',async()=>{
+ mockAssignmentCalls(async c=>c==='get_institution_roles'?assignmentState():c==='get_role_access'?[{cidNumber:'role-test',personCid:'same-person',roleCode:'COMMITTEE_MEMBER',accountId:signerAccountId,bindingRevision:'0'}]:{...activationRequest(),requestJson:'{}'});
+ const props={orgType:0,cidNumber:'role-test',accountRef:{cidNumber:'role-test'},onBack:()=>{}};
+ const view=render(<AssignmentsPage {...props}/>);
+ fireEvent.click((await screen.findAllByRole('button',{name:'激活'}))[0]);
+ expect(screen.queryByText('已激活')).toBeNull();
+ expect((await screen.findByRole('alert')).textContent).toContain('激活签名请求无效或已过期');
+ expect(screen.queryByRole('dialog')).toBeNull();view.unmount();
+ const inactive=assignmentState();inactive.roles[0].active=false;
+ mockAssignmentCalls(async c=>c==='get_institution_roles'?inactive:[]);
+ const disabled=render(<AssignmentsPage {...props}/>);
+ const button=(await screen.findAllByRole('button',{name:'激活'}))[0] as HTMLButtonElement;
+ expect(button.disabled).toBe(true);const requests=mocks.invoke.mock.calls.filter(([c])=>c==='build_role_access_request').length;
+ fireEvent.click(button);expect(mocks.invoke.mock.calls.filter(([c])=>c==='build_role_access_request')).toHaveLength(requests);disabled.unmount();
+ const unbound=assignmentState();Object.assign(unbound.roles[0].assignments[0],{accountId:null,bindingRevision:null});
+ mockAssignmentCalls(async c=>c==='get_institution_roles'?unbound:[]);
+ const next=render(<AssignmentsPage {...props}/>);
+ expect(((await screen.findAllByRole('button',{name:'激活'}))[0] as HTMLButtonElement).disabled).toBe(true);
+ next.unmount();
+});
+
+
+function mockRosterInterface(orgType:number,state=assignmentState(orgType)){
+ const cidNumber=orgType===0?'LN001-NRC0G-944805165-2026':'role-test';
+ const item={cidNumber,cidShortName:'合成目录机构',orgTypeLabel:orgType===2?'省储行':'省储委会'};
+ mocks.invoke.mockImplementation(async(c,args)=>{
+  if(c==='get_governance_overview')return {nationalCouncils:[],provincialCouncils:[item],provincialBanks:[item]};
+  if(c==='get_institution_detail')return {cidNumber:args.cidNumber,orgType,cidFullName:'合成机构',roles:state.roles,mainAccountId:signerAccountId,balanceFen:'0',internalThreshold:2,jointVoteWeight:1};
+  if(c==='get_institution_roles')return {...state,cidNumber:args.cidNumber};
+  if(c==='get_role_access')return [{cidNumber:args.cidNumber,personCid:'same-person',roleCode:'LR',accountId:state.roles[1]?.assignments[0]?.accountId,bindingRevision:'1',activatedAtMs:1}];
+  if(c==='get_account_balances')return {[signerAccountId]:'12345'};
+  if(c==='get_institution_proposal_page')return {items:[],hasMore:false};
+  return null;
+ });
+ return cidNumber;
+}
+
+it.each([{orgType:0,Section:NrcSection,label:'委员'},{orgType:1,Section:PrcSection,label:'委员'},{orgType:2,Section:PrbSection,label:'董事'}])('三个tab类型$orgType从总容量进入指定岗位、隐藏法代，返回保持原导航',async({orgType,Section,label})=>{
+ const state=assignmentState(orgType);state.roles[1].assignments[0].givenName='只限法代';state.roles[1].assignments[0].accountId=accountId('09');
+ const cid=mockRosterInterface(orgType,state);
+ const view=render(<Section/>);
+ if(orgType!==0)fireEvent.click(await screen.findByText('合成目录机构'));
+ const entry=await screen.findByRole('button',{name:`${label}（19席）`});
+ expect(screen.queryByText(/已激活.*席/)).toBeNull();
+ fireEvent.click(entry);
+ await screen.findByRole('heading',{name:`${label}（19席）`});
+ expect(await screen.findAllByRole('button',{name:'激活'})).toHaveLength(1);
+ expect(screen.queryByText('法定代表人')).toBeNull();expect(screen.queryByText('合成只限法代')).toBeNull();
+ expect(screen.queryByText('已激活')).toBeNull();
+ expect(view.container.querySelectorAll('.institution-assignment-card')).toHaveLength(1);
+ await screen.findByText('123.45 元');
+ expect(mocks.invoke).toHaveBeenCalledWith('get_account_balances',{accountIds:[signerAccountId]});
+ expect(mocks.invoke).toHaveBeenCalledWith('get_institution_roles',expect.objectContaining({cidNumber:cid}));
+ fireEvent.click(screen.getByRole('button',{name:'← 返回机构详情'}));
+ await screen.findByRole('button',{name:`${label}（19席）`});view.unmount();
+});
+
+it.each([0,1,2])('类型%s总席位与实际人数独立：空缺仍显示容量，不伪造已任职人数',async orgType=>{
+ const state=assignmentState(orgType);state.roles[0].seats=37;state.roles[0].assignments=[];
+ const cid=mockRosterInterface(orgType,state);const name=orgType===2?'董事':'委员';
+ const view=render(<InstitutionDetailPage cidNumber={cid} onBack={()=>{}}/>);
+ const entry=await screen.findByRole('button',{name:`${name}（37席）`});expect((entry as HTMLButtonElement).disabled).toBe(false);view.unmount();
+ const page=render(<AssignmentsPage orgType={orgType} cidNumber={cid} accountRef={{cidNumber:cid}} onBack={()=>{}}/>);
+ await screen.findByText('岗位空缺');expect(screen.getByRole('heading').textContent).toBe(`${name}（37席）`);
+ expect(screen.getByText('共 0 人')).toBeTruthy();expect(page.container.querySelector('.institution-assignment-card')).toBeNull();
+ expect(mocks.invoke.mock.calls.some(([c])=>c==='get_account_balances')).toBe(false);page.unmount();
+});
+
+it.each(['missing','zero','fraction'] as const)('岗位容量异常%s明确报错，入口及列表不把错误伪造为0席',async invalid=>{
+ const state=assignmentState();if(invalid==='missing')state.roles.shift();else state.roles[0].seats=invalid==='zero'?0:1.5;
+ const cid=mockRosterInterface(1,state);
+ const view=render(<InstitutionDetailPage cidNumber={cid} onBack={()=>{}}/>);
+ const entry=await screen.findByRole('button',{name:'委员（—席）'});expect((entry as HTMLButtonElement).disabled).toBe(true);
+ expect((await screen.findByRole('alert')).textContent).toContain('委员席位数据不可用');view.unmount();
+ const page=render(<AssignmentsPage orgType={1} cidNumber={cid} accountRef={{cidNumber:cid}} onBack={()=>{}}/>);
+ expect((await screen.findByRole('alert')).textContent).toContain('委员席位数据不可用');
+ expect(screen.queryByText('岗位空缺')).toBeNull();expect(screen.queryByRole('button',{name:'激活'})).toBeNull();page.unmount();
+});
+
+it('旧卡片保留方形序号、右侧操作、来源任期同排、余额与账户，字段来自现有绑定',async()=>{
+ const state=assignmentState();Object.assign(state.roles[0],{termRequired:true});Object.assign(state.roles[0].assignments[0],{termStart:1,termEnd:2});
+ mockRosterInterface(0,state);const cid='role-test';
+ const view=render(<AssignmentsPage orgType={0} cidNumber={cid} accountRef={{cidNumber:cid}} onBack={()=>{}}/>);
+ await screen.findByText('123.45 元');
+ const card=view.container.querySelector('.institution-admin-list-grid > .metric-card.institution-assignment-card')!;
+ expect(card.querySelector('.institution-assignment-top > .admin-card-index')?.textContent).toBe('1');
+ expect(card.querySelector('.institution-assignment-person')?.textContent).toBe('委员合成人员');
+ expect(card.querySelector('.institution-assignment-top-action > .activate-button')?.textContent).toBe('激活');
+ expect(Array.from(card.querySelectorAll('.institution-assignment-account > .institution-assignment-list-row .institution-assignment-label')).map(x=>x.textContent)).toEqual(['来源:','任期:']);
+ expect(card.textContent).toContain('创世（依据：0x00）');expect(card.textContent).toContain('1970/01/02-1970/01/03');
+ expect(card.textContent).toContain('账户余额:123.45 元');expect(card.textContent).toContain(`委员账户:${accountIdToSs58(signerAccountId)}`);
+ expect(card.textContent).not.toContain('席位容量');expect(card.textContent).not.toContain('法定代表人');view.unmount();
+});
+
+it('余额读取失败显示未知且可重读，不阻塞激活；真实零余额显示0.00',async()=>{
+ let failed=true;
+ mocks.invoke.mockImplementation(async(c)=>{
+  if(c==='get_institution_roles')return assignmentState();if(c==='get_role_access')return[];
+  if(c==='get_account_balances'){if(failed)throw Error('合成余额失败');return {[signerAccountId]:'0'};}
+  return activationRequest();
+ });
+ const view=render(<AssignmentsPage orgType={0} cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);
+ await screen.findByText(/余额读取失败/);
+ const balance=view.container.querySelector('.institution-assignment-account > .institution-assignment-field .institution-assignment-value');
+ expect(balance?.textContent).toBe('—');expect((screen.getByRole('button',{name:'激活'}) as HTMLButtonElement).disabled).toBe(false);
+ expect(screen.queryByText('0.00 元')).toBeNull();
+ failed=false;fireEvent.click(screen.getByRole('button',{name:'重读余额'}));await screen.findByText('0.00 元');
+ expect(screen.queryByText(/余额读取失败/)).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'激活'}));await screen.findByRole('dialog',{name:'激活 · 委员'});view.unmount();
+});
+
+it('切换机构后旧余额的迟到结果不能覆盖新页面',async()=>{
+ let finish!:(value:unknown)=>void;let read=0;
+ mocks.invoke.mockImplementation(async(c,args)=>{
+  if(c==='get_institution_roles')return {...assignmentState(),cidNumber:args.cidNumber};if(c==='get_role_access')return[];
+  if(c==='get_account_balances'){if(++read===1)return new Promise(resolve=>{finish=resolve;});return {[signerAccountId]:'200'};}
+ });
+ const view=render(<AssignmentsPage orgType={0} cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);
+ await waitFor(()=>expect(finish).toBeDefined());
+ view.rerender(<AssignmentsPage orgType={1} cidNumber="next" accountRef={{cidNumber:'next'}} onBack={()=>{}}/>);
+ await screen.findByText('2.00 元');await act(async()=>finish({[signerAccountId]:'99999'}));
+ expect(screen.queryByText('999.99 元')).toBeNull();expect(screen.getByText('2.00 元')).toBeTruthy();view.unmount();
+});
+
+it('旧卡片关键样式对照2da4e79金标，新增样式仅限三个储委会储行任职页',()=>{
+ const css=readFileSync(resolve(process.cwd(),'institution/styles.css'),'utf8');
+ const marker='/* 三个储委会／储行任职页：按2da4e79恢复原卡片布局，仅作用本页。 */';
+ const scoped=css.slice(css.indexOf(marker)+marker.length);
+ const style=document.createElement('style');style.textContent=scoped;document.head.append(style);
+ try{
+  const rules=Array.from(style.sheet!.cssRules) as CSSStyleRule[];
+  expect(rules.every(rule=>rule.selectorText.split(',').every(selector=>selector.trim().startsWith('.institution-roster ')))).toBe(true);
+  // 以下属性取自重构前历史版本，锁定布局、序号、操作及字段行，避免重画卡片。
+  const golden:Record<string,Record<string,string>>={
+   '.institution-roster .institution-admin-list-grid':{display:'grid','grid-template-columns':'repeat(3, minmax(300px, 1fr))',gap:'8px','overflow-x':'auto'},
+   '.institution-roster .institution-assignment-card .admin-card-index':{display:'inline-flex','min-width':'28px',height:'28px','border-radius':'8px','font-size':'12px','font-weight':'700'},
+   '.institution-roster .institution-assignment-top-action':{display:'inline-flex','min-height':'28px','justify-content':'flex-end','margin-left':'auto'},
+   '.institution-roster .institution-assignment-list-row':{display:'grid','grid-template-columns':'repeat(2, minmax(0, 1fr))',gap:'12px'},
+   '.institution-roster .institution-assignment-field':{display:'grid','grid-template-columns':'max-content minmax(0, 1fr)',gap:'6px'},
+   '.institution-roster .activated-tag':{color:'#4ade80','font-size':'11px','border-radius':'4px'},
+   '.institution-roster .activate-button':{color:'#60a5fa','font-size':'11px',padding:'2px 8px'},
+  };
+  for(const [selector,properties] of Object.entries(golden)){
+   const rule=rules.find(rule=>rule.selectorText===selector);expect(rule,selector).toBeDefined();
+   for(const [property,value] of Object.entries(properties))expect(rule!.style.getPropertyValue(property),`${selector} ${property}`).toBe(value);
+  }
+ }finally{style.remove();}
 });

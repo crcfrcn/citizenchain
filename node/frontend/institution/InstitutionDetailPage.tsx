@@ -17,8 +17,8 @@ import { ProtocolUpgradeProposalPage } from "../upgrade/index";
 import type { RoleAccess, RoleSigner, InstitutionBalanceUpdate, InstitutionDetail } from "./council";
 import type { ProposalListItem } from "../proposal/types";
 import {roleSigners as selectedRoleSigners} from './assignments';
-// 机构详情页：机构信息 → 岗位任职入口 → 发起提案 → 提案列表（分页）。
-// 岗位任职与本机授权在独立的AssignmentsPage，点击入口卡片右箭头进入。
+// 机构详情页：机构信息 → 委员／董事入口 → 发起提案 → 提案列表（分页）。
+// 委员／董事列表与激活在独立的AssignmentsPage，点击入口卡片右箭头进入。
 import { useEffect, useState, useCallback, useRef, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -247,7 +247,10 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAssignments, on
 
   if (!detail) return null;
 
-  const activatedCount = roleAccess.length;
+  const officeName = detail.orgType === 2 ? '董事' : '委员';
+  const office = detail.roles.find(role => role.roleCode === (detail.orgType === 2 ? 'DIRECTOR' : 'COMMITTEE_MEMBER'));
+  const seats = office && Number.isSafeInteger(office.seats) && office.seats > 0 ? office.seats : null;
+  const activatedCount = roleSigners.filter(signer => signer.roleCode === office?.roleCode).length;
   const feeAccountId = detail.orgType === 0 ? detail.nrcAccountId
     : detail.orgType === 1 ? detail.cbAccountId : detail.feeAccountId;
   const sweepSigners=roleSigners.filter(s=>s.permissions.some(p=>p.moduleTag==='multisig'&&p.actionCode===2&&p.operation===0));
@@ -418,17 +421,20 @@ export function InstitutionDetailPage({ cidNumber, onBack, onOpenAssignments, on
           <button
             type="button"
             className="institution-overview-role-button"
+            disabled={seats === null}
             onClick={() => onOpenAssignments?.(cidNumber, detail.orgType)}
           >
-            岗位任职（{detail.roles.length}岗）
+            {officeName}（{seats ?? '—'}席）
             <span aria-hidden="true">›</span>
           </button>
         </div>
         <p className="institution-overview-cid">
           身份CID号 <code><IdentityCidText value={detail.cidNumber} /></code>
-          {activatedCount > 0 && <span className="role-access-badge">本机已授权 {activatedCount} 岗</span>}
+          {activatedCount > 0 && <span className="role-access-badge">已激活 {activatedCount} 席</span>}
         </p>
       </header>
+
+      {seats === null && <div className="error" role="alert">{officeName}席位数据不可用，请重新读取机构资料</div>}
 
       {detail.warning && <div className="warning">{detail.warning}</div>}
 

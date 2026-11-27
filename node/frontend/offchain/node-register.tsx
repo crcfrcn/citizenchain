@@ -42,7 +42,7 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
   const [rpcPort, setRpcPort] = useState<string>('9944');
   const [report, setReport] = useState<ConnectivityTestReport | null>(null);
 
-  // 按人员与岗位选择本机授权；同一钱包的不同岗位分别展示。
+  // 按人员与岗位选择激活记录；同一钱包的不同岗位分别展示。
   const [signers, setSigners] = useState<RoleSigner[]>([]);
   const [selectedSigner, setSelectedSigner] = useState<RoleSigner | null>(null);
 
@@ -54,7 +54,7 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
   const signRequestRef = useRef(signRequest);
   signRequestRef.current = signRequest;
 
-  // 初始化：读取本机 PeerId、现行岗位及匹配的本机授权。
+  // 初始化：读取本机 PeerId、现行岗位及匹配的激活记录。
   useEffect(() => {
     let cancelled = false;
     setSigners([]);
@@ -203,7 +203,7 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
           <div className="form-group">
             <label>已授权岗位</label>
             {signers.length === 0 ? (
-              <p className="muted">本机构尚无可声明节点的本机岗位授权，请先在岗位任职页完成授权。</p>
+              <p className="muted">本机构尚无可声明节点的有效激活记录，请先在岗位任职页完成激活。</p>
             ) : signers.length === 1 ? (
               <code className="institution-card-address">{accountIdToSs58(signers[0].accountId)}</code>
             ) : (
