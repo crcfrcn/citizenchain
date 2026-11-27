@@ -1,6 +1,9 @@
 // 验证钱包名称与删除确认、地址保留及转账费用和冷签边界。
 
 import { parseYuanToFen, transferFeeFen, quoteTransfers } from "../onchain/fee";
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {MetricHelp} from '../desktop/MetricHelp';
 import { TransferForm } from "../onchain/TransferForm";
 import { TransferSigningFlow } from "../onchain/TransferSigningFlow";
 import { TransactionPanel } from "../onchain/TransactionPanel";
@@ -81,6 +84,7 @@ function flow(signMode: Wallet['signMode'] = 'cold') {
 function readonlyFixture(command:string,args?:unknown):unknown {
   if(command==='get_transfer_policy')return {executionFee:true,batchEnabled:true};
   if(command==='get_transfer_result')return {state:'pending',cursor:0};
+  if(command==='get_transaction_history')return {records:[],cursor:null};
   if(command==='prepare_transfer'){
     const transfers=(args as {transfers:{toAddress:string;amountFen:string;remark:string}[]}).transfers;
     return {transfers,feeFen:quoteTransfers(transfers).fee.toString()};
@@ -498,7 +502,7 @@ describe('现有确认、扫码与提交', () => {
     await screen.findByText('合成扫码界面');
     await act(async () => mocks.scan!('合成响应'));
     fireEvent.click(screen.getByRole('button', { name: '完成' }));
-    await waitFor(() => expect(view.container.querySelector('.transfer-success-msg')?.textContent)
+    await waitFor(() => expect(view.container.querySelector('.transfer-notice')?.textContent)
       .toContain('转账已提交'));
     expect(view.container.textContent).not.toContain('转账成功');
   });
@@ -558,7 +562,7 @@ describe('提交成功后的表单输入', () => {
         fireEvent.change(c.remark, { target: { value: '下一笔' } });
         expect(sign.disabled).toBe(false);
         expect(c.address.value).toBe(destination); expect(c.amount.value).toBe('2'); expect(c.remark.value).toBe('下一笔');
-        expect(c.view.container.querySelector('.transfer-success-msg')?.textContent).toContain('转账已提交');
+        expect(c.view.container.querySelector('.transfer-notice')?.textContent).toContain('转账已提交');
       });
     }
   }
@@ -571,7 +575,7 @@ describe('提交成功后的表单输入', () => {
       fireEvent.click(c.view.container.querySelector('.transfer-signing-close')!);
     } else fireEvent.click(screen.getByRole('button', { name: '取消' }));
     expect(c.address.value).toBe(destination); expect(c.amount.value).toBe('105'); expect(c.remark.value).toBe('合成备注');
-    expect(c.view.container.querySelector('.transfer-success-msg')).toBeNull();
+    expect(c.view.container.querySelector('.transfer-notice')).toBeNull();
   });
 
   it.each(['request', 'cold', 'hot'] as const)('%s失败时不清空输入', async (phase) => {
@@ -586,7 +590,7 @@ describe('提交成功后的表单输入', () => {
     await screen.findByText('合成转账失败');
     fireEvent.click(c.view.container.querySelector('.transfer-signing-close')!);
     expect(c.address.value).toBe(destination); expect(c.amount.value).toBe('105'); expect(c.remark.value).toBe('合成备注');
-    expect(c.view.container.querySelector('.transfer-success-msg')).toBeNull();
+    expect(c.view.container.querySelector('.transfer-notice')).toBeNull();
   });
 
   it('二维码过期保留金额备注和地址', async () => {
@@ -599,7 +603,7 @@ describe('提交成功后的表单输入', () => {
     expect(screen.getByText('签名请求已过期，请重新操作')).toBeTruthy();
     fireEvent.click(c.view.container.querySelector('.transfer-signing-close')!);
     expect(c.address.value).toBe(destination); expect(c.amount.value).toBe('105'); expect(c.remark.value).toBe('合成备注');
-    expect(c.view.container.querySelector('.transfer-success-msg')).toBeNull();
+    expect(c.view.container.querySelector('.transfer-notice')).toBeNull();
   });
 });
 
@@ -663,10 +667,10 @@ it('批量扫码逐次追加当前组，首行无空白且已有地址不覆盖'
     expect((screen.getByLabelText('第1组地址') as HTMLTextAreaElement).value).toBe(`${destination}\n${destination}\n`);
 });
 
-it('批量提交后收起弹窗，最终结果逐项显示成功、失败及实际费用',async()=>{
+it.each([{state:'partial',states:['success','failed','success'],success:2},{state:'success',states:['success','success','success'],success:3},{state:'rolled_back',states:['rolled_back','rolled_back','rolled_back'],success:0},{state:'failed',states:['failed','failed','failed'],success:0},{state:'failed',states:['failed','not_executed','not_executed'],success:0}])('批量$state只显示短暂真实统计，不保留哈希和逐笔长回执',async({state,states,success})=>{
   const original=mocks.invoke.getMockImplementation()!;
   mocks.invoke.mockImplementation((command:string,...args:unknown[])=>command==='get_transfer_result'
-    ?Promise.resolve({state:'partial',cursor:1,feeFen:'21',items:[{state:'success',feeFen:'10'},{state:'failed',feeFen:'0'},{state:'success',feeFen:'11'}]})
+    ?Promise.resolve({state,cursor:1,feeFen:'21',items:states.map(state=>({state,feeFen:'0'}))})
     :original(command,...args));
   const view=render(<TransactionPanel nodeReady/>);
   await screen.findByText('1,000.00 元');
@@ -687,8 +691,139 @@ it('批量提交后收起弹窗，最终结果逐项显示成功、失败及实�
   await act(async()=>mocks.scan!('合成响应'));
   expect(screen.queryByRole('dialog')).toBeNull();
   await act(async()=>vi.advanceTimersByTimeAsync(3000));
-  const output=view.container.querySelector('.transfer-result')?.textContent??'';
-  expect(output).toContain('部分成功');
-  expect(output).toMatch(/第2笔[\s\S]*失败[\s\S]*0.00/);
-  expect(output).toContain('实际手续费合计：0.21 元');
+  expect(view.container.querySelector('.transfer-notice')?.textContent).toBe(`批量转账3笔，成功${success}笔，失败${3-success}笔。`);
+  expect(view.container.querySelector('.transfer-result')).toBeNull();expect(view.container.textContent).not.toContain(txHash);expect(view.container.textContent).not.toContain('实际手续费合计');
+  await act(async()=>vi.advanceTimersByTimeAsync(2999));expect(view.container.querySelector('.transfer-notice')).toBeTruthy();
+  await act(async()=>vi.advanceTimersByTimeAsync(1));expect(view.container.querySelector('.transfer-notice')).toBeNull();
+  expect(mocks.invoke.mock.calls.filter(([c])=>c==='get_transfer_result')).toHaveLength(1);
+  expect(mocks.invoke.mock.calls.filter(([c])=>c==='submit_cold_transfer')).toHaveLength(1);
+});
+
+
+it('批量转账与同页说明按钮实际字号一致，不继承表单父级的大字体',()=>{
+ const style=document.createElement('style');style.textContent=readFileSync(resolve(process.cwd(),'desktop/global.css'),'utf8');document.head.append(style);
+ const view=render(<><div className="transaction-panel-heading"><MetricHelp title="转账说明" items={['合成说明']}/></div><div style={{fontSize:'24px'}}><TransferForm activeWallet={wallet} balance="1000000" onSubmit={vi.fn()}/></div></>);
+ try{
+  const batch=getComputedStyle(screen.getByRole('button',{name:'批量转账'}));const help=getComputedStyle(screen.getByRole('button',{name:'转账说明'}));
+  expect(batch.fontSize).toBe('12px');expect(batch.fontSize).toBe(help.fontSize);expect(batch.padding).toBe(help.padding);expect(batch.color).toBe(help.color);expect(batch.backgroundColor).toBe(help.backgroundColor);
+ }finally{view.unmount();style.remove();}
+});
+
+
+it('批量默认组与新增组单行等高，只有地址行数向下增长且超过8行仍增长',()=>{
+ const style=document.createElement('style');style.textContent=readFileSync(resolve(process.cwd(),'desktop/global.css'),'utf8');document.head.append(style);
+ const view=render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={vi.fn()}/>);
+ try{
+  fireEvent.click(screen.getByRole('button',{name:'批量转账'}));fireEvent.click(screen.getByRole('button',{name:'添加'}));
+  for(const index of [1,2]){
+   const amount=screen.getByLabelText(`第${index}组金额`) as HTMLInputElement,address=screen.getByLabelText(`第${index}组地址`) as HTMLTextAreaElement;
+   const scan=screen.getByTitle(`扫描第${index}组地址`),row=amount.parentElement!;
+   expect(address.rows).toBe(1);expect(getComputedStyle(amount).height).toBe(getComputedStyle(scan).height);
+   expect(getComputedStyle(amount).paddingTop).toBe('5px');expect(getComputedStyle(address).paddingTop).toBe('5px');
+   expect(getComputedStyle(address).resize).toBe('none');expect(getComputedStyle(row).alignItems).toBe('start');
+   fireEvent.change(address,{target:{value:'第一行\n第二行'}});expect(address.rows).toBe(2);
+   fireEvent.change(address,{target:{value:Array.from({length:12},(_,i)=>`地址${i}`).join('\n')}});expect(address.rows).toBe(12);
+   expect(getComputedStyle(amount).height).toBe(getComputedStyle(scan).height);
+   fireEvent.change(address,{target:{value:''}});expect(address.rows).toBe(1);
+  }
+ }finally{view.unmount();style.remove();}
+});
+
+it('批量底栏左侧交易模式右侧签名、两选项顺序及圈大小正确，汇总只占一行',()=>{
+ const style=document.createElement('style');style.textContent=readFileSync(resolve(process.cwd(),'desktop/global.css'),'utf8');document.head.append(style);
+ const view=render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={vi.fn()}/>);
+ try{
+  fireEvent.click(screen.getByRole('button',{name:'批量转账'}));
+  const footer=view.container.querySelector('.batch-transfer-footer')!,mode=footer.querySelector('.batch-transfer-mode')!,sign=footer.querySelector('.transfer-form-submit')!;
+  expect(Array.from(footer.children)).toEqual([mode,sign]);expect(mode.querySelector('.batch-transfer-mode-title')?.textContent).toBe('交易模式');
+  expect(mode.tagName).toBe('DIV');expect(mode.getAttribute('role')).toBe('group');
+  expect(getComputedStyle(mode).fontSize).toBe('16px');expect(getComputedStyle(mode).alignItems).toBe('center');
+  expect(getComputedStyle(mode.querySelector('.batch-transfer-options')!).justifyContent).toBe('flex-start');
+  expect(getComputedStyle(view.container.querySelector('.batch-transfer-summary')!).fontSize).toBe('13px');
+  expect(Array.from(mode.querySelectorAll('label')).map(node=>node.textContent)).toEqual(['整批成功','逐笔成功']);
+  for(const label of mode.querySelectorAll('label'))expect(getComputedStyle(label).flexDirection).toBe('row');
+  const options=mode.querySelectorAll<HTMLInputElement>('input[type="radio"]');expect(options[0].checked).toBe(true);expect(options[1].checked).toBe(false);
+  for(const radio of options){expect(getComputedStyle(radio).width).toBe('19.5px');expect(getComputedStyle(radio).height).toBe('19.5px');}
+  expect(view.container.querySelector('.batch-transfer-summary')?.textContent).toBe('转账数量：0 笔｜转账金额：0.00 元｜预计手续费：0.00 元｜合计：0.00 元');
+  expect(getComputedStyle(view.container.querySelector('.batch-transfer-summary')!).whiteSpace).toBe('nowrap');
+  expect(screen.queryByText(/任一笔失败，整批本金和手续费回滚/)).toBeNull();expect(view.container.querySelector('.batch-transfer-hint')).toBeNull();
+  fireEvent.click(screen.getByLabelText('逐笔成功'));expect(options[0].checked).toBe(false);expect(options[1].checked).toBe(true);
+  fireEvent.change(screen.getByLabelText('第1组金额'),{target:{value:'1'}});fireEvent.change(screen.getByLabelText('第1组地址'),{target:{value:destination}});
+  expect(view.container.querySelector('.batch-transfer-summary')?.textContent).toBe('转账数量：1 笔｜转账金额：1.00 元｜预计手续费：0.10 元｜合计：1.10 元');
+ }finally{view.unmount();style.remove();}
+});
+
+
+function historyRecord(overrides:Record<string,unknown>={}){
+ return {blockNumber:9,timestamp:1782950400000,txHash:'0xhistory',accountIds:[wallet.accountId],direction:'sent',mode:'batch_all',transferCount:4,amountFen:'10500',feeFen:'40',state:'success',...overrides};
+}
+it('交易记录在钱包管理左侧，汇总现有多个钱包但同一笔交易只显示一条简要记录',async()=>{
+ const second={...wallet,name:'合成第二钱包',accountId:'0x'+'22'.repeat(32)};const original=mocks.invoke.getMockImplementation()!;
+ mocks.invoke.mockImplementation((command:string,...args:unknown[])=>command==='get_wallets'?Promise.resolve({wallets:[wallet,second],activeAccountId:wallet.accountId}):command==='get_transaction_history'?Promise.resolve({records:[historyRecord({accountIds:[wallet.accountId,second.accountId],direction:'internal'})],cursor:null}):original(command,...args));
+ const view=render(<TransactionPanel nodeReady/>);await screen.findByText('1,000.00 元');
+ expect(Array.from(view.container.querySelector('.transaction-panel-actions')!.children).map(node=>node.textContent)).toEqual(['交易记录','钱包管理']);
+ fireEvent.click(screen.getByRole('button',{name:'交易记录'}));const dialog=await screen.findByRole('dialog',{name:'交易记录'});
+ await screen.findByText('合成冷钱包、合成第二钱包');expect(dialog.querySelectorAll('tbody tr')).toHaveLength(1);
+ expect(dialog.textContent).toContain('105.00 元');expect(dialog.textContent).toContain('0.40 元');expect(dialog.textContent).toContain('内部转账');expect(dialog.textContent).not.toContain('0xhistory');
+ expect(mocks.invoke).toHaveBeenCalledWith('get_transaction_history',{cursor:null});
+ fireEvent.click(screen.getByRole('button',{name:'关闭交易记录'}));expect(screen.queryByRole('dialog',{name:'交易记录'})).toBeNull();view.unmount();
+});
+it('历史记录跳过无相关交易的区块页，加载更多读取更早记录，不建立定时轮询',async()=>{
+ let reads=0;const original=mocks.invoke.getMockImplementation()!;
+ mocks.invoke.mockImplementation((command:string,...args:unknown[])=>{
+  if(command==='get_transaction_history'){
+   ++reads;return Promise.resolve(reads===1?{records:[],cursor:{blockNumber:100,extrinsicIndex:null}}:reads===2?{records:[historyRecord()],cursor:{blockNumber:90,extrinsicIndex:null}}:{records:[historyRecord({blockNumber:8,txHash:'older',direction:'received',amountFen:'200',feeFen:'0'})],cursor:null});
+  }return original(command,...args);
+ });
+ const view=render(<TransactionPanel nodeReady/>);await screen.findByText('1,000.00 元');fireEvent.click(screen.getByRole('button',{name:'交易记录'}));
+ await screen.findByText('105.00 元');expect(reads).toBe(2);expect(mocks.invoke).toHaveBeenCalledWith('get_transaction_history',{cursor:{blockNumber:100,extrinsicIndex:null}});
+ fireEvent.click(screen.getByRole('button',{name:'加载更多'}));await screen.findByText('2.00 元');expect(reads).toBe(3);
+ expect(screen.getByRole('dialog',{name:'交易记录'}).querySelectorAll('tbody tr')).toHaveLength(2);expect(screen.queryByRole('button',{name:'加载更多'})).toBeNull();
+ vi.useFakeTimers();await act(async()=>vi.advanceTimersByTimeAsync(20000));expect(reads).toBe(3);view.unmount();
+});
+it('历史读取失败保留错误可刷新，不把失败当作空记录；关闭后迟到结果不继续查链',async()=>{
+ let mode:'error'|'empty'|'pending'='error';const pending=deferred<unknown>();const original=mocks.invoke.getMockImplementation()!;
+ mocks.invoke.mockImplementation((command:string,...args:unknown[])=>command==='get_transaction_history'?mode==='error'?Promise.reject(Error('合成历史读取失败')):mode==='empty'?Promise.resolve({records:[],cursor:null}):pending.promise:original(command,...args));
+ const view=render(<TransactionPanel nodeReady/>);await screen.findByText('1,000.00 元');fireEvent.click(screen.getByRole('button',{name:'交易记录'}));
+ await screen.findByText('合成历史读取失败');expect(screen.queryByText('暂无交易记录')).toBeNull();
+ mode='empty';fireEvent.click(screen.getByRole('button',{name:'刷新'}));await screen.findByText('暂无交易记录');
+ mode='pending';fireEvent.click(screen.getByRole('button',{name:'刷新'}));const count=mocks.invoke.mock.calls.filter(([c])=>c==='get_transaction_history').length;
+ fireEvent.click(screen.getByRole('button',{name:'关闭交易记录'}));await act(async()=>pending.resolve({records:[],cursor:{blockNumber:1,extrinsicIndex:null}}));
+ expect(mocks.invoke.mock.calls.filter(([c])=>c==='get_transaction_history')).toHaveLength(count);expect(screen.queryByRole('dialog',{name:'交易记录'})).toBeNull();view.unmount();
+});
+it('节点未运行时交易记录入口禁用，不读取本机链',async()=>{
+ const view=render(<TransactionPanel nodeReady={false}/>);const button=await screen.findByRole('button',{name:'交易记录'});expect((button as HTMLButtonElement).disabled).toBe(true);fireEvent.click(button);
+ expect(mocks.invoke.mock.calls.some(([c])=>c==='get_transaction_history')).toBe(false);view.unmount();
+});
+
+it('批量结果子项不完整时不编造成功数，保留原游标再核验且不重新付款',async()=>{
+ const original=mocks.invoke.getMockImplementation()!;let reads=0;
+ mocks.invoke.mockImplementation((command:string,...args:unknown[])=>command==='get_transfer_result'?Promise.resolve(++reads===1?{state:'success',cursor:1,items:[]}:{state:'success',cursor:1,items:[{state:'success',feeFen:'10'}]}):original(command,...args));
+ const view=render(<TransactionPanel nodeReady/>);await screen.findByText('1,000.00 元');
+ const batch=screen.getByRole('button',{name:'批量转账'});await waitFor(()=>expect((batch as HTMLButtonElement).disabled).toBe(false));fireEvent.click(batch);
+ fireEvent.change(screen.getByLabelText('第1组金额'),{target:{value:'1'}});fireEvent.change(screen.getByLabelText('第1组地址'),{target:{value:destination}});
+ fireEvent.click(screen.getAllByRole('button',{name:'签名交易'}).slice(-1)[0]);const confirm=await screen.findByRole('button',{name:'确认转账'});
+ vi.useFakeTimers();await act(async()=>fireEvent.click(confirm));await act(async()=>mocks.scan!('合成响应'));
+ await act(async()=>vi.advanceTimersByTimeAsync(3000));expect(view.container.querySelector('.transfer-notice')).toBeNull();expect(screen.getByText(/结果子项不完整/)).toBeTruthy();
+ await act(async()=>vi.advanceTimersByTimeAsync(3000));expect(view.container.querySelector('.transfer-notice')?.textContent).toBe('批量转账1笔，成功1笔，失败0笔。');
+ const checks=mocks.invoke.mock.calls.filter(([c])=>c==='get_transfer_result');expect(checks).toHaveLength(2);expect(checks.every(([,args])=>args.cursor===0)).toBe(true);
+ expect(mocks.invoke.mock.calls.filter(([c])=>c==='submit_cold_transfer')).toHaveLength(1);view.unmount();
+});
+
+it('历史游标不前进时停止读取并报错，不循环查询或显示伪空记录',async()=>{
+ const original=mocks.invoke.getMockImplementation()!;
+ mocks.invoke.mockImplementation((command:string,...args:unknown[])=>command==='get_transaction_history'?Promise.resolve({records:[],cursor:{blockNumber:1,extrinsicIndex:null}}):original(command,...args));
+ const view=render(<TransactionPanel nodeReady/>);await screen.findByText('1,000.00 元');fireEvent.click(screen.getByRole('button',{name:'交易记录'}));
+ await screen.findByText('交易记录游标未前进');expect(mocks.invoke.mock.calls.filter(([c])=>c==='get_transaction_history')).toHaveLength(2);expect(screen.queryByText('暂无交易记录')).toBeNull();view.unmount();
+});
+
+
+it('批量模式容器采用普通横排分组，锁定时两选项仍同时禁用',()=>{
+ const view=render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={vi.fn()}/>);
+ fireEvent.click(screen.getByRole('button',{name:'批量转账'}));
+ const group=screen.getByRole('group',{name:'交易模式'});expect(group.tagName).toBe('DIV');expect(group.querySelector('legend')).toBeNull();
+ fireEvent.click(screen.getByLabelText('逐笔成功'));expect((screen.getByLabelText('逐笔成功') as HTMLInputElement).checked).toBe(true);
+ view.rerender(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={vi.fn()} disabled/>);
+ for(const input of group.querySelectorAll<HTMLInputElement>('input'))expect(input.disabled).toBe(true);
+ expect(group.getAttribute('aria-disabled')).toBe('true');view.unmount();
 });

@@ -245,3 +245,72 @@ fn archive_cli_defaults_and_aliases_cannot_enable_pruning() {
         assert!(error.to_string().contains("只允许 archive"), "{error}");
     }
 }
+
+#[test]
+fn desktop_arguments_preserve_identity_and_archive_with_official_listen_ports() {
+    use sc_cli::CliConfiguration;
+    use sc_network::config::{NodeKeyConfig, Secret};
+
+    let runtime = lifecycle_runtime();
+    let work = std::path::absolute(
+        std::env::var_os("CITIZENCHAIN_WORK_DIR").expect("参数回归必须归本轮产品现场"),
+    )
+    .unwrap();
+    let unique = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let path = work.join(format!("node-arguments-{}-{unique}", std::process::id()));
+    std::fs::create_dir(&path).unwrap();
+
+    for explicit_key in [false, true] {
+        let key_file = path.join("node-key").join("secret_ed25519");
+        if explicit_key {
+            std::fs::create_dir(key_file.parent().unwrap()).unwrap();
+            // 只验证原CLI的文件引用，不生成或读取任何实际节点私钥。
+            std::fs::write(&key_file, b"synthetic identity path fixture").unwrap();
+        }
+        let args = node_args(&path, None, 19944, Some("fixture-node"), explicit_key);
+        let cli = crate::cli::Cli::parse_archive_from(args).unwrap();
+        let config = cli
+            .run
+            .create_configuration(&cli, runtime.handle().clone())
+            .unwrap();
+        let port = if cfg!(target_os = "macos") && !explicit_key {
+            0
+        } else {
+            30333
+        };
+        assert_eq!(
+            config
+                .network
+                .listen_addresses
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+            [
+                format!("/ip4/0.0.0.0/tcp/{port}/wss"),
+                format!("/ip6/::/tcp/{port}/wss")
+            ]
+        );
+        assert_eq!(config.role.is_authority(), explicit_key);
+        assert_eq!(config.network.node_name, "fixture-node");
+        assert!(matches!(
+            config.state_pruning,
+            Some(sc_service::PruningMode::ArchiveAll)
+        ));
+        assert_eq!(config.blocks_pruning, sc_service::BlocksPruning::KeepAll);
+        let NodeKeyConfig::Ed25519(Secret::File(actual)) = config.network.node_key else {
+            panic!("桌面启动必须继续复用原身份文件");
+        };
+        assert_eq!(
+            actual,
+            if explicit_key {
+                key_file
+            } else {
+                path.join("chains/citizenchain/network/secret_ed25519")
+            }
+        );
+    }
+    std::fs::remove_dir_all(path).unwrap();
+}

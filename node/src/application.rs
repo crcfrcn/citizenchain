@@ -107,6 +107,7 @@ pub fn run_desktop() {
             nodeonchain::commands::submit_cold_transfer,
             nodeonchain::commands::submit_hot_transfer,
             nodeonchain::commands::get_transfer_result,
+            nodeonchain::commands::get_transaction_history,
             nodeonchain::commands::get_transfer_policy,
             nodeonchain::commands::prepare_transfer,
             // ─── 清算行 offchain tab ───

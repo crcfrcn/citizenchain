@@ -4,6 +4,7 @@ import {rolesApi} from './roles';
 import {assignmentRows,type RoleAccess,type RoleAccessRequest,type InstitutionRef,type InstitutionRolesState,type AssignmentRow} from './assignments';
 import {accountIdToSs58} from '../client/ss58';
 import {formatBalance} from '../client/format';
+import {IdentityCidText} from '../client/identityCid';
 import {CitizenSignatureModal} from '../desktop/signing';
 import {sanitizeError} from '../client/tauri';
 import './styles.css';
@@ -56,11 +57,17 @@ export function AssignmentsPage({cidNumber,orgType,accountRef,onBack}:{cidNumber
  const cancel=()=>{if(pending.current)return;++epoch.current;setRequest(null);setSelected(null);setBusy(false);setStep('idle');setActivationError(null);};
  return <div className="governance-section institution-roster">
   <button className="back-button" onClick={onBack}>← 返回机构详情</button>
-  <div className="admin-list-header"><h2>{officeName}（{role?.seats??'—'}席）</h2>{role&&<span className="admin-list-summary">共 {rows.length} 人{rows.some(isActivated)&&`，已激活 ${rows.filter(isActivated).length}`}</span>}</div>
+  <div className="admin-list-header"><h2>{officeName}（{role?.seats??'—'}席）</h2>{rows.length>0&&<span className="admin-list-summary">共 {rows.length} 人{rows.some(isActivated)&&`，已激活 ${rows.filter(isActivated).length}`}</span>}</div>
   {loading&&<p>读取中…</p>}{error&&<div role="alert" className="error">{error}<button onClick={()=>setRevision(r=>r+1)}>重读</button></div>}
   {balanceError&&<div role="alert" className="error">余额读取失败：{balanceError}<button onClick={()=>setRevision(r=>r+1)}>重读余额</button></div>}
-  {role&&rows.length===0&&<p className="no-data">岗位空缺</p>}
-  <div className="institution-admin-list-grid">{rows.map((a,index)=>{
+  <div className="institution-admin-list-grid">{Array.from({length:role?.seats??0},(_,index)=>rows[index]??null).map((a,index)=>{
+   if(!a)return <div key={`seat-${index}`} className="metric-card institution-assignment-card">
+    <div className="institution-assignment-top"><span className="admin-card-index">{index+1}</span><div className="institution-assignment-person"><span className="institution-assignment-role">{officeName}</span></div></div>
+    <div className="institution-assignment-account">
+     <div className="institution-assignment-list-row"><div className="institution-assignment-field"><span className="institution-assignment-label">来源:</span><span className="institution-assignment-value"/></div><div className="institution-assignment-field"><span className="institution-assignment-label">任期:</span><span className="institution-assignment-value"/></div></div>
+     {['账户余额:','身份CID号:','绑定账户:'].map(label=><div className="institution-assignment-field" key={label}><span className="institution-assignment-label">{label}</span><span className="institution-assignment-value"/></div>)}
+    </div>
+   </div>;
    const activated=isActivated(a);
    const startDay=formatDay(a.termStart),endDay=formatDay(a.termEnd);
    const term=a.termRequired?(startDay||endDay?`${startDay||'—'}-${endDay||'—'}`:'待写入'):'无固定任期';
@@ -73,11 +80,12 @@ export function AssignmentsPage({cidNumber,orgType,accountRef,onBack}:{cidNumber
     </div>
     <div className="institution-assignment-account">
      <div className="institution-assignment-list-row">
-      <div className="institution-assignment-field"><span className="institution-assignment-label">来源:</span><span className="institution-assignment-value">{a.assignmentSourceLabel}{a.assignmentSourceRef&&`（依据：${a.assignmentSourceRef}）`}</span></div>
+      <div className="institution-assignment-field"><span className="institution-assignment-label">来源:</span><span className="institution-assignment-value">{a.assignmentSourceLabel}</span></div>
       <div className="institution-assignment-field"><span className="institution-assignment-label">任期:</span><span className="institution-assignment-value">{term}</span></div>
      </div>
      <div className="institution-assignment-field"><span className="institution-assignment-label">账户余额:</span><span className="institution-assignment-value">{balance!=null?formatBalance(balance):'—'}</span></div>
-     <div className="institution-assignment-field"><span className="institution-assignment-label">{officeName}账户:</span><span className="institution-assignment-value">{a.accountId?accountIdToSs58(a.accountId):'无有效绑定'}</span></div>
+     <div className="institution-assignment-field"><span className="institution-assignment-label">身份CID号:</span><span className="institution-assignment-value"><IdentityCidText value={a.personCid}/></span></div>
+     <div className="institution-assignment-field"><span className="institution-assignment-label">绑定账户:</span><span className="institution-assignment-value">{a.accountId?accountIdToSs58(a.accountId):'无有效绑定'}</span></div>
     </div>
    </div>;
   })}</div>

@@ -1,6 +1,6 @@
 // 调用钱包目录和转账准备、提交及余额原生命令。
 import { invoke } from "../client/tauri";
-import type { TransferSignRequestResult, TransferSubmitResult, Wallet, WalletStore, TransferMode, TransferItem, TransferResult } from "./types";
+import type { TransferSignRequestResult, TransferSubmitResult, Wallet, WalletStore, TransferMode, TransferItem, TransferResult, TransactionCursor, TransactionHistory } from "./types";
 // 首页交易面板专用 Tauri API；账户唯一键统一使用 account_id。
 export const transactionApi = {
   getWallets: () => invoke<WalletStore>('get_wallets'),
@@ -19,6 +19,7 @@ export const transactionApi = {
         batchEnabled: boolean;
     }>('get_transfer_policy'),
     getTransferResult: (txHash: string, cursor: number) => invoke<TransferResult>('get_transfer_result', { txHash, cursor }),
+    getTransactionHistory: (cursor:TransactionCursor|null) => invoke<TransactionHistory>('get_transaction_history', {cursor}),
     submitColdTransfer: (accountId: string, requestId: string, expectedPayloadHash: string, callDataHex: string, signNonce: number, signBlockNumber: number, responseJson: string) => invoke<TransferSubmitResult>('submit_cold_transfer', {
       accountId: accountId,
       requestId: requestId,

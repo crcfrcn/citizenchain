@@ -1,6 +1,8 @@
 // 验证机构提案分页、投票状态和签名提交IPC及失败不重放。
 
 import {beforeEach, expect, it, vi} from 'vitest';
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
 import { fireEvent, render, screen, within, waitFor, act } from '@testing-library/react';
 import { accountIdToSs58 } from '../client/ss58';
 import {proposalApi} from '../proposal/api';
@@ -38,6 +40,8 @@ it.each([0, 1])('提案类型 %i 只允许链上确认未投票的人员岗位�
             roles: [{ cidNumber, roleCode, error: null, voters: accounts.map(accountId => ({ personCid:'person-'+accountId,accountId, bindingRevision: '1', vote: votes.get(accountId) ?? null, voteError: accountId === failed ? '合成RPC失败' : null })) }] },
         };
       case 'get_proposal_display': return null;
+      case 'get_institution_roles': return {cidNumber,roles:[]};
+      case 'get_account_balances': return {};
       case 'get_institution_detail': return { roles: [] };
       case 'check_vote_status': {
         const vote = votes.get(args.signerPublicKey);
@@ -54,8 +58,9 @@ it.each([0, 1])('提案类型 %i 只允许链上确认未投票的人员岗位�
   render(<ProposalDetailPage proposalId={"7"} cidNumber={cidNumber}
     roleSigners={accounts.map((accountId) => ({personCid:'person-'+accountId,roleCode,bindingRevision:'1',permissions:[], accountId, roleName: '' }))}
     onBack={() => {}} />);
-  await screen.findByRole('heading', { name: '原提案冻结资格（4 个当前绑定 / 4 张岗位票）' });
-  expect(screen.getAllByText('姓名及岗位名称：历史资料未记录')).toHaveLength(4);
+  await screen.findByRole('heading', { name: '管理员投票状态（4 人）' });
+  expect(screen.getAllByText('未填写')).toHaveLength(4);
+  expect(screen.queryByText('姓名及岗位名称：历史资料未记录')).toBeNull();
   expect(mocks.invoke.mock.calls.some(([command]) => command === 'get_institution_detail' || command === 'get_role_access')).toBe(false);
 
   const card = (accountId: string) =>
@@ -174,12 +179,16 @@ it('同人跨岗位保留两张冻结票，前端外传钱包不能改写冻结�
   mocks.invoke.mockImplementation(async (c:string) => {
     if(c==='get_proposal_display') return null;
     if(c==='get_proposal_detail') return {meta:{proposalId:'7',kind:0,stage:0,status:0,actorCidNumber:cid,subjectCidNumbers:[cid]},voterRoleSubjects:[],frozenVoteView:{genesisHash:'A',blockHash:'final',blockNumber:'1',endBlock:'100',kind:0,stage:0,status:0,scopeError:null,actorCidNumber:cid,roles:[{cidNumber:cid,roleCode:'ROLE_1',error:null,voters:[{personCid:'fixture-person',accountId:oldWallet,bindingRevision:'1',vote:false,voteError:null}]},{cidNumber:cid,roleCode:'ROLE_2',voters:[{personCid:'fixture-person',accountId:oldWallet,bindingRevision:null,vote:null,voteError:null}],error:'人员当前绑定缺失'}]}};
-    throw new Error('不应读取现任目录');
+    if(c==='get_institution_roles')return {cidNumber:cid,roles:[{roleCode:'ROLE_1',roleName:'委员',assignments:[{personCid:'new-person',accountId:'0x'+'33'.repeat(32),bindingRevision:'1',familyName:'新',givenName:'任'}]}]};
+    if(c==='get_account_balances')return {};
+    throw new Error('非预期调用');
   });
   render(<ProposalDetailPage proposalId="7" cidNumber={cid} roleSigners={[{personCid:'new-person',bindingRevision:'1',roleCode:'ROLE_1',permissions:[],accountId:'0x'+'33'.repeat(32),roleName:'新任'}]} onBack={()=>{}} />);
-  await screen.findByRole('heading',{name:'原提案冻结资格（1 个当前绑定 / 2 张岗位票）'});
+  await screen.findByRole('heading',{name:'管理员投票状态（1 人）'});
+  expect(document.querySelectorAll('.proposal-detail-vote-grid > .institution-assignment-card')).toHaveLength(2);
   expect(screen.getAllByText(accountIdToSs58(oldWallet))).toHaveLength(2);
   expect(screen.queryByText(accountIdToSs58('0x'+'33'.repeat(32)))).toBeNull();
+  expect(screen.queryByText('新任')).toBeNull();
   expect(screen.queryByRole('button',{name:'投票'})).toBeNull();
 });
 it('切换提案后丢弃旧提案迟到结果', async () => {
@@ -194,4 +203,102 @@ it('切换提案后丢弃旧提案迟到结果', async () => {
   await screen.findByText('新提案机构');
   await act(async()=>resolveOld({meta:{proposalId:'7',kind:0,stage:0,status:0,subjectCidNumbers:[]},cidFullName:'旧提案迟到',voterRoleSubjects:[]}));
   expect(screen.queryByText('旧提案迟到')).toBeNull();
+});
+
+
+function cardProposal(cid='card-cid',id='7'){
+ return {meta:{proposalId:id,kind:0,stage:0,status:0,actorCidNumber:cid,subjectCidNumbers:[cid]},voterRoleSubjects:[],cidFullName:cid,
+ frozenVoteView:{genesisHash:'chain',blockHash:'final',blockNumber:'1',endBlock:'100',kind:0,stage:0,status:0,scopeError:null,actorCidNumber:cid,
+ roles:[{cidNumber:cid,roleCode:'COMMITTEE_MEMBER',error:null,voters:[{personCid:'person-1',accountId:oldWallet,bindingRevision:'1',vote:null,voteError:null}]}]}};
+}
+function cardRoles(cid='card-cid'){
+ return {cidNumber:cid,roles:[{roleCode:'COMMITTEE_MEMBER',roleName:'委员',seats:19,termRequired:false,assignments:[
+  {personCid:'person-1',accountId:oldWallet,bindingRevision:'1',familyName:'合成',givenName:'委员',assignmentSourceLabel:'创世',assignmentSourceRef:'0xdeadbeef',termStart:0,termEnd:0},
+  {personCid:'extra-current',accountId:'0x'+'33'.repeat(32),bindingRevision:'1',familyName:'额外',givenName:'现任',assignmentSourceLabel:'注册局',termStart:0,termEnd:0},
+ ]}]};
+}
+it('投票详情恢复原卡片资料、方形序号和右侧操作，现任目录不能增加原票据',async()=>{
+ mocks.invoke.mockImplementation(async(c:string)=>c==='get_proposal_detail'?cardProposal():c==='get_institution_roles'?cardRoles():c==='get_account_balances'?{[oldWallet]:'12345'}:null);
+ const view=render(<ProposalDetailPage proposalId="7" cidNumber="card-cid" roleSigners={[]} onBack={()=>{}}/>);
+ await screen.findByText('合成委员');await screen.findByText('123.45 元');
+ const cards=view.container.querySelectorAll('.proposal-detail-vote-grid > .metric-card');expect(cards).toHaveLength(1);
+ const card=cards[0];expect(card.querySelector('.institution-assignment-top > .admin-card-index')?.textContent).toBe('1');
+ expect(card.querySelector('.institution-assignment-top-action .vote-button-inline')?.textContent).toBe('投票');
+ expect(card.querySelector('.institution-assignment-account')?.textContent).toContain('来源:创世任期:无固定任期账户余额:123.45 元');
+ expect(Array.from(card.querySelectorAll('.institution-assignment-account > .institution-assignment-field .institution-assignment-label')).map(node=>node.textContent)).toEqual(['账户余额:','身份CID号:','绑定账户:']);
+ expect(card.textContent).toContain('身份CID号:person-1');
+ expect(card.textContent).toContain(accountIdToSs58(oldWallet));expect(card.textContent).not.toContain('依据');expect(card.textContent).not.toContain('deadbeef');
+ expect(screen.queryByText('额外现任')).toBeNull();expect(screen.queryByText(/姓名及岗位名称：历史资料未记录/)).toBeNull();
+ expect(mocks.invoke).toHaveBeenCalledWith('get_account_balances',{accountIds:[oldWallet]});view.unmount();
+});
+it('展示资料读取失败仍保留原投票卡片及资格，缺失余额显示未知',async()=>{
+ mocks.invoke.mockImplementation(async(c:string)=>{if(c==='get_proposal_detail')return cardProposal();if(c==='get_proposal_display')return null;throw Error('合成读取失败');});
+ const view=render(<ProposalDetailPage proposalId="7" cidNumber="card-cid" roleSigners={[]} onBack={()=>{}}/>);
+ await screen.findByText('人员资料读取失败；账户余额读取失败');
+ expect(view.container.querySelectorAll('.proposal-detail-vote-grid > .metric-card')).toHaveLength(1);
+ expect(screen.getByRole('button',{name:'投票'})).toBeTruthy();
+ expect(view.container.querySelector('.institution-assignment-account')?.textContent).toContain('账户余额:—');
+ expect(screen.queryByText('0.00 元')).toBeNull();view.unmount();
+});
+it('姓名只匹配同一人员与绑定版本，不能用同钱包现任或旧绑定填充',async()=>{
+ const roles=cardRoles();roles.roles[0].assignments[0].bindingRevision='2';
+ mocks.invoke.mockImplementation(async(c:string)=>c==='get_proposal_detail'?cardProposal():c==='get_institution_roles'?roles:c==='get_account_balances'?{[oldWallet]:'0'}:null);
+ const view=render(<ProposalDetailPage proposalId="7" cidNumber="card-cid" roleSigners={[]} onBack={()=>{}}/>);
+ await screen.findByText('0.00 元');expect(screen.queryByText('合成委员')).toBeNull();expect(screen.getByText('未填写')).toBeTruthy();
+ expect(screen.getByRole('button',{name:'投票'})).toBeTruthy();view.unmount();
+});
+it('切换提案后丢弃旧卡片资料，原票据空角色的错误仍显示',async()=>{
+ let finish!:(value:unknown)=>void;
+ mocks.invoke.mockImplementation(async(c:string,args:{proposalId?:string;cidNumber?:string})=>{
+  if(c==='get_proposal_display')return null;
+  if(c==='get_proposal_detail')return cardProposal(args.proposalId==='7'?'old-cid':'new-cid',args.proposalId);
+  if(c==='get_account_balances')return{};
+  if(args.cidNumber==='old-cid')return new Promise(resolve=>{finish=resolve;});
+  const roles=cardRoles('new-cid');roles.roles[0].assignments[0].givenName='新页面';return roles;
+ });
+ const view=render(<ProposalDetailPage proposalId="7" cidNumber="old-cid" roleSigners={[]} onBack={()=>{}}/>);
+ await waitFor(()=>expect(finish).toBeDefined());
+ view.rerender(<ProposalDetailPage proposalId="8" cidNumber="new-cid" roleSigners={[]} onBack={()=>{}}/>);
+ await screen.findByText('合成新页面');await act(async()=>finish(cardRoles('old-cid')));
+ expect(screen.queryByText('合成委员')).toBeNull();view.unmount();
+ const data=cardProposal();data.frozenVoteView.roles[0].voters=[];Object.assign(data.frozenVoteView.roles[0],{error:'原票据读取失败'});
+ mocks.invoke.mockImplementation(async c=>c==='get_proposal_detail'?data:null);
+ const empty=render(<ProposalDetailPage proposalId="7" cidNumber="card-cid" roleSigners={[]} onBack={()=>{}}/>);
+ await screen.findByText('原票据读取失败');empty.unmount();
+});
+
+
+it('提案原有状态刷新不重复读取卡片资料和余额',async()=>{
+ mocks.invoke.mockImplementation(async(c:string)=>c==='get_proposal_detail'?cardProposal():c==='get_institution_roles'?cardRoles():c==='get_account_balances'?{[oldWallet]:'12345'}:null);
+ vi.useFakeTimers();
+ const view=render(<ProposalDetailPage proposalId="7" cidNumber="card-cid" roleSigners={[]} onBack={()=>{}}/>);
+ try{
+  await act(async()=>{});expect(screen.getByText('合成委员')).toBeTruthy();
+  await act(async()=>vi.advanceTimersByTimeAsync(15000));
+  expect(mocks.invoke.mock.calls.filter(([c])=>c==='get_proposal_detail')).toHaveLength(4);
+  expect(mocks.invoke.mock.calls.filter(([c])=>c==='get_institution_roles')).toHaveLength(1);
+  expect(mocks.invoke.mock.calls.filter(([c])=>c==='get_account_balances')).toHaveLength(1);
+ }finally{view.unmount();vi.useRealTimers();}
+});
+
+it('投票详情恢复原四列自适应卡片与方形序号样式',()=>{
+ const style=document.createElement('style');style.textContent=readFileSync(resolve(process.cwd(),'institution/styles.css'),'utf8');document.head.append(style);
+ const host=document.createElement('div');host.className='proposal-detail-page';host.innerHTML='<div class="institution-row-grid proposal-detail-vote-grid"><div class="metric-card institution-assignment-card institution-assignment-compact-vote"><div class="institution-assignment-top"><span class="admin-card-index">1</span><div class="institution-assignment-top-action"></div></div></div></div>';document.body.append(host);
+ try{
+  expect(getComputedStyle(host.querySelector('.proposal-detail-vote-grid')!).gridTemplateColumns).toBe('repeat(auto-fit, minmax(min(100%, max(268px, calc((100% - 36px) / 4))), 1fr))');
+  const index=getComputedStyle(host.querySelector('.admin-card-index')!);expect(index.minWidth).toBe('28px');expect(index.height).toBe('28px');expect(index.borderRadius).toBe('8px');
+  expect(getComputedStyle(host.querySelector('.institution-assignment-top-action')!).marginLeft).toBe('auto');
+ }finally{host.remove();style.remove();}
+});
+
+
+it('原票据没有个人CID时身份CID号显示未知，不用账户或现任CID替代',async()=>{
+ const data=cardProposal();Object.assign(data.frozenVoteView.roles[0].voters[0],{personCid:null,bindingRevision:null});
+ mocks.invoke.mockImplementation(async(c:string)=>c==='get_proposal_detail'?data:c==='get_institution_roles'?cardRoles():c==='get_account_balances'?{[oldWallet]:'0'}:null);
+ const page=render(<ProposalDetailPage proposalId="7" cidNumber="card-cid" roleSigners={[]} onBack={()=>{}}/>);
+ await screen.findByText('0.00 元');
+ const fields=Array.from(page.container.querySelectorAll('.institution-assignment-account > .institution-assignment-field'));
+ expect(fields.map(node=>node.querySelector('.institution-assignment-label')?.textContent)).toEqual(['账户余额:','身份CID号:','绑定账户:']);
+ expect(fields[1].textContent).toBe('身份CID号:—');expect(fields[2].textContent).toContain(accountIdToSs58(oldWallet));
+ expect(screen.queryByRole('button',{name:'投票'})).toBeNull();page.unmount();
 });

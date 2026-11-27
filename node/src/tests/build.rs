@@ -104,7 +104,7 @@ fn macos_release_archive_preserves_signed_app_and_rejects_corruption() {
 // 同一夹具既可由Rust测试调用，也可从控制台直接交给官方Node定向验收。
 const POSTGRES_TEST: &str = r#"
 import assert from 'node:assert/strict';
-import {mkdirSync, mkdtempSync, writeFileSync, existsSync, rmSync, realpathSync, readFileSync, copyFileSync} from 'node:fs';
+import {mkdirSync, mkdtempSync, writeFileSync, existsSync, rmSync, realpathSync, readFileSync, copyFileSync, cpSync} from 'node:fs';
 import {join,sep,win32} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {spawnSync} from 'node:child_process';
@@ -192,12 +192,26 @@ try{
   await run('/usr/bin/clang',['-dynamiclib',join(source,'b.c'),'-install_name','@loader_path/libb.dylib','-o',join(source,'libb.dylib')]);
   await run('/usr/bin/clang',['-dynamiclib',join(source,'a.c'),'-install_name',join(source,'liba.dylib'),'-L'+source,'-lb','-o',join(source,'liba.dylib')]);
   await run('/usr/bin/clang',[join(source,'main.c'),'-L'+source,'-la','-o',exe]);
+  const moduleIds=['registry','legislation','judicial','private'];
+  for(const id of moduleIds){
+   const directory=join(resources,'onchina-bin/modules',id);mkdirSync(directory,{recursive:true});
+   await run('/usr/bin/clang',[join(source,'main.c'),'-L'+source,'-la','-o',join(directory,'onchina-'+id)]);
+  }
   const files=await macLibraries(resources,exe,env);
   assert.ok(existsSync(join(resources,'postgres/macos/lib/libb.dylib')));
   const signing=appleSigning(files,resources);
   assert.deepEqual(signing.at(-1),{path:'.',entitlements:join(root,'node/Entitlements.plist')});
   assert.ok(signing.some(item=>item.path==='Contents/Resources/postgres/macos/lib/libb.dylib'&&item.entitlements===null));
   await signLocalResources([...files,exe],env);
+  // 真实签名Mach-O模块搬出App并移除原模块后仍必须执行，不能只匹配链接字符串。
+  const moved=join(work,'moved-modules');cpSync(join(resources,'onchina-bin/modules'),moved,{recursive:true});
+  rmSync(join(resources,'onchina-bin/modules'),{recursive:true});
+  for(const id of moduleIds){
+   for(const name of ['liba.dylib','libb.dylib'])assert.ok(existsSync(join(moved,id,'lib',name)));
+   await run(join(moved,id,'onchina-'+id),['--describe']);
+  }
+  rmSync(join(moved,'registry/lib/libb.dylib'));
+  await assert.rejects(run(join(moved,'registry/onchina-registry'),['--describe']));count++;
   await run('/usr/bin/codesign',['--verify','--strict',exe]);
   await assert.rejects(signLocalResources([join(work,'missing')],env),/codesign/);
   const portable=join(work,'Portable/Contents/Resources'),portableExe=join(work,'Portable/Contents/MacOS/main');

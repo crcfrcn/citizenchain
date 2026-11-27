@@ -3,6 +3,10 @@
 import { proposalApi } from './api';
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
+import { formatBalance } from '../client/format';
+import { IdentityCidText } from '../client/identityCid';
+import { rolesApi } from '../institution/roles';
+import type { InstitutionRolesState } from '../institution/assignments';
 import { MultisigTransferProposalDetailSection } from "../multisig/ProposalDetailSection";
 import type { ProposalFullInfo, FrozenVoteBinding } from "./types";
 import type { RoleSigner } from "../institution/council";
@@ -29,6 +33,28 @@ export function ProposalDetailPage({ proposalId, roleSigners: externalSigners, c
   const epoch = useRef(0);
   const previousChain = useRef<string | null>(null);
   const signersKey = JSON.stringify(externalSigners.map(s => [s.personCid, s.roleCode, s.accountId, s.bindingRevision]).sort());
+  const displayCid = externalCidNumber ?? info?.meta.actorCidNumber ?? info?.meta.subjectCidNumbers[0];
+  const displayRoles = info?.frozenVoteView?.roles.filter(role => role.cidNumber === displayCid) ?? [];
+  const displayKey = JSON.stringify([proposalId, displayCid, info?.frozenVoteView?.genesisHash,
+    displayRoles.map(role => [role.roleCode, role.voters.map(voter => [voter.personCid, voter.accountId, voter.bindingRevision])])]);
+  const [cardData, setCardData] = useState<{key:string; roles:InstitutionRolesState|null; balances:Record<string,string|null>; error:string|null}>({key:'', roles:null, balances:{}, error:null});
+  // 现行任职只补齐同一人员的卡片资料；卡片数量、投票资格和状态仍只取原票据。
+  useEffect(() => {
+    let active = true;
+    if (!displayCid || !displayRoles.some(role => role.voters.length)) return () => { active = false; };
+    const accounts = [...new Set(displayRoles.flatMap(role => role.voters.flatMap(voter => voter.accountId ? [voter.accountId] : [])))];
+    void Promise.allSettled([
+      rolesApi.getInstitutionRoles({cidNumber:displayCid}),
+      accounts.length ? rolesApi.getAccountBalances(accounts) : Promise.resolve({}),
+    ]).then(([roles, balances]) => {
+      if (!active) return;
+      const validRoles = roles.status === 'fulfilled' && roles.value?.cidNumber === displayCid ? roles.value : null;
+      const errors = [roles.status === 'rejected' ? '人员资料读取失败' : roles.value && !validRoles ? '人员资料机构不一致' : null,
+        balances.status === 'rejected' ? '账户余额读取失败' : null].filter(Boolean);
+      setCardData({key:displayKey, roles:validRoles, balances:balances.status==='fulfilled'?balances.value:{}, error:errors.join('；')||null});
+    });
+    return () => { active = false; };
+  }, [displayKey]);
   const refreshData = useCallback(async () => {
     const token = epoch.current;
     try {
@@ -159,16 +185,15 @@ export function ProposalDetailPage({ proposalId, roleSigners: externalSigners, c
         const view = info.frozenVoteView;
         const cid = externalCidNumber ?? meta.actorCidNumber ?? meta.subjectCidNumbers[0];
         const roles = view.roles.filter(role => role.cidNumber === cid);
-        const ticketCount = roles.reduce((n, r) => n + r.voters.length, 0);
-        const walletCount = new Set(roles.flatMap(r => r.voters.filter(v => v.accountId && v.bindingRevision != null).map(v => v.accountId))).size;
+        const memberCount = new Set(roles.flatMap(role => role.voters.map(voter => voter.personCid ?? voter.accountId).filter(Boolean))).size;
         return <div className="institution-info-section">
-          <h3>原提案冻结资格（{walletCount} 个当前绑定 / {ticketCount} 张岗位票）</h3>
+          <h3>管理员投票状态（{memberCount} 人）</h3>
           {view.scopeError && <p className="error">{view.scopeError}</p>}
+          {cardData.key === displayKey && cardData.error && <p className="error">{cardData.error}</p>}
+          {roles.filter(role => role.error && !role.voters.length).map(role => <p key={role.roleCode} className="error">{role.error}</p>)}
           {!roles.length && <p className="error">原提案中没有该机构的冻结票据</p>}
           <div className="institution-row-grid proposal-detail-vote-grid">
-            {roles.map(role => <div key={role.cidNumber + ':' + role.roleCode}>
-              {role.error && <p className="error">{role.error}</p>}
-              {role.voters.map(voter => {
+            {roles.flatMap((role,roleIndex) => role.voters.map((voter,voterIndex) => {
                 const binding: FrozenVoteBinding | null = !voter.personCid||!voter.accountId||voter.bindingRevision == null ? null : {
                   genesisHash: view.genesisHash, proposalId, cidNumber: role.cidNumber,
                   roleCode: role.roleCode, accountId: voter.accountId, bindingRevision: voter.bindingRevision,personCid:voter.personCid!,
@@ -179,20 +204,44 @@ export function ProposalDetailPage({ proposalId, roleSigners: externalSigners, c
                 const canVote = !pendingError && !error && !view.scopeError && !role.error && !voter.voteError && binding && voter.vote == null &&
                   view.status === 0 && ((view.kind === 0 && view.stage === 0) || (view.kind === 1 && view.stage === 1)) &&
                   BigInt(view.blockNumber) <= BigInt(view.endBlock);
-                return <div className="institution-assignment-card" key={voter.personCid??voter.accountId??role.roleCode}>
-                  <p><code>{voter.accountId?accountIdToSs58(voter.accountId):'无有效当前绑定'}</code></p>
-                  <p>原岗位：{role.roleCode} / 人员CID：{voter.personCid??'历史钱包快照'}</p>
-                  <p>姓名及岗位名称：历史资料未记录</p>
+                const profileRole = cardData.key === displayKey ? cardData.roles?.roles.find(item => item.roleCode === role.roleCode) : null;
+                const person = voter.personCid ? profileRole?.assignments.find(item => item.personCid === voter.personCid && item.accountId === voter.accountId && item.bindingRevision === voter.bindingRevision) : null;
+                const name = person ? `${person.familyName}${person.givenName}`.trim() || '未填写' : '未填写';
+                const roleName = profileRole?.roleName ?? (role.roleCode === 'COMMITTEE_MEMBER' ? '委员' : role.roleCode === 'DIRECTOR' ? '董事' : '岗位未记录');
+                const day = (value:number) => {
+                  if (!value) return '';
+                  const date = new Date(value*86400000);
+                  return `${date.getUTCFullYear()}/${String(date.getUTCMonth()+1).padStart(2,'0')}/${String(date.getUTCDate()).padStart(2,'0')}`;
+                };
+                const term = !person ? '—' : !profileRole?.termRequired ? '无固定任期' : person.termStart || person.termEnd ? `${day(person.termStart)||'—'}-${day(person.termEnd)||'—'}` : '待写入';
+                const balance = cardData.key === displayKey && voter.accountId ? cardData.balances[voter.accountId] : null;
+                const index = roles.slice(0,roleIndex).reduce((count,item)=>count+item.voters.length,0)+voterIndex+1;
+                return <div className={`metric-card institution-assignment-card institution-assignment-compact-vote ${voter.vote===true?'admin-card-voted-yes':voter.vote===false?'admin-card-voted-no':''}`} key={`${role.cidNumber}:${role.roleCode}:${voter.personCid??voter.accountId??voterIndex}`}>
+                  <div className="institution-assignment-top">
+                    <span className="admin-card-index">{index}</span>
+                    <div className="institution-assignment-person"><span className="institution-assignment-role">{roleName}</span><span className="institution-assignment-dot" aria-hidden="true"/><span className="institution-assignment-name">{name}</span></div>
+                    <div className="institution-assignment-top-action">
                   {voter.voteError ? <p className="error">投票状态未知：{voter.voteError}</p> :
-                    voter.vote === true ? <span className="vote-yes-tag">赞成</span> :
-                    voter.vote === false ? <span className="vote-no-tag">反对</span> :
-                    <span>{pending ? '已签名，等待链上确认' : '未投票'}</span>}
+                    voter.vote === true ? <span className="vote-result-tag vote-yes-tag">赞成</span> :
+                    voter.vote === false ? <span className="vote-result-tag vote-no-tag">反对</span> :
+                    <span className="vote-result-tag">{pending ? '已签名，等待链上确认' : '未投票'}</span>}
+                  {binding && pending ? <button className="vote-button-inline" onClick={() => setVotingTicket(binding)}>恢复原签名</button> :
+                    canVote ? <button className="vote-button-inline" onClick={() => setVotingTicket(binding)}>投票</button> : null}
+                    </div>
+                  </div>
+                  <div className="institution-assignment-account">
+                    <div className="institution-assignment-list-row">
+                      <div className="institution-assignment-field"><span className="institution-assignment-label">来源:</span><span className="institution-assignment-value">{person?.assignmentSourceLabel||'—'}</span></div>
+                      <div className="institution-assignment-field"><span className="institution-assignment-label">任期:</span><span className="institution-assignment-value">{term}</span></div>
+                    </div>
+                    <div className="institution-assignment-field"><span className="institution-assignment-label">账户余额:</span><span className="institution-assignment-value">{balance!=null?formatBalance(balance):'—'}</span></div>
+                    <div className="institution-assignment-field"><span className="institution-assignment-label">身份CID号:</span><span className="institution-assignment-value"><IdentityCidText value={voter.personCid??'—'}/></span></div>
+                    <div className="institution-assignment-field"><span className="institution-assignment-label">绑定账户:</span><span className="institution-assignment-value">{voter.accountId?accountIdToSs58(voter.accountId):'无有效当前绑定'}</span></div>
+                  </div>
+                  {role.error && <p className="error">{role.error}</p>}
                   {pendingError && <p className="error">{pendingError}</p>}
-                  {binding && pending ? <button onClick={() => setVotingTicket(binding)}>恢复原签名</button> :
-                    canVote ? <button onClick={() => setVotingTicket(binding)}>投票</button> : null}
                 </div>;
-              })}
-            </div>)}
+              }))}
           </div>
         </div>;
       })()}

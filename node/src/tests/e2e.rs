@@ -47,3 +47,29 @@ console.log('隔离节点的原创世与真实System健康RPC通过');
         .status().expect("执行公开HTTPS只读客户端");
     assert!(status.success(), "隔离节点HTTPS只读验收失败");
 }
+
+#[test]
+fn transaction_history_pagination_preserves_block_items_and_boundaries() {
+    use crate::rpc::{transaction_history_page,HistoryBlock};
+    use nodeonchain::types::{TransactionRecord,TransactionCursor};
+    let block=|number:u32|Ok(HistoryBlock{extrinsic_count:25,records:(0..25).map(|index|(index,TransactionRecord{
+        block_number:number,timestamp:1,tx_hash:format!("{number}:{index}"),account_ids:vec![],direction:"sent".into(),mode:"transfer".into(),transfer_count:1,amount_fen:"100".into(),fee_fen:"10".into(),state:"success".into()
+    })).collect()});
+    let first=transaction_history_page(1,None,block).unwrap();
+    assert_eq!(first.records.len(),20);assert_eq!(first.records[0].tx_hash,"1:24");assert_eq!(first.records[19].tx_hash,"1:5");
+    let cursor=first.cursor.unwrap();assert_eq!(cursor.block_number,1);assert_eq!(cursor.extrinsic_index,Some(4));
+    let next=transaction_history_page(1,Some(cursor),block).unwrap();
+    assert_eq!(next.records.len(),5);assert_eq!(next.records[0].tx_hash,"1:4");assert_eq!(next.records[4].tx_hash,"1:0");assert!(next.cursor.is_none());
+    assert!(transaction_history_page(1,Some(TransactionCursor{block_number:2,extrinsic_index:None}),block).is_err());
+    assert!(transaction_history_page(1,Some(TransactionCursor{block_number:1,extrinsic_index:Some(25)}),block).is_err());
+}
+
+#[test]
+fn transaction_history_empty_pages_are_bounded_and_do_not_hide_read_failures() {
+    use crate::rpc::{transaction_history_page,HistoryBlock};
+    let mut read=Vec::new();
+    let page=transaction_history_page(100,None,|number|{read.push(number);Ok(HistoryBlock{extrinsic_count:1,records:vec![]})}).unwrap();
+    assert_eq!(read,(85..=100).rev().collect::<Vec<_>>());assert_eq!(page.cursor.unwrap().block_number,84);
+    assert!(transaction_history_page(10,None,|_|Err("合成归档读取失败".into())).is_err());
+    let page=transaction_history_page(0,None,|_|panic!("创世起点没有需要读取的交易")).unwrap();assert!(page.records.is_empty());assert!(page.cursor.is_none());
+}

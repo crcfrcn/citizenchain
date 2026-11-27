@@ -626,6 +626,41 @@ where
         })?;
     }
 
+    // 从本机最终链倒序读取钱包记录；有界分页，无本地索引或写入。
+    {
+        let client = client.clone();
+        module.register_method("transaction_getHistory", move |params, _, _| {
+            use sp_api::Metadata;
+            use sp_runtime::traits::Header;
+            use nodeonchain::types::{TransactionCursor, TransactionHistory, TransactionRecord};
+            let (accounts, cursor): (Vec<String>, Option<TransactionCursor>) = params.parse()?;
+            let invalid=|message:String|jsonrpsee::types::ErrorObjectOwned::owned(-32602,message,None::<()>);
+            let accounts=accounts.iter().map(|account| {
+                account.strip_prefix("0x").and_then(|value|hex::decode(value).ok()).and_then(|value|<[u8;32]>::try_from(value).ok()).ok_or_else(||invalid("交易记录钱包账户无效".into()))
+            }).collect::<Result<Vec<_>,_>>()?;
+            if accounts.is_empty(){return Ok(TransactionHistory{records:Vec::new(),cursor:None});}
+            transaction_history_page(client.info().finalized_number,cursor,|number| {
+                let hash=client.hash(number).map_err(|error|error.to_string())?.ok_or("历史最终块缺失")?;
+                let header=client.header(hash).map_err(|error|error.to_string())?.ok_or("历史块头缺失")?;
+                let body=client.block_body(hash).map_err(|error|error.to_string())?.ok_or("历史区块体缺失")?;
+                let metadata=client.runtime_api().metadata(*header.parent_hash()).map_err(|error|error.to_string())?;
+                let raw=client.storage(hash,&sp_storage::StorageKey(nodedesktop::storage::prefix(b"System",b"Events"))).map_err(|error|error.to_string())?.ok_or("历史事件缺失")?;
+                let time=client.storage(hash,&sp_storage::StorageKey(nodedesktop::storage::prefix(b"Timestamp",b"Now"))).map_err(|error|error.to_string())?.ok_or("历史时间缺失")?;
+                let timestamp=u64::decode(&mut time.0.as_slice()).map_err(|error|error.to_string())?;
+                if time.0.len()!=8 {return Err("历史时间格式无效".into());}
+                let records=nodeclient::codec::transaction_activity(&body,&raw.0,metadata.as_slice(),&accounts)?.into_iter().map(|activity| {
+                    let index=activity.extrinsic_index;
+                    let record=TransactionRecord{block_number:number,timestamp,tx_hash:format!("0x{}",hex::encode(sp_io::hashing::blake2_256(&body[index as usize].encode()))),
+                        account_ids:activity.account_ids.iter().map(|account|format!("0x{}",hex::encode(account))).collect(),
+                        direction:activity.direction.into(),mode:activity.mode,transfer_count:activity.transfer_count,
+                        amount_fen:activity.amount_fen.to_string(),fee_fen:activity.fee_fen.to_string(),state:activity.state.into()};
+                    (index,record)
+                }).collect();
+                Ok(HistoryBlock{extrinsic_count:body.len(),records})
+            }).map_err(invalid)
+        })?;
+    }
+
     // fee_blockFees(block_hash_hex: String) -> u128
     // 读取指定区块的 System::Events，累加所有 FeePaid.fee。
     // tip 在协议层强制为零，不再读取框架 TransactionFeePaid 事件拼接第二种口径。
@@ -677,4 +712,36 @@ where
     }
 
     Ok(module)
+}
+
+
+/// 一次块读取的交易数及相关记录，仅用于本机历史分页。
+pub(crate) struct HistoryBlock {
+    pub extrinsic_count: usize,
+    pub records: Vec<(u32, nodeonchain::types::TransactionRecord)>,
+}
+
+/// 最多读取16个最终块、返回20条，游标能保留同一块内尚未返回的记录。
+pub(crate) fn transaction_history_page(
+    finalized: u32, cursor: Option<nodeonchain::types::TransactionCursor>,
+    mut read: impl FnMut(u32) -> Result<HistoryBlock,String>,
+) -> Result<nodeonchain::types::TransactionHistory,String> {
+    use nodeonchain::types::{TransactionCursor,TransactionHistory};
+    let upper=cursor.as_ref().map_or(finalized,|cursor|cursor.block_number);
+    if upper>finalized || upper==0 && cursor.as_ref().is_some_and(|cursor|cursor.extrinsic_index.is_some()) {return Err("交易记录游标超出最终链".into());}
+    let lower=upper.saturating_sub(15).max(1);
+    let mut records=Vec::new();
+    for number in (lower..=upper).rev() {
+        let block=read(number)?;
+        let start=cursor.as_ref().filter(|cursor|cursor.block_number==number).and_then(|cursor|cursor.extrinsic_index);
+        if start.is_some_and(|index|index as usize>=block.extrinsic_count){return Err("历史交易索引无效".into());}
+        for (index,record) in block.records.into_iter().rev().filter(|(index,_)|start.is_none_or(|start|*index<=start)) {
+            records.push(record);
+            if records.len()==20 {
+                let cursor=if index>0 {Some(TransactionCursor{block_number:number,extrinsic_index:Some(index-1)})} else if number>1 {Some(TransactionCursor{block_number:number-1,extrinsic_index:None})} else {None};
+                return Ok(TransactionHistory{records,cursor});
+            }
+        }
+    }
+    Ok(TransactionHistory{records,cursor:if lower>1 {Some(TransactionCursor{block_number:lower-1,extrinsic_index:None})} else {None}})
 }

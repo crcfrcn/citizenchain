@@ -37,6 +37,7 @@ sc-executor = { workspace = true, default-features = true }
 sc-network = { workspace = true, default-features = true }
 sc-service = { workspace = true, default-features = true }
 sc-transaction-pool-api = { workspace = true, default-features = true }
+scale-value = "=0.18.2"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, default-features = true }
 sha2 = "=0.10.9"

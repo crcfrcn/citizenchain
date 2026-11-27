@@ -276,6 +276,26 @@ pub fn get_transfer_result(tx_hash: String, cursor: u32) -> Result<serde_json::V
     nodedesktop::rpc::rpc_post("transaction_getTransferResult", serde_json::json!([tx_hash, cursor, 16]), std::time::Duration::from_secs(45), nodedesktop::constants::RPC_RESPONSE_LIMIT_SMALL)
 }
 
+/// 仅为当前钱包目录查询本机最终链历史，不签名、不写入本地交易数据。
+#[tauri::command]
+pub async fn get_transaction_history(
+    app: tauri::AppHandle,
+    cursor: Option<crate::types::TransactionCursor>,
+) -> Result<crate::types::TransactionHistory, String> {
+    if !nodecontrol::identity::current_status(&app)?.running {
+        return Err("节点未运行".into());
+    }
+    let store = wallet_store_for_frontend(&app, crate::wallet::load(&app)?)?;
+    let accounts = store.wallets.into_iter().map(|wallet| wallet.account_id).collect::<Vec<_>>();
+    tauri::async_runtime::spawn_blocking(move || {
+        let value = nodedesktop::rpc::rpc_post(
+            "transaction_getHistory", serde_json::json!([accounts, cursor]),
+            std::time::Duration::from_secs(45), nodedesktop::constants::RPC_RESPONSE_LIMIT_LARGE,
+        )?;
+        serde_json::from_value(value).map_err(|error| format!("交易记录响应无效：{error}"))
+    }).await.map_err(|error| error.to_string())?
+}
+
 /// 只读当前Runtime能力，不以节点编译期版本代替链上部署状态。
 #[tauri::command]
 pub fn get_transfer_policy() -> Result<serde_json::Value,String> {

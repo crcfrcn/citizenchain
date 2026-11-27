@@ -561,3 +561,107 @@ pub fn serialize_decimal<S: serde::Serializer, T: core::fmt::Display>(
 ) -> Result<S::Ok, S::Error> {
     serializer.collect_str(value)
 }
+
+/// 查询结果中的钱包资金摘要；不参与节点守卫和交易放行。
+#[derive(Debug)]
+pub struct TransactionActivity {
+    pub extrinsic_index: u32,
+    pub account_ids: Vec<[u8;32]>,
+    pub direction: &'static str,
+    pub mode: String,
+    pub transfer_count: u32,
+    pub amount_fen: u128,
+    pub fee_fen: u128,
+    pub state: &'static str,
+}
+
+/// 按执行父元数据读取交易及实际事件，仅生成查询展示资料。
+pub fn transaction_activity(body:&[sp_runtime::OpaqueExtrinsic],raw:&[u8],metadata:&[u8],accounts:&[[u8;32]])->Result<Vec<TransactionActivity>,String>{
+    use scale_value::{Value,ValueDef,Composite};
+    use std::collections::BTreeSet;
+    fn field<'a>(v:&'a Value<()>,name:&str)->Option<&'a Value<()>>{
+        match &v.value{ValueDef::Composite(Composite::Named(fields))|ValueDef::Variant(scale_value::Variant{values:Composite::Named(fields),..})=>fields.iter().find(|(n,_)|n==name).map(|(_,v)|v),_=>None}
+    }
+    fn parts(v:&Value<()>)->Result<(&str,Vec<&Value<()>>),String>{
+        match &v.value{ValueDef::Variant(v)=>Ok((&v.name,v.values.values().collect())),_=>Err("查询变体类型无效".into())}
+    }
+    fn bytes(v:&Value<()>)->Option<Vec<u8>>{
+        match &v.value{
+            ValueDef::Composite(Composite::Unnamed(values))=>{
+                if values.len()==1&&values[0].as_u128().is_none(){return bytes(&values[0]);}
+                values.iter().map(|v|v.as_u128().and_then(|n|u8::try_from(n).ok())).collect()
+            },_=>None
+        }
+    }
+    fn account(v:&Value<()>)->Option<[u8;32]>{bytes(v)?.try_into().ok()}
+    fn proof(v:&Value<()>)->Option<[u8;32]>{
+        if let Some(value)=field(v,"account"){return account(value);}
+        let fields=match &v.value{ValueDef::Composite(f)=>Some(f),ValueDef::Variant(v)=>Some(&v.values),_=>None}?;
+        fields.values().find_map(proof)
+    }
+    fn calls(v:&Value<()>,items:&mut Vec<([u8;32],u128)>)->Result<String,String>{
+        let (pallet,p)=parts(v)?;let call=p.first().ok_or("查询调用包装缺失")?;
+        let (name,_)=parts(call)?;
+        if matches!(pallet,"Onchain"|"OnchainTransaction")&&name=="transfer_with_remark"{
+            items.push((field(call,"beneficiary_account_id").and_then(account).ok_or("查询收款账户缺失")?,field(call,"amount").and_then(Value::as_u128).ok_or("查询金额缺失")?));
+            return Ok("transfer".into());
+        }
+        if pallet=="Utility"&&matches!(name,"batch"|"batch_all"|"force_batch"){
+            let values=field(call,"calls").ok_or("查询批次清单缺失")?;
+            if let ValueDef::Composite(values)=&values.value{for value in values.values(){calls(value,items)?;}}else{return Err("查询批次清单无效".into());}
+            return Ok(name.into());
+        }
+        Ok("other".into())
+    }
+    let accounts=accounts.iter().copied().collect::<BTreeSet<_>>();if accounts.is_empty(){return Ok(vec![]);}
+    macro_rules! events {($m:expr)=>{{$m.pallets.iter().find(|p|p.name=="System").and_then(|p|p.storage.as_ref()).and_then(|s|s.entries.iter().find(|e|e.name=="Events")).and_then(|e|match e.ty{frame_metadata::v14::StorageEntryType::Plain(t)=>Some(t.id),_=>None}).ok_or("查询事件元数据缺失")?}};}
+    let (types,address,signature,call,extensions,event_ty)=match decode_runtime_metadata(metadata)?{
+        RuntimeMetadata::V14(m)=>{
+            let e=events!(m);let xt=m.types.resolve(m.extrinsic.ty.id).ok_or("查询交易元数据缺失")?;
+            let ty=|name:&str|xt.type_params.iter().find(|p|p.name==name).and_then(|p|p.ty).map(|t|t.id).ok_or("查询交易参数缺失");
+            let a=ty("Address")?;let s=ty("Signature")?;let c=ty("Call")?;
+            let x=BTreeMap::from([(0,m.extrinsic.signed_extensions.into_iter().map(|e|(e.identifier,e.ty.id)).collect::<Vec<_>>())]);(m.types,a,s,c,x,e)
+        },
+        RuntimeMetadata::V15(m)=>{let e=events!(m);let x=BTreeMap::from([(0,m.extrinsic.signed_extensions.into_iter().map(|e|(e.identifier,e.ty.id)).collect::<Vec<_>>())]);(m.types,m.extrinsic.address_ty.id,m.extrinsic.signature_ty.id,m.extrinsic.call_ty.id,x,e)},
+        RuntimeMetadata::V16(m)=>{let e=events!(m);let mut x=BTreeMap::new();for (version,indexes) in m.extrinsic.transaction_extensions_by_version{let mut fields=vec![];for index in indexes{let ext=m.extrinsic.transaction_extensions.get(index.0 as usize).ok_or("查询扩展索引无效")?;fields.push((ext.identifier.clone(),ext.ty.id));}x.insert(version,fields);}(m.types,m.extrinsic.address_ty.id,m.extrinsic.signature_ty.id,m.extrinsic.call_ty.id,x,e)},
+        _=>return Err("查询元数据版本不支持".into()),
+    };
+    let decode=|input:&mut &[u8],ty:u32|scale_value::scale::decode_as_type(input,ty,&types).map(Value::remove_context).map_err(|error|format!("查询SCALE解码失败：{error}"));
+    let mut input=raw;let events=decode(&mut input,event_ty)?;if !input.is_empty(){return Err("查询事件有尾随字节".into());}
+    let ValueDef::Composite(event_values)=&events.value else{return Err("查询事件列表无效".into());};
+    let mut output=vec![];
+    for (index,opaque) in body.iter().enumerate(){
+        let index=u32::try_from(index).map_err(|_|"查询索引溢出")?;
+        let (&tag,mut input)=opaque.inner().split_first().ok_or("查询交易为空")?;let mut payer=None;
+        let version=match tag{0x84=>{let v=decode(&mut input,address)?;let (_,f)=parts(&v)?;payer=f.first().and_then(|v|account(v));decode(&mut input,signature)?;Some(0)},0x45=>{let (&v,tail)=input.split_first().ok_or("查询扩展版本缺失")?;input=tail;Some(v)},0x04|0x05=>None,_=>return Err("查询交易格式不支持".into())};
+        if let Some(version)=version{for (name,ty) in extensions.get(&version).ok_or("查询扩展元数据缺失")?{let value=decode(&mut input,*ty)?;if name==<chain_signing::mldsa::Authenticate<runtime::Runtime> as sp_runtime::traits::TransactionExtension<runtime::RuntimeCall>>::IDENTIFIER{payer=proof(&value);}}}
+        let call=decode(&mut input,call)?;if !input.is_empty(){return Err("查询交易有尾随字节".into());}
+        let mut items=vec![];let mode=calls(&call,&mut items)?;
+        let mut paid=vec![];let mut actual=vec![];let mut movements=vec![];let mut item_states=vec![];let mut success=None;let mut interrupted=None;
+        for record in event_values.values(){
+            let Some(phase)=field(record,"phase") else{return Err("查询事件阶段缺失".into());};let (name,fields)=parts(phase)?;
+            if name!="ApplyExtrinsic"||fields.first().and_then(|v|v.as_u128())!=Some(index as u128){continue;}
+            let (pallet,outer)=parts(field(record,"event").ok_or("查询事件缺失")?)?;
+            let event=outer.first().ok_or("查询事件包装缺失")?;let (name,_)=parts(event)?;
+            match (pallet,name){
+                ("System","ExtrinsicSuccess")=>success=Some(true),("System","ExtrinsicFailed")=>success=Some(false),
+                ("Onchain"|"OnchainTransaction","FeePaid")=>paid.push((field(event,"account_id").and_then(account).ok_or("查询费用账户缺失")?,field(event,"fee").and_then(Value::as_u128).ok_or("查询费用缺失")?)),
+                ("Onchain"|"OnchainTransaction","TransferWithRemark")=>actual.push((field(event,"from_account_id").and_then(account).ok_or("查询付款账户缺失")?,field(event,"beneficiary_account_id").and_then(account).ok_or("查询收款账户缺失")?,field(event,"amount").and_then(Value::as_u128).ok_or("查询本金缺失")?)),
+                ("Balances","Transfer")=>movements.push((field(event,"from").and_then(account).ok_or("查询付款账户缺失")?,field(event,"to").and_then(account).ok_or("查询收款账户缺失")?,field(event,"amount").and_then(Value::as_u128).ok_or("查询本金缺失")?)),
+                ("Utility","ItemCompleted")=>item_states.push(true),("Utility","ItemFailed")=>item_states.push(false),
+                ("Utility","BatchInterrupted")=>interrupted=field(event,"index").and_then(Value::as_u128),_=>{},
+            }
+        }
+        if actual.is_empty(){actual=movements;}
+        let sender=payer.is_some_and(|p|accounts.contains(&p))&&!items.is_empty();
+        let mut related=BTreeSet::new();let mut amount=0u128;let mut count=0u32;let mut internal=true;let mut movement_sender=false;
+        if sender&&!items.is_empty(){related.insert(payer.unwrap());for (to,value) in &items{amount=amount.checked_add(*value).ok_or("查询金额溢出")?;count=count.checked_add(1).ok_or("查询笔数溢出")?;internal&=accounts.contains(to);if accounts.contains(to){related.insert(*to);}}}
+        else{for (from,to,value) in &actual{if accounts.contains(from)||accounts.contains(to){movement_sender|=accounts.contains(from);internal&=accounts.contains(from)&&accounts.contains(to);amount=amount.checked_add(*value).ok_or("查询金额溢出")?;count=count.checked_add(1).ok_or("查询笔数溢出")?;if accounts.contains(from){related.insert(*from);}if accounts.contains(to){related.insert(*to);}}}}
+        let fee=paid.iter().filter(|(account,_)|accounts.contains(account)).try_fold(0u128,|sum,(account,fee)|{related.insert(*account);sum.checked_add(*fee).ok_or("查询费用溢出")})?;
+        if related.is_empty(){continue;}
+        let succeeded=success.ok_or("查询交易结果缺失")?;
+        let state=if !sender&&!movement_sender&&count>0{"success"}else if !succeeded{if mode=="batch_all"{"rolled_back"}else{"failed"}}else if item_states.iter().any(|s|!*s)||interrupted.is_some(){if item_states.iter().any(|s|*s){"partial"}else{"failed"}}else{"success"};
+        output.push(TransactionActivity{extrinsic_index:index,account_ids:related.into_iter().collect(),direction:if sender||movement_sender{if internal{"internal"}else{"sent"}}else if count>0{"received"}else{"operation"},mode,transfer_count:count,amount_fen:amount,fee_fen:fee,state});
+    }
+    Ok(output)
+}

@@ -123,7 +123,7 @@ it('省级目录与原版完整样式一致，不继承其他卡片的居中和�
 // 卡片以一个人员岗位任职为单位，姓名、序号、真实绑定、席位及操作均保留。
 it.each([{familyName:'合成',givenName:'人员',name:'合成人员'},{familyName:'',givenName:'',name:'姓名未填写'},{familyName:'  ',givenName:'\t',name:'姓名未填写'}])('岗位任职卡片显示$name并保留操作',({familyName,givenName,name})=>{
  const click=vi.fn();const {container,unmount}=render(<InstitutionAssignmentCard index={3} balanceFen="12345" action={<button onClick={click}>原操作</button>} assignment={{personCid:'fixture-person',accountId:accountId('01'),bindingRevision:'1',familyName,givenName,roleCode:'MEMBER',roleName:'委员',seats:19,termRequired:true,termStart:1,termEnd:2,assignmentSource:0,assignmentSourceLabel:'创世',assignmentSourceRef:'0x0100',permissions:[],active:true,effective:true}}/>);
- expect(container.textContent).toContain(name);expect(container.textContent).toContain('3. 委员');expect(container.textContent).toContain('fixture-person');expect(container.textContent).toContain('席位容量：19');expect(container.textContent).toContain('1970-01-02 至 1970-01-03');expect(container.textContent).toContain(accountIdToSs58(accountId('01')));fireEvent.click(within(container).getByRole('button',{name:'原操作'}));expect(click).toHaveBeenCalledOnce();unmount();
+ expect(container.textContent).toContain(name);expect(container.textContent).toContain('3. 委员');expect(container.textContent).toContain('fixture-person');expect(container.textContent).toContain('席位容量：19');expect(container.textContent).toContain('1970-01-02 至 1970-01-03');expect(container.textContent).toContain(accountIdToSs58(accountId('01')));expect(Array.from(container.querySelectorAll('p')).slice(-3).map(node=>node.textContent)).toEqual(['账户余额：123.45 元','身份CID号：fixture-person',`绑定账户：${accountIdToSs58(accountId('01'))}`]);fireEvent.click(within(container).getByRole('button',{name:'原操作'}));expect(click).toHaveBeenCalledOnce();unmount();
 });
 
 vi.mock('../desktop/signing', () => ({
@@ -841,7 +841,7 @@ it.each([{orgType:0,Section:NrcSection,label:'委员'},{orgType:1,Section:PrcSec
  expect(await screen.findAllByRole('button',{name:'激活'})).toHaveLength(1);
  expect(screen.queryByText('法定代表人')).toBeNull();expect(screen.queryByText('合成只限法代')).toBeNull();
  expect(screen.queryByText('已激活')).toBeNull();
- expect(view.container.querySelectorAll('.institution-assignment-card')).toHaveLength(1);
+ expect(view.container.querySelectorAll('.institution-assignment-card')).toHaveLength(19);
  await screen.findByText('123.45 元');
  expect(mocks.invoke).toHaveBeenCalledWith('get_account_balances',{accountIds:[signerAccountId]});
  expect(mocks.invoke).toHaveBeenCalledWith('get_institution_roles',expect.objectContaining({cidNumber:cid}));
@@ -855,8 +855,8 @@ it.each([0,1,2])('类型%s总席位与实际人数独立：空缺仍显示容量
  const view=render(<InstitutionDetailPage cidNumber={cid} onBack={()=>{}}/>);
  const entry=await screen.findByRole('button',{name:`${name}（37席）`});expect((entry as HTMLButtonElement).disabled).toBe(false);view.unmount();
  const page=render(<AssignmentsPage orgType={orgType} cidNumber={cid} accountRef={{cidNumber:cid}} onBack={()=>{}}/>);
- await screen.findByText('岗位空缺');expect(screen.getByRole('heading').textContent).toBe(`${name}（37席）`);
- expect(screen.getByText('共 0 人')).toBeTruthy();expect(page.container.querySelector('.institution-assignment-card')).toBeNull();
+ await screen.findByRole('heading',{name:`${name}（37席）`});expect(screen.queryByText('岗位空缺')).toBeNull();expect(screen.queryByText(/暂无数据/)).toBeNull();
+ expect(page.container.querySelector('.admin-list-summary')).toBeNull();expect(page.container.querySelectorAll('.institution-assignment-card')).toHaveLength(37);for(const value of page.container.querySelectorAll('.institution-assignment-value'))expect(value.textContent).toBe('');
  expect(mocks.invoke.mock.calls.some(([c])=>c==='get_account_balances')).toBe(false);page.unmount();
 });
 
@@ -881,8 +881,10 @@ it('旧卡片保留方形序号、右侧操作、来源任期同排、余额与�
  expect(card.querySelector('.institution-assignment-person')?.textContent).toBe('委员合成人员');
  expect(card.querySelector('.institution-assignment-top-action > .activate-button')?.textContent).toBe('激活');
  expect(Array.from(card.querySelectorAll('.institution-assignment-account > .institution-assignment-list-row .institution-assignment-label')).map(x=>x.textContent)).toEqual(['来源:','任期:']);
- expect(card.textContent).toContain('创世（依据：0x00）');expect(card.textContent).toContain('1970/01/02-1970/01/03');
- expect(card.textContent).toContain('账户余额:123.45 元');expect(card.textContent).toContain(`委员账户:${accountIdToSs58(signerAccountId)}`);
+ expect(card.textContent).toContain('来源:创世');expect(card.textContent).not.toContain('依据');expect(card.textContent).not.toContain('0x00');expect(card.textContent).toContain('1970/01/02-1970/01/03');
+ expect(card.textContent).toContain('账户余额:123.45 元');expect(card.textContent).toContain(`绑定账户:${accountIdToSs58(signerAccountId)}`);
+ expect(Array.from(card.querySelectorAll('.institution-assignment-account > .institution-assignment-field .institution-assignment-label')).map(node=>node.textContent)).toEqual(['账户余额:','身份CID号:','绑定账户:']);
+ expect(card.textContent).toContain('身份CID号:same-person');expect(card.textContent).not.toContain('委员账户');
  expect(card.textContent).not.toContain('席位容量');expect(card.textContent).not.toContain('法定代表人');view.unmount();
 });
 
@@ -919,7 +921,7 @@ it('切换机构后旧余额的迟到结果不能覆盖新页面',async()=>{
 it('旧卡片关键样式对照2da4e79金标，新增样式仅限三个储委会储行任职页',()=>{
  const css=readFileSync(resolve(process.cwd(),'institution/styles.css'),'utf8');
  const marker='/* 三个储委会／储行任职页：按2da4e79恢复原卡片布局，仅作用本页。 */';
- const scoped=css.slice(css.indexOf(marker)+marker.length);
+ const scoped=css.slice(css.indexOf(marker)+marker.length).split('/* 投票详情恢复原任职卡片；')[0];
  const style=document.createElement('style');style.textContent=scoped;document.head.append(style);
  try{
   const rules=Array.from(style.sheet!.cssRules) as CSSStyleRule[];
@@ -939,4 +941,46 @@ it('旧卡片关键样式对照2da4e79金标，新增样式仅限三个储委会
    for(const [property,value] of Object.entries(properties))expect(rule!.style.getPropertyValue(property),`${selector} ${property}`).toBe(value);
   }
  }finally{style.remove();}
+});
+
+
+it.each([{orgType:1,Section:PrcSection},{orgType:2,Section:PrbSection}])('省级类型$orgType没有任职仍保留原机构及席位卡片，进入后不显示空缺提示或任职数据',async({orgType,Section})=>{
+ const state=assignmentState(orgType);state.roles[0].assignments=[];mockRosterInterface(orgType,state);
+ const view=render(<Section/>);const item=await screen.findByText('合成目录机构');
+ expect(item.closest('.institution-card')).toBeTruthy();fireEvent.click(item);
+ const name=orgType===2?'董事':'委员';fireEvent.click(await screen.findByRole('button',{name:`${name}（19席）`}));
+ await screen.findByRole('heading',{name:`${name}（19席）`});
+ expect(view.container.querySelectorAll('.institution-assignment-card')).toHaveLength(19);expect(view.container.querySelector('.admin-list-summary')).toBeNull();for(const value of view.container.querySelectorAll('.institution-assignment-value'))expect(value.textContent).toBe('');
+ expect(screen.queryByText('岗位空缺')).toBeNull();expect(screen.queryByText(/暂无数据/)).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'← 返回机构详情'}));await screen.findByRole('button',{name:`${name}（19席）`});
+ fireEvent.click(screen.getByRole('button',{name:'← 返回机构列表'}));expect((await screen.findByText('合成目录机构')).closest('.institution-card')).toBeTruthy();view.unmount();
+});
+
+
+it.each([0,1,2])('类型%s卡片在余额后显示任职公民身份CID号，并统一显示绑定账户',async orgType=>{
+ const citizenCid='GZ001-CTZN0-000000001-2026'; // 合成公民CID，区别于机构CID。
+ const state=assignmentState(orgType);state.roles[0].assignments[0].personCid=citizenCid;mockRosterInterface(orgType,state);
+ const page=render(<AssignmentsPage orgType={orgType} cidNumber="role-test" accountRef={{cidNumber:'role-test'}} onBack={()=>{}}/>);
+ await screen.findByText('123.45 元');
+ const fields=Array.from(page.container.querySelector('.institution-assignment-card')!.querySelectorAll('.institution-assignment-account > .institution-assignment-field'));
+ expect(fields.map(node=>node.querySelector('.institution-assignment-label')?.textContent)).toEqual(['账户余额:','身份CID号:','绑定账户:']);
+ expect(fields[1].querySelector('[data-identity-cid]')?.getAttribute('data-identity-cid')).toBe(citizenCid);
+ expect(fields[1].textContent).toContain('GZ001-CTZN0-000000001');expect(fields[2].textContent).toContain(accountIdToSs58(signerAccountId));
+ expect(page.container.textContent).not.toContain('委员账户');expect(page.container.textContent).not.toContain('董事账户');page.unmount();
+});
+
+it('共用岗位卡片无余额和绑定时仍显示正确的个人CID，保持字段顺序',()=>{
+ const person=assignmentState().roles[0].assignments[0];
+ const page=render(<InstitutionAssignmentCard assignment={{...person,accountId:null,bindingRevision:null,roleCode:'COMMITTEE_MEMBER',roleName:'委员',termRequired:false,seats:19,permissions:[]}}/>);
+ expect(Array.from(page.container.querySelectorAll('p')).slice(-3).map(node=>node.textContent)).toEqual(['账户余额：—','身份CID号：same-person','绑定账户：无有效绑定']);page.unmount();
+});
+
+
+it.each([1,2])('省级类型%s空席卡片保留身份CID号及绑定账户结构，有任职只填本人的CID',async orgType=>{
+ const state=assignmentState(orgType);state.roles[0].seats=9;state.roles[0].assignments=[];mockRosterInterface(orgType,state);
+ const props={orgType,cidNumber:'role-test',accountRef:{cidNumber:'role-test'},onBack:()=>{}};
+ const view=render(<AssignmentsPage {...props}/>);await screen.findByRole('heading',{name:`${orgType===2?'董事':'委员'}（9席）`});
+ const cards=view.container.querySelectorAll('.institution-assignment-card');expect(cards).toHaveLength(9);
+ for(const card of cards){expect(Array.from(card.querySelectorAll('.institution-assignment-account > .institution-assignment-field .institution-assignment-label')).map(node=>node.textContent)).toEqual(['账户余额:','身份CID号:','绑定账户:']);expect(card.querySelectorAll('[data-identity-cid]')).toHaveLength(0);expect(card.querySelector('button')).toBeNull();}
+ expect(screen.queryByText('岗位空缺')).toBeNull();expect(screen.queryByText(/暂无数据/)).toBeNull();view.unmount();
 });

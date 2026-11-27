@@ -9901,6 +9901,7 @@ dependencies = [
  "sc-rpc-api",
  "sc-service",
  "sc-transaction-pool-api",
+ "scale-value",
  "serde",
  "serde_json",
  "sha2 0.10.9",

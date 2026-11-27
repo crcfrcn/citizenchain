@@ -261,7 +261,7 @@ function oneBundle(path, extension) {
 }
 // 安装包必需的动态库按实际链接修正，仅处理本轮运行资源，不建立工具库存。
 export async function macLibraries(resources, executable, env) {
-  const library = join(resources, 'postgres/macos/lib'), queue = [...walk(resources), executable];
+  const shared = join(resources, 'postgres/macos/lib'), modules = join(resources, 'onchina-bin/modules'), queue = [...walk(resources), executable];
   const processed = new Set(), originals = new Map(), originalIds = new Map(), sources = new Map(), binaries = [];
   while (queue.length) {
     const file = queue.shift();
@@ -269,6 +269,10 @@ export async function macLibraries(resources, executable, env) {
     processed.add(file);
     const bytes = readFileSync(file);
     if (bytes.length < 4 || ![0xfeedfacf, 0xcffaedfe, 0xcafebabe, 0xbebafeca].includes(bytes.readUInt32LE(0))) continue;
+    // 活动模块会整体搬出App；它的非系统依赖必须留在同一模块目录内。
+    const module = inside(modules, file) ? join(modules, relative(modules, file).split(sep)[0]) : undefined;
+    const library = module ? join(module, 'lib') : shared;
+    mkdirSync(library, {recursive: true});
     if (inside(library, file)) originals.set(file, bytes);
     if (file !== executable) binaries.push(file);
     const ownId = (await runBuildProcess('/usr/bin/otool', ['-D', file], env, root, {capture: true})).stdout.trim().split('\n')[1];
@@ -279,11 +283,16 @@ export async function macLibraries(resources, executable, env) {
       if (!dependency || dependency === ownId || dependency.startsWith('/usr/lib/') || dependency.startsWith('/System/Library/')) continue;
       let source = dependency;
       if (dependency.startsWith('@loader_path/')) {
-        if (existsSync(resolve(dirname(file), dependency.slice(13)))) continue;
-        // 新复制的官方库仍可能引用原目录中的相邻库，按实际原件递归收齐后再改本轮副本。
-        const original = sources.get(file);
-        if (!original) fail('随包动态库缺失：' + file + ' -> ' + dependency);
-        source = resolve(dirname(original), dependency.slice(13));
+        const resolved = resolve(dirname(file), dependency.slice(13));
+        if (existsSync(resolved)) {
+          if (!module || inside(module, resolved)) continue;
+          source = resolved;
+        } else {
+          // 新复制的官方库仍可能引用原目录中的相邻库，按实际原件递归收齐后再改本轮副本。
+          const original = sources.get(file);
+          if (!original) fail('随包动态库缺失：' + file + ' -> ' + dependency);
+          source = resolve(dirname(original), dependency.slice(13));
+        }
       }
       const destination = join(library, basename(source));
       if (isAbsolute(source) && !existsSync(source) && existsSync(destination)) {
@@ -295,7 +304,7 @@ export async function macLibraries(resources, executable, env) {
       if (!existsSync(destination)) {
         const original = realpathSync(source);
         copyFileSync(original, destination); sources.set(destination, original);
-      } else if (realpathSync(source) !== realpathSync(destination) && !(originals.get(destination) || readFileSync(destination)).equals(readFileSync(realpathSync(source)))) fail('随包动态库重名冲突');
+      } else if (realpathSync(source) !== realpathSync(destination) && sources.get(destination) !== realpathSync(source) && !(originals.get(destination) || readFileSync(destination)).equals(originals.get(realpathSync(source)) || readFileSync(realpathSync(source)))) fail('随包动态库重名冲突');
       queue.push(destination);
       const reference = file === executable ? '@executable_path/../Resources/postgres/macos/lib/' + basename(destination) : '@loader_path/' + relative(dirname(file), destination);
       await runBuildProcess('/usr/bin/install_name_tool', ['-change', dependency, reference, file], env, root, {capture: true});
@@ -584,43 +593,4 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   ? preparePostgres(process.env.RUNNER_TEMP || root,process.env).then(path=>process.stdout.write('CITIZENCHAIN_PG_DIST='+path+'\n'))
   :args.length===1?buildPlatform(args[0]):Promise.reject(Error('编译参数无效'));
  operation.catch(error => { process.stderr.write(error.message + '\n'); process.exitCode = 1; });
-}
-
-// 为明确的第一方生成输出写入职责简介；保留工具指令、许可和全部生成代码。
-export async function generatedHeaders(source) {
- const {readFile,writeFile}=await import('node:fs/promises');
- const files={
-  "runtime/misc/personal/src/weights.rs": "定义个人多签创建、关闭、成员变更和终态的执行及数据库读写权重。",
-  "runtime/entity/privateentity/src/weights.rs": "定义私权机构账户和治理登记的执行及数据库读写权重。",
-  "runtime/entity/publicentity/src/weights.rs": "定义公权机构账户和治理登记的执行及数据库读写权重。",
-  "runtime/governance/destroy/src/weights.rs": "定义决议销毁的执行及数据库读写权重。",
-  "runtime/governance/grandpakey/src/weights.rs": "定义GRANDPA轮换及紧急恢复的执行及数据库读写权重。",
-  "runtime/governance/upgrade/src/weights.rs": "定义运行时升级提案的执行及数据库读写权重。",
-  "runtime/issuance/citizenissue/src/weights.rs": "定义公民认证奖励的执行及数据库读写权重。",
-  "runtime/issuance/fullnodeissue/src/weights.rs": "定义全节点奖励账户和发行的执行及数据库读写权重。",
-  "runtime/issuance/prbbankissue/src/weights.rs": "定义省储行年度发行结算的执行及数据库读写权重。",
-  "runtime/issuance/resolutionissue/src/weights.rs": "定义决议发行提案的执行及数据库读写权重。",
-  "runtime/misc/address/src/weights.rs": "定义地址目录和地址变更的执行及数据库读写权重。",
-  "runtime/misc/difficulty/src/weights.rs": "定义PoW难度调整的执行及数据库读写权重。",
-  "runtime/misc/identity/src/weights.rs": "定义CID登记和身份维护的执行及数据库读写权重。",
-  "runtime/misc/square/src/weights.rs": "定义广场发布与会员订阅的执行及数据库读写权重。",
-  "runtime/public/legislation/src/weights.rs": "定义法律提案和生效的执行及数据库读写权重。",
-  "runtime/transaction/multisig/src/weights.rs": "定义多签转账和资金归集的执行及数据库读写权重。",
-  "runtime/transaction/onchain/src/weights.rs": "定义带备注原生转账的执行及数据库读写权重。",
-  "runtime/votingengine/electionvote/src/weights.rs": "定义普选和互选投票的执行及数据库读写权重。",
-  "runtime/votingengine/engingcore/src/weights.rs": "定义投票核心执行和维护的执行及数据库读写权重。",
-  "runtime/votingengine/internalvote/src/weights.rs": "定义内部投票及清理的执行及数据库读写权重。",
-  "runtime/votingengine/jointvote/src/weights.rs": "定义联合投票及公投的执行及数据库读写权重。",
-  "runtime/votingengine/legislationvote/src/weights.rs": "定义立法表决和签署的执行及数据库读写权重。"
-};
- for(const [name,intro] of Object.entries(files)){
-  const path=join(source,name);let text;
-  try{text=await readFile(path,'utf8');}catch(error){if(error.code==='ENOENT')continue;throw error;}
-  const header=(name.endsWith('.rs')?'//! ':'// ')+intro;
-  if(text.startsWith(header+'\n'))continue;
-  const lines=text.split('\n');let at=0;while(at<lines.length&&(!lines[at].trim()||lines[at].startsWith('//')))at++;
-  const legal=lines.slice(0,at).join('\n').split(/\n\s*\n/u).filter(block=>/copyright|SPDX|licensed|redistribut|WARRANTY/iu.test(block)).join('\n\n');
-  text=(legal?legal+'\n\n':'')+header+'\n\n'+lines.slice(at).join('\n');
-  await writeFile(path,text);
- }
 }

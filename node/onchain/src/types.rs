@@ -40,3 +40,35 @@ pub struct TransferItem {
     pub amount_fen: String,
     pub remark: String,
 }
+
+/// 最终链历史的下一条读取位置；不依赖本地索引或缓存。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TransactionCursor {
+    pub block_number: u32,
+    pub extrinsic_index: Option<u32>,
+}
+
+/// 一笔外层交易的相关钱包资金记录，批量子项不重复记为多笔外层交易。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionRecord {
+    pub block_number: u32,
+    pub timestamp: u64,
+    pub tx_hash: String,
+    pub account_ids: Vec<String>,
+    pub direction: String,
+    pub mode: String,
+    pub transfer_count: u32,
+    pub amount_fen: String,
+    pub fee_fen: String,
+    pub state: String,
+}
+
+/// 本机最终块分页结果；游标为空表示已读到链起点。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionHistory {
+    pub records: Vec<TransactionRecord>,
+    pub cursor: Option<TransactionCursor>,
+}

@@ -1008,3 +1008,114 @@ body:has(.institution-transfer-dialog[open]) {
 .institution-roster .activate-button:hover {
   background: rgba(59, 130, 246, 0.2);
 }
+
+/* 投票详情恢复原任职卡片；票据与投票操作仍由原提案决定。 */
+.proposal-detail-page .institution-assignment-top {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.proposal-detail-page .institution-assignment-card .admin-card-index {
+  display: inline-flex;
+  min-width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: rgba(96, 165, 250, 0.14);
+  color: #bfdbfe;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.proposal-detail-page .institution-assignment-top {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color, #334155);
+}
+
+.proposal-detail-page .institution-assignment-person {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 6px;
+  overflow-wrap: anywhere;
+}
+
+.proposal-detail-page .institution-assignment-dot {
+  flex: 0 0 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.proposal-detail-page .institution-assignment-name { min-width: 0; }
+
+.proposal-detail-page .institution-assignment-top-action {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.proposal-detail-page .institution-assignment-account {
+  display: grid;
+  gap: 7px;
+}
+
+.proposal-detail-page .institution-assignment-list-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.proposal-detail-page .institution-assignment-role {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  color: #f8fafc;
+  font-weight: 700;
+}
+
+.proposal-detail-page .institution-assignment-role code {
+  color: #93c5fd;
+  font-size: 11px;
+}
+
+.proposal-detail-page .institution-assignment-field {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px;
+  min-height: 20px;
+  align-items: start;
+}
+
+.proposal-detail-page .institution-assignment-label {
+  color: #93a4b8;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+
+.proposal-detail-page .institution-assignment-value {
+  min-height: 18px;
+  overflow-wrap: anywhere;
+  color: #e5edf6;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.proposal-detail-page .admin-card-voted-yes { border-color: rgba(34, 197, 94, 0.3); background: rgba(34, 197, 94, 0.06); }
+
+.proposal-detail-page .admin-card-voted-no { border-color: rgba(239, 68, 68, 0.3); background: rgba(239, 68, 68, 0.06); }
+
+.proposal-detail-page .institution-assignment-compact-vote .admin-card-index {
+  flex-shrink: 0;
+}

@@ -2,7 +2,7 @@
 
 use nodeclient::handle::NodeHandle;
 use nodeclient::network::LocalNetworkReader;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -127,27 +127,33 @@ impl Drop for NodeThreadAliveGuard {
     }
 }
 
-/// 在进程内启动 Substrate 节点。
-pub(crate) fn start_node_in_process(
-    base_path: PathBuf,
-    chain_spec: Option<String>,
+/// 桌面启动和参数回归共用原CLI输入，不另设网络或身份实现。
+fn node_args(
+    base_path: &Path,
+    chain_spec: Option<&str>,
     rpc_port: u16,
-    node_name: Option<String>,
+    node_name: Option<&str>,
     validator: bool,
-    mining_threads: usize,
-    gpu_device: Option<usize>,
-) -> Result<NodeHandle, String> {
-    let rpc_tls = nodedesktop::tls::desktop_rpc_tls()?;
+) -> Vec<String> {
+    let node_key_file = base_path.join("node-key").join("secret_ed25519");
+    let has_node_key = node_key_file.is_file();
+    // 普通Mac桌面节点交由官方TCP传输分配监听端口，避免出站复用固定30333。
+    // 显式引导身份和其它平台保留固定端口；原网络身份文件与WSS协议不变。
+    let listen_port = if cfg!(target_os = "macos") && !has_node_key {
+        0
+    } else {
+        30333
+    };
     let mut args: Vec<String> = vec![
         "node".into(),
         "--base-path".into(),
         base_path.display().to_string(),
         "--chain".into(),
-        chain_spec.unwrap_or_else(|| "citizenchain".into()),
+        chain_spec.unwrap_or("citizenchain").into(),
         "--listen-addr".into(),
-        "/ip4/0.0.0.0/tcp/30333/wss".into(),
+        format!("/ip4/0.0.0.0/tcp/{listen_port}/wss"),
         "--listen-addr".into(),
-        "/ip6/::/tcp/30333/wss".into(),
+        format!("/ip6/::/tcp/{listen_port}/wss"),
         // 参数与CLI共同固定为归档；服务层还会在打开数据库前复核实际配置。
         "--state-pruning".into(),
         "archive".into(),
@@ -162,20 +168,40 @@ pub(crate) fn start_node_in_process(
         "--no-prometheus".into(),
     ];
 
-    let node_key_file = base_path.join("node-key").join("secret_ed25519");
-    if node_key_file.is_file() {
+    if has_node_key {
         args.push("--node-key-file".into());
         args.push(node_key_file.display().to_string());
     }
 
     if let Some(name) = node_name {
         args.push("--name".into());
-        args.push(name);
+        args.push(name.into());
     }
 
     if validator {
         args.push("--validator".into());
     }
+    args
+}
+
+/// 在进程内启动 Substrate 节点。
+pub(crate) fn start_node_in_process(
+    base_path: PathBuf,
+    chain_spec: Option<String>,
+    rpc_port: u16,
+    node_name: Option<String>,
+    validator: bool,
+    mining_threads: usize,
+    gpu_device: Option<usize>,
+) -> Result<NodeHandle, String> {
+    let rpc_tls = nodedesktop::tls::desktop_rpc_tls()?;
+    let args = node_args(
+        &base_path,
+        chain_spec.as_deref(),
+        rpc_port,
+        node_name.as_deref(),
+        validator,
+    );
 
     let (startup_tx, startup_rx) = std::sync::mpsc::channel::<Result<(), String>>();
     let exit_error = Arc::new(Mutex::new(None));

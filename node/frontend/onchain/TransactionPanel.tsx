@@ -1,10 +1,11 @@
 // 组织钱包选择、余额及链上转账界面。
 import { sanitizeError } from "../client/tauri";
 import { transactionApi as api } from "./api";
-import type { TransferDraft, Wallet, WalletStore, WalletBalanceState, TransferSubmitResult, TransferResult } from "./types";
+import type { TransferDraft, Wallet, WalletStore, WalletBalanceState, TransferSubmitResult, TransactionCursor, TransactionRecord } from "./types";
 import { WalletManagerModal } from "./WalletManagerModal";
 import { TransferForm } from "./TransferForm";
 import { TransferSigningFlow } from "./TransferSigningFlow";
+import { accountIdToSs58 } from '../client/ss58';
 import { formatFen, quoteTransfers } from './fee';
 import { MetricHelp } from "../desktop/MetricHelp";
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -22,20 +23,25 @@ export function TransactionPanel({ nodeReady }: {
   } | null>(null);
   const [balanceRetry, setBalanceRetry] = useState(0);
   const [showWalletModal, setShowWalletModal] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
     const [signingFlow, setSigningFlow] = useState<(TransferDraft & {
         wallet: Wallet;
         executionFee: boolean;
     }) | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [resetVersion, setResetVersion] = useState(0);
     const [pending, setPending] = useState<{
         hash: string;
         cursor: number;
         draft: TransferDraft;
-        result?: TransferResult;
     }[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const successTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showNotice = useCallback((message:string) => {
+    if(noticeTimer.current)clearTimeout(noticeTimer.current);
+    setNotice(message);noticeTimer.current=setTimeout(()=>setNotice(null),3000);
+  },[]);
+  useEffect(()=>()=>{if(noticeTimer.current)clearTimeout(noticeTimer.current);},[]);
   const activeWallet = wallets.find((wallet) => wallet.accountId === activeAccountId) ?? null;
   const balanceState = nodeReady && balanceResult?.accountId === activeWallet?.accountId
     ? balanceResult?.state : undefined;
@@ -134,24 +140,30 @@ export function TransactionPanel({ nodeReady }: {
         setResetVersion(value => value + 1);
         if (signingFlow.mode !== 'transfer')
             setSigningFlow(null);
-        setSuccessMsg(`转账已提交，哈希: ${result.txHash}`);
-        if (successTimer.current)
-            clearTimeout(successTimer.current);
-    successTimer.current = setTimeout(() => setSuccessMsg(null), 5000);
-    }, [signingFlow]);
+        if(signingFlow.mode==='transfer')showNotice('转账已提交');
+    }, [signingFlow,showNotice]);
     // 每次分页只读取最终块，读取失败保留游标和待确认状态，不重新付款。
     useEffect(() => {
+        if(!pending.length||!nodeReady)return;
         let cancelled = false, inFlight = false;
         const tick = async () => {
             if (inFlight || !nodeReady)
                 return;
             inFlight = true;
             try {
-                for (const tx of pending.filter(p => !p.result || p.result.state === 'pending')) {
+                for (const tx of pending) {
                     try {
                         const result = await api.getTransferResult(tx.hash, tx.cursor);
-                        if (!cancelled)
-                            setPending(prev => prev.map(p => p.hash === tx.hash ? { ...p, cursor: result.cursor, result } : p));
+                        if(cancelled)return;
+                        if(result.state==='pending'){
+                            setPending(previous=>previous.map(item=>item.hash===tx.hash?{...item,cursor:result.cursor}:item));
+                        }else{
+                            if(!result.items||result.items.length!==tx.draft.transfers.length||result.items.some(item=>!['success','failed','rolled_back','not_executed'].includes(item.state)))throw Error('结果子项不完整');
+                            const success=result.items.filter(item=>item.state==='success').length;
+                            showNotice(tx.draft.mode==='transfer'?(success===1?'转账成功':'转账失败'):`批量转账${result.items.length}笔，成功${success}笔，失败${result.items.length-success}笔。`);
+                            setPending(previous=>previous.filter(item=>item.hash!==tx.hash));
+                        }
+                        setError(previous=>previous?.startsWith('结果待确认：')?null:previous);
                     }
                     catch (e) {
                         if (!cancelled)
@@ -165,7 +177,7 @@ export function TransactionPanel({ nodeReady }: {
         };
         const timer = setInterval(() => void tick(), 3000);
         return () => { cancelled = true; clearInterval(timer); };
-    }, [pending, nodeReady]);
+    }, [pending, nodeReady,showNotice]);
     return (<div className="transaction-panel">
       <div className="transaction-panel-header">
         <div className="transaction-panel-heading">
@@ -178,18 +190,13 @@ export function TransactionPanel({ nodeReady }: {
             '权威节点由1个国家储委会节点+43个省储委会节点组成，达30个节点验证即可形成最终性。',
           ]} />
         </div>
-        <button className="wallet-manage-btn" onClick={() => setShowWalletModal(true)}>
-          钱包管理
-        </button>
+        <div className="transaction-panel-actions">
+          <button className="wallet-manage-btn" disabled={!nodeReady} onClick={()=>setShowHistory(true)}>交易记录</button>
+          <button className="wallet-manage-btn" onClick={() => setShowWalletModal(true)}>钱包管理</button>
+        </div>
       </div>
 
-      {successMsg && <div className="transfer-success-msg">{successMsg}</div>}
-      {pending.map(tx => <section className="transfer-result" key={tx.hash} aria-live="polite">
-        <div>交易：{tx.hash}</div><div>{!tx.result || tx.result.state === 'pending' ? '等待最终确认' : tx.result.state === 'success' ? '全部成功' : tx.result.state === 'rolled_back' ? '整组回滚' : tx.result.state === 'partial' ? '部分成功' : '执行失败'}</div>
-        {tx.result?.items?.map((item, index) => <div key={index}>第{index + 1}笔 {tx.draft.transfers[index]?.toAddress}：{item.state === 'success' ? '成功' : item.state === 'rolled_back' ? '整组回滚' : item.state === 'not_executed' ? '未执行' : '失败'}，手续费 {formatFen(item.feeFen)} 元</div>)}
-        {tx.result?.feeFen != null && <div>实际手续费合计：{formatFen(tx.result.feeFen)} 元</div>}
-        {tx.result?.error && <div className="error">{tx.result.error}</div>}
-      </section>)}
+      {notice && <div className="transfer-notice" role="status">{notice}</div>}
 
       <TransferForm activeWallet={activeWallet} batchEnabled={policy.batchEnabled} nodeReady={nodeReady} balance={balanceState?.status === 'ready' ? balanceState.balance : null} balanceError={balanceState?.status === 'error' ? balanceState.message : null} onRetryBalance={() => setBalanceRetry((value) => value + 1)} onSubmit={handleTransferSubmit} disabled={signingFlow != null || preparing} submitError={error} resetVersion={resetVersion}/>
 
@@ -204,6 +211,64 @@ export function TransactionPanel({ nodeReady }: {
 
       {signingFlow && (<TransferSigningFlow wallet={signingFlow.wallet} executionFee={signingFlow.executionFee} mode={signingFlow.mode} transfers={signingFlow.transfers} onClose={() => setSigningFlow(null)} onSuccess={handleTransferSuccess}/>)}
 
+      {showHistory && <TransactionHistoryModal wallets={wallets} onClose={()=>setShowHistory(false)}/>}
       {showWalletModal && (<WalletManagerModal wallets={wallets} activeAccountId={activeAccountId} onClose={() => setShowWalletModal(false)} onUpdate={handleWalletUpdate} onSelect={handleWalletSelect}/>)}
     </div>);
+}
+
+
+// 仅在打开、刷新或加载更早记录时读取本机最终链，关闭后丢弃迟到结果。
+function TransactionHistoryModal({wallets,onClose}:{wallets:Wallet[];onClose:()=>void}){
+  const [records,setRecords]=useState<TransactionRecord[]>([]);
+  const [cursor,setCursor]=useState<TransactionCursor|null>(null);
+  const [loading,setLoading]=useState(true),[error,setError]=useState<string|null>(null);
+  const epoch=useRef(0),inFlight=useRef(false),panel=useRef<HTMLElement>(null);
+  const walletsKey=JSON.stringify(wallets.map(wallet=>[wallet.accountId,wallet.name]));
+  const load=async(start:TransactionCursor|null,append:boolean)=>{
+    if(inFlight.current)return;
+    const id=++epoch.current;inFlight.current=true;setLoading(true);setError(null);
+    if(!append){setRecords([]);setCursor(null);}
+    try{
+      let position=start;
+      while(true){
+        const page=await api.getTransactionHistory(position);
+        if(id!==epoch.current)return;
+        if(page.cursor&&position&&(page.cursor.blockNumber>position.blockNumber||page.cursor.blockNumber===position.blockNumber&&(page.cursor.extrinsicIndex??Infinity)>=(position.extrinsicIndex??Infinity)))throw Error('交易记录游标未前进');
+        if(page.records.length||page.cursor===null){setRecords(previous=>append?[...previous,...page.records]:page.records);setCursor(page.cursor);break;}
+        position=page.cursor;
+      }
+    }catch(e){if(id===epoch.current)setError(sanitizeError(e));}
+    finally{if(id===epoch.current){inFlight.current=false;setLoading(false);}}
+  };
+  useEffect(()=>{
+    void load(null,false);
+    return()=>{++epoch.current;inFlight.current=false;};
+  },[walletsKey]);
+  useEffect(()=>{const previous=document.activeElement as HTMLElement|null;panel.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();return()=>previous?.focus();},[]);
+  const names=new Map(wallets.map(wallet=>[wallet.accountId,wallet.name]));
+  const stateLabel:Record<string,string>={success:'成功',partial:'部分成功',failed:'失败',rolled_back:'已回滚'};
+  return <div className="wallet-manager-modal-mask">
+    <section ref={panel} className="wallet-manager-modal transaction-history-modal" role="dialog" aria-modal="true" aria-labelledby="transaction-history-title" onKeyDown={event=>{
+      if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose();}
+      if(event.key==='Tab'){
+        const controls=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled)'));
+        const first=controls[0],last=controls[controls.length-1];
+        if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
+        else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
+      }
+    }}>
+      <header className="wallet-manager-header"><button className="wallet-manager-add" disabled={loading} onClick={()=>void load(null,false)}>刷新</button><h3 id="transaction-history-title">交易记录</h3><button className="wallet-manager-close" aria-label="关闭交易记录" onClick={onClose}>×</button></header>
+      <div className="wallet-manager-body">
+        {error&&<div className="error" role="alert">{error}</div>}
+        {records.length>0&&<table className="transaction-history-table"><thead><tr><th>时间</th><th>钱包</th><th>类型</th><th>金额</th><th>手续费</th><th>状态</th></tr></thead><tbody>{records.map(record=>{
+          const type=record.direction==='received'?'转入':record.direction==='internal'?'内部转账':record.direction==='operation'?'链上交易':record.mode==='transfer'?'转出':record.mode==='other'?'转出':`批量转账（${record.transferCount}笔）`;
+          const date=new Date(record.timestamp);
+          return <tr key={`${record.blockNumber}:${record.txHash}`}><td>{Number.isNaN(date.getTime())?'—':date.toLocaleString()}</td><td>{record.accountIds.map(account=>names.get(account)??accountIdToSs58(account)).join('、')}</td><td>{type}</td><td>{formatFen(record.amountFen)} 元</td><td>{formatFen(record.feeFen)} 元</td><td>{stateLabel[record.state]??'未知'}</td></tr>;
+        })}</tbody></table>}
+        {loading&&<p role="status">读取中…</p>}
+        {!loading&&!error&&records.length===0&&cursor===null&&<p className="no-data">暂无交易记录</p>}
+      </div>
+      {cursor!==null&&<button className="transaction-history-more" disabled={loading} onClick={()=>void load(cursor,true)}>加载更多</button>}
+    </section>
+  </div>;
 }

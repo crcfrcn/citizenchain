@@ -133,15 +133,16 @@ export function TransferForm({ activeWallet, batchEnabled = true, nodeReady = tr
             else
                 setDeleting(g.id); }}/>}
         {amountInput(g.amount, v => patch(g.id, { amount: v }), `第${i + 1}组金额`)}
-        <textarea aria-label={`第${i + 1}组地址`} placeholder={ADDRESS_INPUT_PLACEHOLDER} rows={Math.min(8, Math.max(1, g.addresses.split('\n').length))} value={g.addresses} disabled={locked} onChange={e => { let value = e.target.value; const last = value.split('\n').slice(-1)[0]?.trim() ?? ''; if (last && completeAddress(last))
+        <textarea aria-label={`第${i + 1}组地址`} placeholder={ADDRESS_INPUT_PLACEHOLDER} rows={Math.max(1, g.addresses.split('\n').length)} wrap="off" value={g.addresses} disabled={locked} onChange={e => { let value = e.target.value; const last = value.split('\n').slice(-1)[0]?.trim() ?? ''; if (last && completeAddress(last))
                 value += '\n'; patch(g.id, { addresses: value }); }}/>
         <button type="button" className="scan-icon-btn" title={`扫描第${i + 1}组地址`} disabled={locked} onClick={() => setScan(g.id)}><ScanIcon /></button>
       </div>)}</div></div>
-      <fieldset className="batch-transfer-mode" disabled={locked}><legend>交易模式选择：</legend><label><input type="radio" name="batch-mode" checked={mode === 'batch_all'} onChange={() => setMode('batch_all')}/>整批成功</label><label><input type="radio" name="batch-mode" checked={mode === 'force_batch'} onChange={() => setMode('force_batch')}/>逐笔成功</label></fieldset>
-      <p className="batch-transfer-hint">{mode === 'batch_all' ? '任一笔失败，整批本金和手续费回滚。' : '各笔独立执行，失败不影响后续，仅成功项收费。'}</p>
-      <div className="transfer-form-summary"><div>转账笔数：{count}</div><div>本金合计：{formatFen(batchQuote?.amount ?? 0n)} 元</div><div>预计手续费（全部成功）：{formatFen(batchQuote?.fee ?? 0n)} 元</div><div>合计：{formatFen(batchQuote?.total ?? 0n)} 元</div></div>
+      <div className="transfer-form-summary batch-transfer-summary">转账数量：{count} 笔｜转账金额：{formatFen(batchQuote?.amount ?? 0n)} 元｜预计手续费：{formatFen(batchQuote?.fee ?? 0n)} 元｜合计：{formatFen(batchQuote?.total ?? 0n)} 元</div>
       {(error || submitError || batchError) && groups.some(g => g.amount || g.addresses) && <div className="error" role="alert">{error ?? submitError ?? batchError}</div>}
-      <button className="transfer-form-submit" disabled={locked || !batchQuote} onClick={() => submit(true)}>签名交易</button>
+      <footer className="batch-transfer-footer">
+        <div className="batch-transfer-mode" role="group" aria-label="交易模式" aria-disabled={locked}><span className="batch-transfer-mode-title">交易模式</span><div className="batch-transfer-options"><label><input type="radio" name="batch-mode" disabled={locked} checked={mode === 'batch_all'} onChange={() => setMode('batch_all')}/>整批成功</label><label><input type="radio" name="batch-mode" disabled={locked} checked={mode === 'force_batch'} onChange={() => setMode('force_batch')}/>逐笔成功</label></div></div>
+        <button className="transfer-form-submit" disabled={locked || !batchQuote} onClick={() => submit(true)}>签名交易</button>
+      </footer>
     </section></div>}
     {scan !== null && <AddressScanModal onResult={result => { if (scan === 'single')
         setToAddress(result.ss58Address);
