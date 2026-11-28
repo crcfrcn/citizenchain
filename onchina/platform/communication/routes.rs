@@ -3,18 +3,6 @@
 fn platform_routes() -> Vec<modules::model::ModuleRoute> {
     vec![
         modules::model::ModuleRoute::new(
-            "public",
-            "/api/qr/join",
-            &["POST"],
-            post(qr::join_frames),
-        ),
-        modules::model::ModuleRoute::new(
-            "public",
-            "/api/qr/split",
-            &["POST"],
-            post(qr::split_frames),
-        ),
-        modules::model::ModuleRoute::new(
             "auth",
             "/api/admin/auth/check",
             &["GET"],
@@ -249,8 +237,6 @@ fn build_routes(state: AppState) -> Router {
                 matches!(
                     r.description.path.as_str(),
                     "/api/health"
-                        | "/api/qr/join"
-                        | "/api/qr/split"
                         | "/api/admin/actions/prepare"
                         | "/api/admin/actions/commit"
                         | "/api/admin/chain/submit"

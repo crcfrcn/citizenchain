@@ -599,7 +599,7 @@ fn spawn_post_submit_audit(signer_account_id: String, sign_nonce: u32, tx_hash: 
 
 // ──── RPC 查询 ────
 
-// chain_query(ADR-017 finalized 收口)复用本封装,放宽到 pub(crate)。
+// chain_query(最终确认块读取 finalized 收口)复用本封装,放宽到 pub(crate)。
 pub fn rpc_post(method: &str, params: Value) -> Result<Value, String> {
     nodedesktop::rpc::rpc_post(
         method,
@@ -842,14 +842,6 @@ pub fn build_sign_request_from_call_data(
 #[cfg(test)]
 #[path = "../tests/signing.rs"]
 mod tests;
-
-/// 帧合并交给链端统一模块中的有界传输实现。
-pub fn join_qr_frames(frames: Vec<String>) -> Result<Option<String>, String> {
-    if frames.len() > 64 {
-        return Err("too many QR frames".into());
-    }
-    chain_signing::mldsa::qr_join(&frames.join("\n")).map_err(str::to_owned)
-}
 
 /// 只验证钱包对原始消息的持有证明；不读取密钥、不生成或提交链交易。
 /// 二维码s/q编解码和两种算法均委托现有所属库，账户必须与公钥派生值一致。

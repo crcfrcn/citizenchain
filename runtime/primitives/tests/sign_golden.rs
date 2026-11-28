@@ -4,12 +4,42 @@ use codec::Encode;
 use primitives::core_const::GMB;
 use primitives::sign::{signing_message, OP_SIGN_MLS_DEVICE_BIND, SIGN_OP_TAGS};
 
-const FIXTURE_PATH: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/signing_domain_vectors.json"
-);
+const FIXTURE_PATH: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/domain.json");
 
 const UPDATE_ENV: &str = "SIGN_GOLDEN_UPDATE";
+
+/// 已撤销域仍覆盖摘要原语，但不能重新进入当前业务签名域注册集合。
+#[test]
+fn retired_domain_keeps_hash_coverage_without_registration() {
+    let mut fixture = load_fixture();
+    let vectors = fixture["rejected_vectors"]
+        .as_array_mut()
+        .expect("缺少已撤销域覆盖");
+    assert_eq!(vectors.len(), 1);
+    for vector in vectors {
+        let tag = parse_op_tag(vector);
+        assert_eq!(tag, 0x25);
+        assert!(!SIGN_OP_TAGS.contains(&tag));
+        let payload = hex_decode(vector["scale_payload_hex"].as_str().unwrap());
+        let actual = hex_encode(&signing_message(tag, &payload));
+        let mut raw = GMB.to_vec();
+        raw.push(tag);
+        raw.extend_from_slice(&payload);
+        assert_eq!(actual, hex_encode(&sp_crypto_hashing::blake2_256(&raw)));
+        if std::env::var(UPDATE_ENV).as_deref() == Ok("1") {
+            vector["message_hex"] = serde_json::Value::String(actual);
+        } else {
+            assert_eq!(vector["message_hex"].as_str(), Some(actual.as_str()));
+        }
+    }
+    if std::env::var(UPDATE_ENV).as_deref() == Ok("1") {
+        std::fs::write(
+            FIXTURE_PATH,
+            serde_json::to_string_pretty(&fixture).unwrap() + "\n",
+        )
+        .unwrap();
+    }
+}
 
 // 极简 hex 编解码。
 

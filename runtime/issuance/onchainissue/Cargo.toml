@@ -51,7 +51,7 @@ runtime-benchmarks = [
 ]
 try-runtime = [
     # try-runtime feature 必须传播给所有 frame / pallet 依赖,
-    # 否则 root runtime 启用 try-runtime 时编译会失败（ADR-011 修订项 #6）。
+    # 否则 root runtime 启用 try-runtime 时编译会失败（链上资产发行）。
     "frame-support/try-runtime",
     "frame-system/try-runtime",
     "pallet-balances/try-runtime",

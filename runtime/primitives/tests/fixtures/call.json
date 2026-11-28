@@ -1,0 +1,227 @@
+{
+  "cases": [
+    {
+      "call_index": 1,
+      "expected_byte_length": 19,
+      "expected_call_data_hex": "0x15016300000000000000000000000000000001",
+      "fields": {
+        "approve": true,
+        "proposal_id": "99"
+      },
+      "name": "cast_referendum",
+      "pallet_index": 21
+    },
+    {
+      "call_index": 0,
+      "expected_byte_length": 172,
+      "expected_call_data_hex": "0x0800684c4e3030312d4e524330472d3934343830353136352d3230323640434f4d4d49545445455f4d454d42455230e7b4a7e680a5e69591e781be80f0fa0200000000000000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a100000000000000000000000000000000a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a200000000000000000000000000000000",
+      "fields": {
+        "actor_cid_number": "LN001-NRC0G-944805165-2026",
+        "allocations": [
+          {
+            "amount_fen": 0,
+            "recipient_hex": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+          },
+          {
+            "amount_fen": 0,
+            "recipient_hex": "0xa2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2"
+          }
+        ],
+        "note": "人口快照由投票引擎在联合提案创建时内联生成并绑定,本 call_data 只包含发行内容。",
+        "proposer_role_code": "COMMITTEE_MEMBER",
+        "reason_utf8": "紧急救灾",
+        "total_amount_fen": 50000000
+      },
+      "name": "propose_issuance",
+      "pallet_index": 8
+    },
+    {
+      "call_index": 8,
+      "expected_byte_length": 173,
+      "expected_call_data_hex": "0x1e08684c4e3030312d4e524330472d3934343830353136352d32303236040024e8b4a2e58aa1e5b2970002000000041c7265732d69737300000000000868434e3232302d43545a4e322d3139383830353230302d32303236000000000000000005000068434e3935312d43545a4e312d3533393539383433352d3230323600000000000000000500000000684c4e3030312d4e524330472d3934343830353136352d3230323618524348414952",
+      "fields": {
+        "actor_cid_number": "LN001-NRC0G-944805165-2026",
+        "actor_role_code": "RCHAIR",
+        "cid_number": "LN001-NRC0G-944805165-2026",
+        "person_cids": [
+          "CN220-CTZN2-198805200-2026",
+          "CN951-CTZN1-539598435-2026"
+        ],
+        "role_name": "财务岗",
+        "seats": 2
+      },
+      "name": "propose_public_institution_governance",
+      "pallet_index": 30
+    },
+    {
+      "call_index": 9,
+      "expected_byte_length": 209,
+      "expected_call_data_hex": "0x1e09684c4e3030312d4e524330472d3934343830353136352d32303236040024e8b4a2e58aa1e5b2970002000000041c7265732d69737300000000000868434e3232302d43545a4e322d3139383830353230302d32303236000000000000000001000068434e3935312d43545a4e312d3533393539383433352d32303236000000000000000001000000685a533030312d46524730372d3234393437343530332d3230323618524348414952abababababababababababababababababababababababababababababababab0102000000",
+      "fields": {
+        "actor_cid_number": "ZS001-FRG07-249474503-2026",
+        "actor_role_code": "RCHAIR",
+        "cid_number": "LN001-NRC0G-944805165-2026",
+        "expected_state_hash": "0xabababababababababababababababababababababababababababababababab",
+        "initial_threshold": 2,
+        "person_cids": [
+          "CN220-CTZN2-198805200-2026",
+          "CN951-CTZN1-539598435-2026"
+        ],
+        "role_name": "财务岗",
+        "seats": 2
+      },
+      "name": "register_public_institution_roles",
+      "pallet_index": 30
+    },
+    {
+      "call_index": 8,
+      "expected_byte_length": 173,
+      "expected_call_data_hex": "0x1f08684c4e3030312d4e524330472d3934343830353136352d32303236040024e8b4a2e58aa1e5b2970002000000041c7265732d69737300000000000868434e3232302d43545a4e322d3139383830353230302d32303236000000000000000005000068434e3935312d43545a4e312d3533393539383433352d3230323600000000000000000500000000684c4e3030312d4e524330472d3934343830353136352d3230323618524348414952",
+      "fields": {
+        "actor_cid_number": "LN001-NRC0G-944805165-2026",
+        "actor_role_code": "RCHAIR",
+        "cid_number": "LN001-NRC0G-944805165-2026",
+        "person_cids": [
+          "CN220-CTZN2-198805200-2026",
+          "CN951-CTZN1-539598435-2026"
+        ],
+        "role_name": "财务岗",
+        "seats": 2
+      },
+      "name": "propose_private_institution_governance",
+      "pallet_index": 31
+    },
+    {
+      "call_index": 9,
+      "expected_byte_length": 209,
+      "expected_call_data_hex": "0x1f09684c4e3030312d4e524330472d3934343830353136352d32303236040024e8b4a2e58aa1e5b2970002000000041c7265732d69737300000000000868434e3232302d43545a4e322d3139383830353230302d32303236000000000000000001000068434e3935312d43545a4e312d3533393539383433352d32303236000000000000000001000000685a533030312d46524730372d3234393437343530332d3230323618524348414952abababababababababababababababababababababababababababababababab0102000000",
+      "fields": {
+        "actor_cid_number": "ZS001-FRG07-249474503-2026",
+        "actor_role_code": "RCHAIR",
+        "cid_number": "LN001-NRC0G-944805165-2026",
+        "expected_state_hash": "0xabababababababababababababababababababababababababababababababab",
+        "initial_threshold": 2,
+        "person_cids": [
+          "CN220-CTZN2-198805200-2026",
+          "CN951-CTZN1-539598435-2026"
+        ],
+        "role_name": "财务岗",
+        "seats": 2
+      },
+      "name": "register_private_institution_roles",
+      "pallet_index": 31
+    },
+    {
+      "call_index": 0,
+      "expected_byte_length": 459,
+      "expected_call_data_hex": "0x1b00200400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a6",
+      "fields": {
+        "amount_fen": "84000",
+        "fee_fen": "888",
+        "transfer_count": 8
+      },
+      "name": "batch",
+      "pallet_index": 27
+    },
+    {
+      "call_index": 2,
+      "expected_byte_length": 459,
+      "expected_call_data_hex": "0x1b02200400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a6",
+      "fields": {
+        "amount_fen": "84000",
+        "fee_fen": "888",
+        "transfer_count": 8
+      },
+      "name": "batch_all",
+      "pallet_index": 27
+    },
+    {
+      "call_index": 4,
+      "expected_byte_length": 459,
+      "expected_call_data_hex": "0x1b04200400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a60400aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0429000000000000000000000000000018e8bdace8b4a6",
+      "fields": {
+        "amount_fen": "84000",
+        "fee_fen": "888",
+        "transfer_count": 8
+      },
+      "name": "force_batch",
+      "pallet_index": 27
+    }
+  ],
+  "description": "跨端 SCALE 字节一致性金标。联合公投交易只包含 proposal_id 和 approve,投票资格与人口作用域由 runtime 链上公民身份读取。CitizenWallet 与 CitizenApp 测试读取本文件,任何一端编码漂移都会让测试断言失败。",
+  "generated_by": "runtime/tests/golden.rs: runtime_fixture_contracts",
+  "institution_extensions": [
+    {
+      "call_index": 11,
+      "expected_byte_length": 97,
+      "expected_call_data_hex": "0x1e0b684c4e3030312d43474f56302d3934343830353136352d323032360420525f504f4c49435904206d756c74697369670000000000010200000014525f474f560909090909090909090909090909090909090909090909090909090909090909",
+      "fields": {
+        "cid_number": "LN001-CGOV0-944805165-2026",
+        "proposer_role_code": "R_GOV"
+      },
+      "name": "propose_public_institution_policy",
+      "pallet_index": 30
+    },
+    {
+      "call_index": 8,
+      "expected_byte_length": 81,
+      "expected_call_data_hex": "0x1e08684c4e3030312d43474f56302d3934343830353136352d32303236040320525f504f4c4943590102000000000000684c4e3030312d43474f56302d3934343830353136352d3230323614525f474f56",
+      "fields": {
+        "cid_number": "LN001-CGOV0-944805165-2026",
+        "proposer_role_code": "R_GOV"
+      },
+      "name": "configure_public_institution_role",
+      "pallet_index": 30
+    },
+    {
+      "call_index": 7,
+      "expected_byte_length": 49,
+      "expected_call_data_hex": "0x1e07684c4e3030312d43474f56302d3934343830353136352d323032360430e4b89ae58aa1e8b4a6e688b714525f474f56",
+      "fields": {
+        "cid_number": "LN001-CGOV0-944805165-2026",
+        "proposer_role_code": "R_GOV"
+      },
+      "name": "add_public_institution_account",
+      "pallet_index": 30
+    },
+    {
+      "call_index": 11,
+      "expected_byte_length": 97,
+      "expected_call_data_hex": "0x1f0b684c4e3030312d43434f52302d3934343830353136352d323032360420525f504f4c49435904206d756c74697369670000000000010200000014525f474f560909090909090909090909090909090909090909090909090909090909090909",
+      "fields": {
+        "cid_number": "LN001-CCOR0-944805165-2026",
+        "proposer_role_code": "R_GOV"
+      },
+      "name": "propose_private_institution_policy",
+      "pallet_index": 31
+    },
+    {
+      "call_index": 8,
+      "expected_byte_length": 81,
+      "expected_call_data_hex": "0x1f08684c4e3030312d43434f52302d3934343830353136352d32303236040320525f504f4c4943590102000000000000684c4e3030312d43434f52302d3934343830353136352d3230323614525f474f56",
+      "fields": {
+        "cid_number": "LN001-CCOR0-944805165-2026",
+        "proposer_role_code": "R_GOV"
+      },
+      "name": "configure_private_institution_role",
+      "pallet_index": 31
+    },
+    {
+      "call_index": 7,
+      "expected_byte_length": 49,
+      "expected_call_data_hex": "0x1f07684c4e3030312d43434f52302d3934343830353136352d323032360430e4b89ae58aa1e8b4a6e688b714525f474f56",
+      "fields": {
+        "cid_number": "LN001-CCOR0-944805165-2026",
+        "proposer_role_code": "R_GOV"
+      },
+      "name": "add_private_institution_account",
+      "pallet_index": 31
+    }
+  ],
+  "rejected_calls": [
+    {
+      "name": "propose_issuance_without_role",
+      "expected_call_data_hex": "0x0800684c4e3030312d4e524330472d3934343830353136352d3230323630e7b4a7e680a5e69591e781be80f0fa0200000000000000000000000008a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a100000000000000000000000000000000a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a200000000000000000000000000000000"
+    }
+  ]
+}

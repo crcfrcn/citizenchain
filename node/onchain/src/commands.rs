@@ -265,11 +265,6 @@ pub async fn submit_hot_transfer(
     result
 }
 
-#[tauri::command]
-pub fn join_qr_frames(frames: Vec<String>) -> Result<Option<String>, String> {
-    nodeclient::signing::join_qr_frames(frames)
-}
-
 /// 有界读取最终结果，不签名、不自动重发。
 #[tauri::command]
 pub fn get_transfer_result(tx_hash: String, cursor: u32) -> Result<serde_json::Value, String> {

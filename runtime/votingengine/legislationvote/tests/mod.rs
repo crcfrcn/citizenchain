@@ -102,7 +102,7 @@ pub fn set_guard_member_ids(ids: &[u8]) {
     });
 }
 
-// 签署机构(ADR-027 修订):行政机构 + 立法院(两院级,供院长)。
+// 签署机构(立法与宪法协议 修订):行政机构 + 立法院(两院级,供院长)。
 pub fn exec_body_cid() -> engingcore::types::CidNumber {
     bounded_cid(CHINA_ZF[0].cid_number)
 }

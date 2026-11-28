@@ -15,7 +15,7 @@ pub fn fetch_finalized_head() -> Result<String, String> {
 
 /// 钉 finalized 块读取单条 storage。`None` = 该 storage key 不存在。
 ///
-/// (ADR-017):业务读取禁止 best——不带 at 参数的 `state_getStorage`
+/// (最终确认块读取):业务读取禁止 best——不带 at 参数的 `state_getStorage`
 /// 读的是 best 头,分叉窗口内会看到尚未固化(可能被裁掉)的状态。
 pub fn fetch_finalized_storage(key: &str) -> Result<Option<String>, String> {
     let finalized_hash = fetch_finalized_head()?;
@@ -40,7 +40,7 @@ pub fn fetch_storage_at(key: &str, finalized_hash: &str) -> Result<Option<String
 
 /// 钉 finalized 块列举 storage key(单页,最多 `count` 条,`start_key` 翻页)。
 ///
-/// (ADR-017):索引扫描同样禁止 best——不带 at 参数的
+/// (最终确认块读取):索引扫描同样禁止 best——不带 at 参数的
 /// `state_getKeysPaged` 在 best 漂移时会列出半新半旧的 key 集合。
 pub fn fetch_finalized_keys_paged(
     prefix: &str,

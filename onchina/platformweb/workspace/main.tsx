@@ -16,7 +16,7 @@ import { cidTheme } from "../controls/theme";
 import 'antd/dist/reset.css';
 
 // 大屏只读入口经 hash `#/display` 顶层分流——绕过 AuthProvider/App(免登录只读),
-// 契合 ADR-030 operator/display 路由分离。其余一切走原管理端 App。
+// 契合 管理端路由 operator/display 路由分离。其余一切走原管理端 App。
 const isDisplay = window.location.hash.startsWith('#/display');
 
 const root = ReactDOM.createRoot(document.getElementById('root')!);

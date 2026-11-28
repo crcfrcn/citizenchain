@@ -31,13 +31,13 @@ const modules = [
   '00000000000000000000000000000',
   '00000000000000000000000000000',
 ];
-export function qrImage(): ImageData {
+export function qrImage(color: readonly number[] = [0, 0, 0]): ImageData {
   const scale = 4, width = modules.length * scale;
   const data = new Uint8ClampedArray(width * width * 4);
   for (let y = 0; y < width; y += 1) for (let x = 0; x < width; x += 1) {
     const value = modules[Math.floor(y / scale)]?.[Math.floor(x / scale)] === '1' ? 0 : 255;
     const offset = (y * width + x) * 4;
-    data[offset] = value; data[offset + 1] = value; data[offset + 2] = value; data[offset + 3] = 255;
+    data[offset] = value === 0 ? color[0]! : 255; data[offset + 1] = value === 0 ? color[1]! : 255; data[offset + 2] = value === 0 ? color[2]! : 255; data[offset + 3] = 255;
   }
   return { data, width, height: width } as ImageData;
 }

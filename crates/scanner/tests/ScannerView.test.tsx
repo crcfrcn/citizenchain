@@ -2,10 +2,12 @@
 
 // @vitest-environment jsdom
 
-import { render, waitFor } from '@testing-library/react';
+import { render, waitFor, fireEvent, act } from '@testing-library/react';
+import {StrictMode} from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ScannerView } from '../src/ScannerView';
+import {SigningQr, QrSession, loadQrTransport} from '../src/qr';
 import {
   ScannerFailure,
   type ScannerCallbacks,
@@ -13,6 +15,27 @@ import {
 } from '../src/scanner';
 
 describe('ScannerView', () => {
+  it('严格模式下绿色播放每800毫秒切换，暂停和单帧查看有效且卸载释放资源', async () => {
+    await loadQrTransport();
+    vi.useFakeTimers();
+    const next=vi.spyOn(QrSession.prototype,'next'),close=vi.spyOn(QrSession.prototype,'close');
+    const view=render(<StrictMode><SigningQr value={'public-sign-response'.repeat(100)}/></StrictMode>);
+    try{
+      await act(async()=>{for(let n=0;n<6;n++)await Promise.resolve()});
+      expect(view.container.querySelector('svg path[fill="#007A74"]')).not.toBeNull();
+      expect(next).toHaveBeenCalledTimes(1);
+      act(()=>vi.advanceTimersByTime(799));expect(next).toHaveBeenCalledTimes(1);
+      act(()=>vi.advanceTimersByTime(1));expect(next).toHaveBeenCalledTimes(2);
+      const second=view.container.querySelector('svg')!.innerHTML;
+      fireEvent.click(view.getByRole('button',{name:'暂停'}));
+      act(()=>vi.advanceTimersByTime(1600));expect(next).toHaveBeenCalledTimes(2);
+      fireEvent.click(view.getByRole('button',{name:'下一帧'}));expect(next).toHaveBeenCalledTimes(3);
+      fireEvent.click(view.getByRole('button',{name:'上一帧'}));
+      expect(view.container.querySelector('svg')!.innerHTML).toBe(second);
+      view.unmount();act(()=>vi.runOnlyPendingTimers());
+      expect(next).toHaveBeenCalledTimes(3);expect(close.mock.calls.length).toBeGreaterThanOrEqual(2);
+    }finally{view.unmount();next.mockRestore();close.mockRestore();vi.useRealTimers();}
+  });
   it('启用时启动统一控制器，停用和卸载时停止但不释放注入设备', async () => {
     const controller = new FakeController();
     const onRawValue = vi.fn();

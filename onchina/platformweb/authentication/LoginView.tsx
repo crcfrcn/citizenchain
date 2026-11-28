@@ -270,7 +270,6 @@ export function LoginView() {
         <CitizenSignaturePanel
           qrTitle={pendingQrLogin ? '定向登录二维码' : '登录请求'}
           qrValue={pendingQrLogin?.loginQrPayload}
-          qrPlaceholderValue="ONCHINA_LOGIN_PENDING"
           qrHint={
             pendingQrLogin
               ? `${displayName} · 有效期至 ${new Date(pendingQrLogin.expiresAt * 1000).toLocaleTimeString()}`

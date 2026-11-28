@@ -116,7 +116,7 @@ fn fetch_safety_fund_proposal_action(
         "SafetyFundProposalActions",
         &proposal_id.to_le_bytes(),
     );
-    // 多签转账动作的金额展示以 finalized storage 为准(ADR-017 收口)。
+    // 多签转账动作的金额展示以 finalized storage 为准(最终确认块读取 收口)。
     match nodeclient::query::fetch_finalized_storage(&key)? {
         None => Ok(None),
         Some(hex_data) => {
@@ -166,7 +166,7 @@ fn fetch_sweep_proposal_action(proposal_id: u128) -> Result<Option<SweepProposal
         "SweepProposalActions",
         &proposal_id.to_le_bytes(),
     );
-    // 多签转账动作的金额展示以 finalized storage 为准(ADR-017 收口)。
+    // 多签转账动作的金额展示以 finalized storage 为准(最终确认块读取 收口)。
     match nodeclient::query::fetch_finalized_storage(&key)? {
         None => Ok(None),
         Some(hex_data) => {

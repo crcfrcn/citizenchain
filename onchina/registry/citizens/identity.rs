@@ -442,7 +442,7 @@ pub(crate) async fn complete_citizen_onchain_signature(
         CITIZEN_IDENTITY_PALLET_INDEX,
         payload.identity_level.call_index(),
     );
-    // D7:QR 载荷 = 完整 runtime 签名载荷(与钱包解码器扩展尾规则对齐),
+    // QR 载荷 = 完整 runtime 签名载荷(与钱包解码器扩展尾规则对齐),
     // CitizenWallet 只签名一次并显示响应二维码；OnChina 回扫后经
     // /api/admin/chain/submit 统一组装和提交。
     let prepared =

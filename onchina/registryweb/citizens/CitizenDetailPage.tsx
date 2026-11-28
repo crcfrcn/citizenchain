@@ -323,7 +323,7 @@ function CitizenDetailContent({
       if (!alive.current) return;
       setPrepared(null);
       notice.success('公民钱包签名已验证，请用注册局管理员公民钱包签名并提交上链');
-      // D7：身份上链交易由 OnChina 组装提交，注册局管理员 CitizenWallet 只签名一次并显示响应二维码。
+      // 身份上链交易由 OnChina 组装提交，注册局管理员 CitizenWallet 只签名一次并显示响应二维码。
       const signed = await signChain(output.requestId, output.identitySignRequest);
       if (!alive.current) return;
       setChainSubmitting(true);

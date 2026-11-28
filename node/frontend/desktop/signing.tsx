@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { QrScanner } from "./scanner";
-import { QRCodeSVG } from "qrcode.react";
+import { SigningQr } from "@gmb/scanner-react";
 
 type ModalProps = {
   open: boolean;
@@ -110,7 +110,7 @@ export function CitizenSignaturePanel({
           <p>使用 公民钱包 扫描二维码，完成离线签名。</p>
         </div>
         <div className="citizen-signature-qr-box">
-          <QRCodeSVG value={qrValue} size={260} level="L" />
+          <SigningQr value={qrValue} />
         </div>
         <div className="citizen-signature-meta">
           {countdownSeconds != null && (
@@ -126,7 +126,7 @@ export function CitizenSignaturePanel({
         </div>
 
         {status === 'ready' ? (
-          <QrScanner onScan={onScan} onError={onScanError} />
+          <QrScanner key={qrValue} onScan={onScan} onError={onScanError} />
         ) : (
           <div className={`citizen-signature-status citizen-signature-status-${status}`}>
             <strong>{title}</strong>

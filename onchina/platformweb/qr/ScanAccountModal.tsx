@@ -1,7 +1,7 @@
 // 扫描固定账户码并向业务表单交付规范账户标识。
 
-import { useEffect, useState } from 'react';
-import { ScannerView } from '@gmb/scanner-react';
+import { useEffect, useState, useRef } from 'react';
+import { ScannerView, createQrAssembler } from '@gmb/scanner-react';
 import { Button, Modal, Typography } from 'antd';
 import { parseQrEnvelope, QrParseError, type AccountIdCodeBody } from './citizenQr';
 import { CID_MODAL_Z_INDEX } from '../controls/modalStack';
@@ -13,6 +13,14 @@ export function ScanAccountModal(props: {
 }) {
   const [error, setError] = useState<string | null>(null);
   const [scanAttempt, setScanAttempt] = useState(0);
+  const [progress,setProgress]=useState(0);
+  const assembler=useRef<ReturnType<typeof createQrAssembler>|null>(null);
+  useEffect(()=>{
+    setProgress(0);
+    const current=assembler.current ??= createQrAssembler(setProgress);
+    return()=>{current.close();if(assembler.current===current)assembler.current=null;};
+  },[props.open,scanAttempt]);
+
 
   useEffect(() => {
     if (!props.open) {
@@ -20,9 +28,11 @@ export function ScanAccountModal(props: {
     }
   }, [props.open]);
 
-  const handleRawValue = (raw: string) => {
+  const handleRawValue = async (raw: string):Promise<void|false> => {
     try {
-      const env = parseQrEnvelope(raw);
+      const complete=await (assembler.current ??= createQrAssembler(setProgress))(raw);
+      if(complete===null)return false;
+      const env = parseQrEnvelope(complete);
       if (env.kind !== 'account_id_code') {
         setError('请扫描账户码（钱包 → 账户详情右上角二维码）');
         setScanAttempt((attempt) => attempt + 1);
@@ -73,6 +83,7 @@ export function ScanAccountModal(props: {
           onFailure={(failure) => setError(failure.message)}
         />
       </div>
+      {progress>0 && progress<100 && <p role="status">正在接收账户码 {progress}%</p>}
       {error && (
         <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>
           {error}

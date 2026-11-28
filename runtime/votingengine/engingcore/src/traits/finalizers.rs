@@ -57,7 +57,7 @@ impl<BlockNumber, AccountId> JointProposalFinalizer<BlockNumber, AccountId> for 
     }
 }
 
-// 立法投票(legislationvote)mode trait(ADR-027)
+// 立法投票(legislationvote)mode trait(立法与宪法协议)
 // 核心 engingcore 按 PROPOSAL_KIND_LEGISLATION / STAGE_LEG_* 分发到这些 trait。
 // 内部/联合/选举投票 sub-pallet 逻辑零改动。
 /// 立法投票超时结算入口。legislationvote sub-pallet 实现。

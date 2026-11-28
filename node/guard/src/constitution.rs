@@ -882,7 +882,7 @@ pub mod storage_key {
     }
 
     /// `Legislation::ConstitutionAmendmentProof[version]`(Blake2_128Concat)的完整 key。
-    /// 核心修宪的永久公投凭据 `(eligible, yes, no)`,供守卫背书(第十九条,ADR-027 §6.3)。
+    /// 核心修宪的永久公投凭据 `(eligible, yes, no)`,供守卫背书(第十九条,立法与宪法协议)。
     pub fn constitution_amendment_proof(version: u32) -> Vec<u8> {
         let mut k = map_prefix(b"ConstitutionAmendmentProof");
         k.extend_from_slice(&blake2_128_concat(&version.encode()));
@@ -890,7 +890,7 @@ pub mod storage_key {
     }
 
     /// `Legislation::ConstitutionGuardVoteProof[version]`(Blake2_128Concat)的完整 key。
-    /// 修宪的永久护宪大法官终审凭据(赞成票数),供守卫背书(第21条,ADR-027 §6.3)。
+    /// 修宪的永久护宪大法官终审凭据(赞成票数),供守卫背书(第21条,立法与宪法协议)。
     pub fn constitution_guard_vote_proof(version: u32) -> Vec<u8> {
         let mut k = map_prefix(b"ConstitutionGuardVoteProof");
         k.extend_from_slice(&blake2_128_concat(&version.encode()));

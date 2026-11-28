@@ -109,7 +109,7 @@ fn fetch_institution_threshold(
 pub(crate) fn fetch_institution_detail(
     cid_number: &str,
 ) -> Result<Option<InstitutionDetail>, String> {
-    // (ADR-017):取一次 finalized 快照,机构详情/账户列表/余额/阈值全部钉同一块。
+    // (最终确认块读取):取一次 finalized 快照,机构详情/账户列表/余额/阈值全部钉同一块。
     let finalized_hash = nodeclient::query::fetch_finalized_head()?;
     let Some((owner, inst)) = crate::storage::entity_at(cid_number, &finalized_hash)? else {
         return Ok(None);
@@ -199,7 +199,7 @@ fn fetch_institution_accounts(
     let mut keys: Vec<String> = Vec::new();
     let mut start_key: Option<String> = None;
     loop {
-        // (ADR-017):key 列举与后续 storage 读取必须钉同一个 finalized
+        // (最终确认块读取):key 列举与后续 storage 读取必须钉同一个 finalized
         // 快照哈希;不带 at 参数 = best,分叉窗口内会列出半新半旧的账户集。
         let result = rpc_post(
             "state_getKeysPaged",
@@ -345,7 +345,6 @@ fn decode_account_name_from_key(full_key_hex: &str, cid_prefix_hex: &str) -> Opt
 ///
 /// 当前阶段返回空列表占位。提案存储在 `engingcore::Proposals[id]`,
 /// 按 cid_number 过滤需要扫描全表 + 对照 ProposalMeta.actor_cid_number，
-/// 实现略显重,放 follow-up 任务卡。
 ///
 /// 前端 UI 展示"暂无提案"行兜底,未来填充时无需改 UI 结构。
 pub(crate) fn fetch_institution_proposals(

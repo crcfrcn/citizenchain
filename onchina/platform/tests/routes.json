@@ -1,17 +1,6 @@
 {
   "routes": [
     {
-      "group": "public",
-      "path": "/api/qr/join",
-      "methods": [
-        "post"
-      ],
-      "handlers": [
-        "qr::join_frames"
-      ],
-      "owner": "platform"
-    },
-    {
       "group": "auth",
       "path": "/api/admin/auth/check",
       "methods": [
@@ -408,17 +397,6 @@
       ],
       "handlers": [
         "institutions::get_governance_state"
-      ],
-      "owner": "platform"
-    },
-    {
-      "group": "public",
-      "path": "/api/qr/split",
-      "methods": [
-        "post"
-      ],
-      "handlers": [
-        "qr::split_frames"
       ],
       "owner": "platform"
     }

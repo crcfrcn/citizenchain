@@ -432,7 +432,7 @@ fn schema_error(message: impl Into<String>) -> CodecError {
     CodecError::Schema(message.into())
 }
 
-/// base64url(no padding)定长字段 → ADR-040 规范文本(小写 `0x` + 十六进制)。
+/// base64url(no padding)定长字段 → 规范账户文本(小写 `0x` + 十六进制)。
 ///
 /// `expected_len` 是解码后的**字节**数(公钥 32、签名 64);`field` 用于错误信息定位,
 /// 传 QR body 中的字段名(如 `b.u`、`b.s`)。

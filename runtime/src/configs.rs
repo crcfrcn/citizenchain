@@ -528,12 +528,12 @@ impl Contains<RuntimeCall> for RuntimeCallFilter {
             // Balances 只作为底层余额账本和内部 Currency 能力保留。
             // 外部单账户链上转账唯一入口是 Onchain::transfer_with_remark。
             RuntimeCall::Balances(_) => false,
-            // ADR-011 铁律:pallet_assets 内核所有原生 extrinsic 一律 reject。
+            // 链上资产发行 铁律:pallet_assets 内核所有原生 extrinsic 一律 reject。
             // 业务调用必须经由 OnchainIssue::propose_* → InternalVote/JointVote callback → 内部 root 调用。
             // 任何外部 extrinsic 直接打到 pallet_assets 全部不入块,
             // 这是用户代币治理唯一入口铁律的链端兜底。
             RuntimeCall::Assets(_) => false,
-            // 未启用模块:onchainissue(ADR-011 用户代币,当前为空壳)与
+            // 未启用模块:onchainissue(链上资产发行 用户代币,当前为空壳)与
             // offchain-transaction(链下清算行,业务未启用)一律 reject 直接外部调用。
             // offchain-transaction 的开户、充值、提现、换行、批次、费率和节点登记
             // 全部保持整体禁用；任何单个调用均不得因 origin 或参数不同绕过本过滤器。
@@ -2667,7 +2667,7 @@ impl upgrade::RuntimeCodeExecutor for RuntimeSetCodeExecutor {
 }
 
 parameter_types! {
-    // 立法院模块边界常量(ADR-027,第1步)
+    // 立法院模块边界常量(立法与宪法协议,第1步)
     pub const LegislationMaxTitleLen: u32 = 256;
     pub const LegislationMaxTextLen: u32 = 8192; // 条/款正文(宪法部分条较长)
     pub const LegislationMaxClausesPerArticle: u32 = 50;
@@ -2682,7 +2682,7 @@ impl election::Config for Runtime {}
 impl legislation::Config for Runtime {
     type ActivationWeightBudget = engingcore::BlockWeightFraction<Runtime, 32>;
     type RuntimeEvent = RuntimeEvent;
-    // 立法投票引擎接真实 legislationvote sub-pallet(ADR-027 第2步),投票端到端流程打通。
+    // 立法投票引擎接真实 legislationvote sub-pallet(立法与宪法协议),投票端到端流程打通。
     type LegislationVoteEngine = LegislationVote;
     type InstitutionCidQuery = RuntimeInstitutionCidQuery;
     type InstitutionRoleAuthorization = RuntimeInstitutionRoleAuthorization;
@@ -2793,7 +2793,7 @@ impl engingcore::Config for Runtime {
         InternalVote,
         (JointVote, (LegislationVote, (ElectionVote, ()))),
     );
-    // 立法投票(ADR-027):终态业务回调接 legislation，Track 接 legislationvote。
+    // 立法投票(立法与宪法协议):终态业务回调接 legislation，Track 接 legislationvote。
     // ProposalOwner 决定由法律、任免或预算业务认领；B1 先装配法律业务壳。
     type LegislationVoteResultCallback = (Legislation,);
     type ElectionVoteResultCallback = ElectionVote;
@@ -3220,7 +3220,7 @@ impl engingcore::CitizenIdentityReader<AccountId> for RuntimeCitizenIdentityRead
         }
     }
 }
-// pallet_assets 内核接入(ADR-011 第八节)+ OnchainIssue 外壳配置
+// pallet_assets 内核接入(链上资产发行 第八节)+ OnchainIssue 外壳配置
 //
 // pallet_assets 是用户代币的内核 storage / 资产记账实现,
 // **所有原生 extrinsic 在 RuntimeCallFilter 中 reject**。

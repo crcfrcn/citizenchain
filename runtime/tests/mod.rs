@@ -592,6 +592,7 @@ mod migrations;
 mod performance;
 
 mod unit;
+mod golden;
 
 // 原独立金标从cases迁为共享测试常量，数值保持，不按生产实现推导。
 const EXPECTED_PUBLIC_INSTITUTIONS: usize = 49_593;

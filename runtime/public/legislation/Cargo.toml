@@ -1,7 +1,7 @@
 [package]
 # 根tests统一存放单元测试，独立集成目标仅显式注册，避免重复发现。
 autotests = false
-name = "legislation"  # 立法院模块:法律结构化上链 + 修法走投票引擎(ADR-027)
+name = "legislation"  # 立法院模块:法律结构化上链 + 修法走投票引擎(立法与宪法协议)
 edition.workspace = true   # 默认 Rust 版本
 version.workspace = true   # 版本号
 authors.workspace = true   # 作者

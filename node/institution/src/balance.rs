@@ -17,7 +17,7 @@ fn rpc_post(method: &str, params: Value) -> Result<Value, String> {
 
 /// 查询 finalized 块上的账户总余额（free + reserved，单位为分）。
 pub fn fetch_balance(account_id: &str) -> Result<Option<u128>, String> {
-    // (ADR-017):钉块哈希统一取自 chain_query 收口,业务读取禁止 best。
+    // (最终确认块读取):钉块哈希统一取自 chain_query 收口,业务读取禁止 best。
     let hash = nodeclient::query::fetch_finalized_head()?;
     fetch_balance_at(account_id, Some(&hash))
 }

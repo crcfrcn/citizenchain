@@ -2786,11 +2786,11 @@ select option:checked {
 .citizen-signature-qr-box {
   display: flex;
   width: min(100%, 320px);
-  aspect-ratio: 1 / 1;
+  min-height: 320px;
   box-sizing: border-box;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 0;
   margin: 0 auto;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -4028,7 +4028,10 @@ select option:checked {
 }
 
 .transaction-panel-actions {display:flex;align-items:center;gap:8px;}
-.transaction-history-modal {width:min(960px,calc(100vw - 32px));}
+.transaction-history-section {width:100%;min-width:0;}
+.transaction-history-header {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;}
+.transaction-history-header h2 {margin:0;}
+.transaction-history-body {overflow-x:auto;}
 .transaction-history-table {width:100%;border-collapse:collapse;font-size:13px;}
 .transaction-history-table th,.transaction-history-table td {padding:8px;border-bottom:1px solid var(--border);text-align:left;overflow-wrap:anywhere;}
 .transaction-history-table th {white-space:nowrap;}
@@ -4039,15 +4042,17 @@ select option:checked {
 .batch-transfer-modal {--batch-row-gap:12px;width:min(800px,calc(100vw - 32px));}
 /* 扫码层与批量弹窗同属转账表单，须高于钱包弹窗的2000层。 */
 .transfer-form > .address-scan-modal-mask {z-index:2001;}
+.batch-transfer-modal > .wallet-manager-body {padding-top:4px;}
 .batch-transfer-groups {display:flex;flex-direction:column;gap:var(--batch-row-gap);}
 .batch-transfer-group {display:grid;grid-template-columns:13px minmax(0,150px) minmax(0,1fr) var(--scan-icon-size);gap:8px;align-items:start;}
 .batch-transfer-group > .wallet-radio {display:block;margin-top:calc((var(--scan-icon-size) - 13px) / 2);}
 .batch-transfer-group input,.batch-transfer-group textarea {width:100%;min-width:0;padding:5px 10px;box-sizing:border-box;background:var(--bg-card);border:1px solid var(--border);border-radius:6px;color:var(--text-primary);font-size:13px;line-height:calc(var(--scan-icon-size) - 12px);}
 .batch-transfer-group input,.batch-transfer-group .scan-icon-btn {height:var(--scan-icon-size);box-sizing:border-box;}
 .batch-transfer-group textarea {min-height:var(--scan-icon-size);resize:none;overflow-y:hidden;overflow-x:auto;}
-.batch-transfer-summary {display:block;margin-top:calc(var(--batch-row-gap) * 2);font-size:13px;line-height:20px;white-space:nowrap;overflow-x:auto;}
-.batch-transfer-footer {display:flex;align-items:center;gap:16px;}
-.batch-transfer-mode {display:flex;align-items:center;flex:1;min-width:0;gap:16px;margin:0;padding:0;font-size:16px;line-height:20px;}
+.batch-transfer-group textarea[rows="1"] {height:var(--scan-icon-size);}
+.batch-transfer-summary {display:block;margin-top:calc(var(--batch-row-gap) * 2 + 4px);font-size:13px;line-height:20px;white-space:nowrap;overflow-x:auto;}
+.batch-transfer-footer {display:flex;align-items:center;gap:16px;margin-top:20px;}
+.batch-transfer-mode {display:flex;align-items:center;flex:1;min-width:0;gap:16px;margin:0;padding:0;font-size:14px;line-height:20px;}
 .batch-transfer-mode-title {white-space:nowrap;}
 .batch-transfer-options {display:flex;align-items:center;justify-content:flex-start;gap:16px;}
 .batch-transfer-mode label {display:flex;flex-direction:row;align-items:center;gap:6px;font-size:inherit;line-height:inherit;white-space:nowrap;}

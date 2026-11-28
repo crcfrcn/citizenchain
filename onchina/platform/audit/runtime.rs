@@ -58,7 +58,7 @@ pub fn append_audit_log(
 
 /// 启动公共机构对账，使用原CID真源与原检查条件。
 pub mod catalog {
-    //! 创世公权机构目录链上验收(ADR-031 D9)。
+    //! 创世公权机构目录链上验收(注册与创世目录)。
     //!
     //! 本文件只做部署/启动验收:用创世派生规则抽样或全量比对链上
     //! `PublicEntity::Institutions`,确认 runtime/onchina 版本未漂移。

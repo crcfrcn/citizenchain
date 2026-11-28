@@ -5,18 +5,19 @@ import { PrcSection } from "../institution/PrcSection";
 import { PrbSection } from "../institution/PrbSection";
 import { ClearingBankSection } from "../offchain/section";
 import { HomeNodeSection, OtherTabsSection, SettingsSection } from "../control/index";
-import { TransactionPanel } from "../onchain/TransactionPanel";
+import { TransactionPanel, TransactionHistorySection } from "../onchain/TransactionPanel";
 import { MiningDashboardSection } from "../mining/index";
 import { OnChinaPlatformSection } from "../control/OnChinaPlatformSection";
 import { settingsApi } from "../control/api";
 import { shouldShowDesktopUpdateDot } from "../control/updateIndicator";
 import type { DesktopInstaller, DesktopUpdateInfo, DesktopUpdateProgress } from "../control/types";
-// 节点 UI 顶级 tab 栏：首页 / 挖矿 / 国家储委会 / 省储委会 / 省储行 / 清算行 / 白皮书 / 公民宪法 / 链上中国 / 设置。
+// 节点 UI 顶级 tab 栏：首页 / 挖矿 / 交易记录 / 国家储委会 / 省储委会 / 省储行 / 清算行 / 白皮书 / 公民宪法 / 链上中国 / 设置。
 import { useCallback, useEffect, useState } from 'react';
 
 type TabKey =
   | 'home'
   | 'mining'
+  | 'history'
   | 'nrc'
   | 'prc'
   | 'prb'
@@ -122,6 +123,7 @@ export default function App() {
       <nav className="top-nav">
         <button className={tab === 'home' ? 'active' : ''} onClick={() => setTab('home')}>首页</button>
         <button className={tab === 'mining' ? 'active' : ''} onClick={() => setTab('mining')}>挖矿</button>
+        <button className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>交易记录</button>
         <button className={tab === 'nrc' ? 'active' : ''} onClick={() => setTab('nrc')}>国家储委会</button>
         <button className={tab === 'prc' ? 'active' : ''} onClick={() => setTab('prc')}>省储委会</button>
         <button className={tab === 'prb' ? 'active' : ''} onClick={() => setTab('prb')}>省储行</button>
@@ -153,6 +155,8 @@ export default function App() {
                 onUpdateDesktop={updateDesktop}
               />
             ) : null}
+
+            {tab === 'history' ? <TransactionHistorySection /> : null}
 
             {tab === 'mining' ? (
               <MiningDashboardSection />

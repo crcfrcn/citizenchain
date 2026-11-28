@@ -67,7 +67,7 @@ pub mod pallet {
         ConstU32<{ legislationvote::MAX_REPRESENTATIVE_BODIES }>,
     >;
 
-    /// 法律内容统一结构:章 > 节 > 条 > 款(ADR-027)。
+    /// 法律内容统一结构:章 > 节 > 条 > 款(立法与宪法协议)。
     /// 章/节/条做目录,条款做正文;所有法律统一此结构(章/节/条必有,款可空)。
     /// 宪法双语(`_en` 全填),其他法律单语(`_en` 为 None)。
     /// 条文款(第 N 款,正文)。
@@ -317,7 +317,7 @@ pub mod pallet {
     #[pallet::pallet]
     pub struct Pallet<T>(_);
 
-    /// 不可修改条款 manifest(ADR-027 §6.1,L3 创世锚)。
+    /// 不可修改条款 manifest(立法与宪法协议,L3 创世锚)。
     /// `article_numbers` 与 `article_hashes` 平行:条号 + 该条规范 SCALE 的 blake2_256 摘要。
     /// 仅 `genesis_build` 写入,创世后永不可变;节点启动据此与二进制清单/创世条文交叉校验。
     #[derive(Clone, PartialEq, Eq, Encode, Decode, MaxEncodedLen, TypeInfo, Debug)]
@@ -387,7 +387,7 @@ pub mod pallet {
 
     /// 核心修宪(第一章总则核心条款,走特别案)的**永久公投凭据**:`version → (eligible, yes, no)`。
     /// 宪法(law_id=0)专用;`write_law_version` 对核心章改动版本写入(需过公投口径
-    /// `primitives::constitution::referendum_passed`),供节点守卫逐块背书(第十九条,ADR-027 §6.3)。
+    /// `primitives::constitution::referendum_passed`),供节点守卫逐块背书(第十九条,立法与宪法协议)。
     /// 永久保留(engingcore 90 天清理不涉及本表),故节点可对生效/待生效版本随时校验。
     #[pallet::storage]
     pub type ConstitutionAmendmentProof<T: Config> =
@@ -395,7 +395,7 @@ pub mod pallet {
 
     /// 修宪的**永久护宪终审凭据**:`version → 护宪大法官赞成票数`。
     /// **所有** tier=宪法 的 Amend 版本(含一般章重要案)写入(需过 4/7 口径
-    /// `primitives::constitution::guard_review_passed`),供节点守卫逐块背书(第21条,ADR-027 §6.3)。
+    /// `primitives::constitution::guard_review_passed`),供节点守卫逐块背书(第21条,立法与宪法协议)。
     /// 永久保留(engingcore 90 天清理不涉及本表)。
     #[pallet::storage]
     pub type ConstitutionGuardVoteProof<T: Config> =
@@ -439,7 +439,7 @@ pub mod pallet {
                 .expect("内置 constitution.scale 的章号、同章节号、条号必须唯一");
 
             // L3 创世锚:逐条断言不可修改条款存在(缺即 panic,烤不出非法创世),
-            // 并把条号 + 内容摘要冻结进链上 manifest,供节点启动期交叉校验(ADR-027 §6.1)。
+            // 并把条号 + 内容摘要冻结进链上 manifest,供节点启动期交叉校验(立法与宪法协议)。
             let mut article_numbers =
                 BoundedVec::<u32, ConstU32<{ MAX_IMMUTABLE_ARTICLES }>>::new();
             let mut article_hashes =
@@ -662,7 +662,7 @@ pub mod pallet {
             effective_at: u64,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            // 宪法唯一真源 = 创世注入的 law_id=0,立法入口永不能新立第二部宪法(ADR-027 §6.1)。
+            // 宪法唯一真源 = 创世注入的 law_id=0,立法入口永不能新立第二部宪法(立法与宪法协议)。
             ensure!(
                 tier != Tier::Constitution,
                 Error::<T>::CannotEnactConstitution
@@ -886,7 +886,7 @@ pub mod pallet {
         }
 
         /// 校验发起人是提案机构(proposer_body)的现任管理员(议员/委员)。
-        /// ADR-027 修订:提案方与表决院解耦——市行政区 市自治会/市教委会 委员可提案,
+        /// 立法与宪法协议 修订:提案方与表决院解耦——市行政区 市自治会/市教委会 委员可提案,
         /// 但表决院恒为 houses[0]=市立法会,故 auth 校验对 proposer_body 而非 houses[0]。
         fn ensure_legislator(
             actor_cid_number: &engingcore::types::CidNumber,
@@ -968,7 +968,7 @@ pub mod pallet {
             Ok(parts.r5.into_bytes())
         }
 
-        /// 路由校验(ADR-027,宪法第45/46/75/79/100/106条)。
+        /// 路由校验(立法与宪法协议,宪法第45/46/75/79/100/106条)。
         ///
         /// 调用方仍传原有字段，但链端只接受固定的层级×表决类型路由；所有机构账户
         /// 必须由 entity 真源解析为预期机构码。省、市路由还必须共享同一 CID R5，
@@ -1300,7 +1300,7 @@ pub mod pallet {
 
         /// 核心修宪(tier=宪法 且改动落第一章总则核心条款)写入**永久公投凭据**。
         /// 取投票引擎的公投结果 `(eligible, yes, no)`、过通过口径 `referendum_passed`,
-        /// 存 `ConstitutionAmendmentProof[new_version]`,供节点守卫逐块背书(第十九条,ADR-027 §6.3)。
+        /// 存 `ConstitutionAmendmentProof[new_version]`,供节点守卫逐块背书(第十九条,立法与宪法协议)。
         /// 非宪法 / 非核心章改动(一般章走重要案、无公投)→ 无操作。由 `write_law_version` Amend 分支调用。
         fn record_constitution_amendment_proof(
             tier: Tier,
@@ -1332,7 +1332,7 @@ pub mod pallet {
 
         /// 修宪(tier=宪法,**任意章**)写入**永久护宪终审凭据**(第21条:一切修宪须经护宪大法官 4/7 终审)。
         /// 取护宪大法官赞成票数、过口径 `guard_review_passed`,存 `ConstitutionGuardVoteProof[new_version]`,
-        /// 供节点守卫逐块背书(ADR-027 §6.3)。非宪法 → 无操作。由 `write_law_version` Amend 分支调用。
+        /// 供节点守卫逐块背书(立法与宪法协议)。非宪法 → 无操作。由 `write_law_version` Amend 分支调用。
         fn record_constitution_guard_proof(
             tier: Tier,
             new_version: u32,

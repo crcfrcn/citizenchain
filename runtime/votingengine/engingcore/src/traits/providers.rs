@@ -99,7 +99,7 @@ pub trait InternalVoteProvider<AccountId> {
         false
     }
 
-    /// 获取机构法定代表人(ADR-027 立法签署人)。
+    /// 获取机构法定代表人(立法与宪法协议 立法签署人)。
     /// 默认 None(个人账户/尚未任命);机构公开事实由 entity 的 `InstitutionInfo` 提供。
     fn legal_representative(_cid_number: &[u8]) -> Option<AccountId> {
         None

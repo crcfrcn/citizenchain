@@ -54,7 +54,7 @@ const TAG_PRIVATE_MANAGE: &[u8] = b"pri-mgmt";
 /// 查询 NextProposalId（VotingEngine 全局递增 ID）。
 pub(crate) fn fetch_next_proposal_id() -> Result<u128, String> {
     let key = nodeclient::query::value_key("VotingEngine", "NextProposalId");
-    // (ADR-017):业务读取统一经 chain_query 钉 finalized,禁止 best。
+    // (最终确认块读取):业务读取统一经 chain_query 钉 finalized,禁止 best。
     match nodeclient::query::fetch_finalized_storage(&key)? {
         None => Ok(0),
         Some(hex_data) => {
@@ -375,7 +375,7 @@ pub(crate) fn fetch_institution_proposal_page(
 pub(crate) fn fetch_active_proposal_ids(cid_number: &str) -> Result<Vec<u128>, String> {
     let subject_key = proposal_subject_institution_cid_key(cid_number)?;
     let key = nodeclient::query::map_key("VotingEngine", "ActiveProposalsBySubject", &subject_key);
-    // (ADR-017):活跃提案索引按 finalized 口径读取,避免 best 漂移漏列。
+    // (最终确认块读取):活跃提案索引按 finalized 口径读取,避免 best 漂移漏列。
     match nodeclient::query::fetch_finalized_storage(&key)? {
         None => Ok(Vec::new()),
         Some(hex_data) => {
@@ -577,7 +577,7 @@ pub(crate) fn fetch_proposal_display_id(
         "ProposalDisplayId",
         &proposal_id.to_le_bytes(),
     );
-    // (ADR-017):展示号反查按 finalized 口径读取,禁止 best。
+    // (最终确认块读取):展示号反查按 finalized 口径读取,禁止 best。
     let hex_value = match nodeclient::query::fetch_finalized_storage(&key)? {
         Some(s) => s,
         None => return Ok(None),
@@ -596,7 +596,7 @@ pub(crate) fn fetch_proposal_display_id(
 /// 在指定 K1 下的所有 proposal_id。每条 key 末 16 字节 = u128 LE = proposal_id。
 fn fetch_proposal_ids_by_index(storage_name: &str, key1: &[u8]) -> Result<Vec<u128>, String> {
     let prefix = nodeclient::query::twox64_concat_prefix("VotingEngine", storage_name, key1);
-    // (ADR-017):反向索引列举按 finalized 口径,best 漂移会列出半新半旧 key 集。
+    // (最终确认块读取):反向索引列举按 finalized 口径,best 漂移会列出半新半旧 key 集。
     let keys = nodeclient::query::fetch_finalized_keys_paged(&prefix, 1000, None)?;
     let mut ids = Vec::with_capacity(keys.len());
     for s in &keys {

@@ -1,18 +1,14 @@
 // 展示待签二维码并扫描签名响应，统一摄像头生命周期。
 
-import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react';
-import { verifiedQrTransportFrames } from './citizenQr';
-import { ScannerView, createQrAssembler } from '@gmb/scanner-react';
-import { Button, QRCode, Typography } from 'antd';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { ScannerView, createQrAssembler, SigningQr } from '@gmb/scanner-react';
+import { Button, Typography } from 'antd';
 import { ScanOutlined } from '@ant-design/icons';
 
 export interface CitizenSignaturePanelProps {
   qrTitle?: string;
-  /** 仅机构钱包流程启用现有原生分帧，其他调用保持原展示。 */
-  framed?: boolean;
   scannerTitle?: string;
   qrValue?: string | null;
-  qrPlaceholderValue?: string;
   qrHint?: ReactNode;
   scannerHint?: ReactNode;
   primaryActionText?: string;
@@ -27,16 +23,13 @@ export interface CitizenSignaturePanelProps {
   onScannerError?: (message: string) => void;
 }
 
-import { request } from '../workspace/http';
 
 const cornerColor = '#0d9488';
 
 export function CitizenSignaturePanel({
   qrTitle = '签名二维码',
-  framed = false,
   scannerTitle = '扫码窗口',
   qrValue,
-  qrPlaceholderValue = 'CID_SIGN_PENDING',
   qrHint,
   scannerHint = '开启摄像头扫描已签名的二维码',
   primaryActionText,
@@ -54,33 +47,15 @@ export function CitizenSignaturePanel({
   const [scannerReady, setScannerReady] = useState(false);
   const session = useRef(0);
   useEffect(() => () => { session.current += 1; }, []);
-  const assemble = useMemo(() => createQrAssembler(frames => request<string | null>('/api/qr/join', {method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(frames)})), [scannerActive]);
-
-  const [frameSource, setFrameSource] = useState<string | null>(null);
-  const [frames, setFrames] = useState<string[]>([]);
-  const [frameError, setFrameError] = useState<string | null>(null);
-  const [frameIndex, setFrameIndex] = useState(0);
-  const [frameAttempt, setFrameAttempt] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const needsFrames = !!(framed && qrValue && new TextEncoder().encode(qrValue).length > 2331);
+  const [progress, setProgress] = useState(0);
+  const assembler = useRef<ReturnType<typeof createQrAssembler> | null>(null);
   useEffect(() => {
-    setFrameSource(qrValue ?? null); setFrames([]); setFrameIndex(0); setFrameError(null); setPaused(false);
-    if (!needsFrames || !qrValue) return;
-    const controller = new AbortController();
-    request<unknown>('/api/qr/split', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(qrValue), signal: controller.signal })
-      .then(value => { if (!controller.signal.aborted) setFrames(verifiedQrTransportFrames(qrValue, value)); })
-      .catch(error => { if (!controller.signal.aborted) setFrameError(error instanceof Error ? error.message : String(error)); });
-    return () => controller.abort();
-  }, [qrValue, needsFrames, frameAttempt]);
-  useEffect(() => {
-    if (frames.length < 2 || paused) return;
-    const timer = setInterval(() => setFrameIndex(index => (index + 1) % frames.length), 600);
-    return () => clearInterval(timer);
-  }, [frames, paused, qrValue]);
-  const activeFrames = frameSource === qrValue ? frames : [];
-  const visibleFrameError = frameSource === qrValue && needsFrames ? frameError : null;
-  const displayReady = !!qrValue && (!needsFrames || activeFrames.length > 0) && !visibleFrameError;
-  const currentQrValue = needsFrames ? activeFrames[frameIndex] ?? qrPlaceholderValue : qrValue || qrPlaceholderValue;
+    setProgress(0);
+    const current = assembler.current ??= createQrAssembler(setProgress);
+    return () => { current.close(); if (assembler.current === current) assembler.current = null; };
+  }, [scannerActive, qrValue]);
+  const assemble = (raw: string) => (assembler.current ??= createQrAssembler(setProgress))(raw);
+  const displayReady = !!qrValue;
 
   return (
     <div style={{ display: 'flex', gap: 32, alignItems: 'stretch', flexWrap: 'wrap' }}>
@@ -99,8 +74,9 @@ export function CitizenSignaturePanel({
         <div
           style={{
             position: 'relative',
-            width: 260,
-            height: 260,
+            width: 320,
+            maxWidth: '100%',
+            minHeight: 320,
             background: '#f8fffe',
             borderRadius: 16,
             border: '2px solid #e6f7f5',
@@ -120,16 +96,11 @@ export function CitizenSignaturePanel({
               transition: 'filter 0.3s ease',
             }}
           >
-            <QRCode value={currentQrValue} size={228} color="#134e4a" />
+            {qrValue ? <SigningQr value={qrValue} /> : <span>正在准备签名请求</span>}
           </div>
         </div>
         <div style={{ marginTop: 14, textAlign: 'center' }}>
-          {needsFrames && !activeFrames.length && !visibleFrameError && <Typography.Paragraph>正在准备签名二维码</Typography.Paragraph>}
-          {visibleFrameError && <><Typography.Paragraph type="danger">{visibleFrameError}</Typography.Paragraph><Button onClick={() => setFrameAttempt(value => value + 1)}>重新载入二维码</Button></>}
-          {activeFrames.length > 1 && <div style={{ marginBottom: 12 }}><Typography.Paragraph>第 {frameIndex + 1} / {activeFrames.length} 帧，请持续扫码至钱包完成合并</Typography.Paragraph>
-            <Button size="small" onClick={() => setFrameIndex(index => (index + frames.length - 1) % frames.length)}>上一帧</Button>
-            <Button size="small" onClick={() => setPaused(value => !value)}>{paused ? '继续轮播' : '暂停轮播'}</Button>
-            <Button size="small" onClick={() => setFrameIndex(index => (index + 1) % frames.length)}>下一帧</Button></div>}
+          {progress > 0 && progress < 100 && <p role="status">正在接收签名 {progress}%</p>}
           <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
             {qrHint}
           </Typography.Text>
@@ -176,8 +147,9 @@ export function CitizenSignaturePanel({
         </Typography.Text>
         <div
           style={{
-            width: 260,
-            height: 260,
+            width: 320,
+            maxWidth: '100%',
+            minHeight: 320,
             background: 'linear-gradient(145deg, #0f172a, #1e293b)',
             borderRadius: 16,
             overflow: 'hidden',
@@ -240,6 +212,7 @@ export function CitizenSignaturePanel({
           ) : null}
         </div>
         <div style={{ marginTop: 14, textAlign: 'center' }}>
+          {progress > 0 && progress < 100 && <p role="status">正在接收签名 {progress}%</p>}
           <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
             {scannerHint}
           </Typography.Text>
@@ -250,7 +223,7 @@ export function CitizenSignaturePanel({
               setScannerReady(false);
               setScannerActive((value) => !value);
             }}
-            disabled={scannerDisabled || !!(needsFrames && !displayReady)}
+            disabled={scannerDisabled || !displayReady}
             loading={scannerLoading}
             style={{ borderRadius: 10, fontWeight: 500, width: 200 }}
           >

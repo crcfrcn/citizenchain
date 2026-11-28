@@ -56,7 +56,7 @@ export async function submitChainSign<TCitizen = unknown>(
   });
 }
 
-export type ChainSignOptions = { signal?: AbortSignal; expectedAccountId?: string; title?: string; qrTitle?: string; qrHint?: string; qrFrames?: boolean; expiresAt?: number; captureResponse?: boolean };
+export type ChainSignOptions = { signal?: AbortSignal; expectedAccountId?: string; title?: string; qrTitle?: string; qrHint?: string; expiresAt?: number; captureResponse?: boolean };
 
 type PendingChainSign = {
   options?: ChainSignOptions;
@@ -154,7 +154,6 @@ export function useChainSign(title = '管理员公民钱包签名'): UseChainSig
 
   const chainSignModal = (
     <CitizenSignatureModal
-      framed={pending?.options?.qrFrames ?? false}
       title={pending?.options?.title ?? title}
       open={!!pending}
       onCancel={onCancel}

@@ -6,7 +6,7 @@ import {resolve} from 'node:path';
 import {MetricHelp} from '../desktop/MetricHelp';
 import { TransferForm } from "../onchain/TransferForm";
 import { TransferSigningFlow } from "../onchain/TransferSigningFlow";
-import { TransactionPanel } from "../onchain/TransactionPanel";
+import { TransactionPanel, TransactionHistorySection } from "../onchain/TransactionPanel";
 import { WalletManagerModal } from "../onchain/WalletManagerModal";
 import { RewardAccountSection } from "../control/RewardAccountSection";
 import { parseAddressQr } from "../client/parseAddressQr";
@@ -736,8 +736,10 @@ it('批量底栏左侧交易模式右侧签名、两选项顺序及圈大小正�
   fireEvent.click(screen.getByRole('button',{name:'批量转账'}));
   const footer=view.container.querySelector('.batch-transfer-footer')!,mode=footer.querySelector('.batch-transfer-mode')!,sign=footer.querySelector('.transfer-form-submit')!;
   expect(Array.from(footer.children)).toEqual([mode,sign]);expect(mode.querySelector('.batch-transfer-mode-title')?.textContent).toBe('交易模式');
+  expect(getComputedStyle(footer).marginTop).toBe('20px');
+  expect(getComputedStyle(view.container.querySelector('.batch-transfer-modal > .wallet-manager-body')!).paddingTop).toBe('4px');
   expect(mode.tagName).toBe('DIV');expect(mode.getAttribute('role')).toBe('group');
-  expect(getComputedStyle(mode).fontSize).toBe('16px');expect(getComputedStyle(mode).alignItems).toBe('center');
+  expect(getComputedStyle(mode).fontSize).toBe('14px');expect(getComputedStyle(mode).alignItems).toBe('center');
   expect(getComputedStyle(mode.querySelector('.batch-transfer-options')!).justifyContent).toBe('flex-start');
   expect(getComputedStyle(view.container.querySelector('.batch-transfer-summary')!).fontSize).toBe('13px');
   expect(Array.from(mode.querySelectorAll('label')).map(node=>node.textContent)).toEqual(['整批成功','逐笔成功']);
@@ -757,16 +759,15 @@ it('批量底栏左侧交易模式右侧签名、两选项顺序及圈大小正�
 function historyRecord(overrides:Record<string,unknown>={}){
  return {blockNumber:9,timestamp:1782950400000,txHash:'0xhistory',accountIds:[wallet.accountId],direction:'sent',mode:'batch_all',transferCount:4,amountFen:'10500',feeFen:'40',state:'success',...overrides};
 }
-it('交易记录在钱包管理左侧，汇总现有多个钱包但同一笔交易只显示一条简要记录',async()=>{
+it('独立交易记录汇总现有多个钱包，同一笔交易只显示一条简要记录',async()=>{
  const second={...wallet,name:'合成第二钱包',accountId:'0x'+'22'.repeat(32)};const original=mocks.invoke.getMockImplementation()!;
  mocks.invoke.mockImplementation((command:string,...args:unknown[])=>command==='get_wallets'?Promise.resolve({wallets:[wallet,second],activeAccountId:wallet.accountId}):command==='get_transaction_history'?Promise.resolve({records:[historyRecord({accountIds:[wallet.accountId,second.accountId],direction:'internal'})],cursor:null}):original(command,...args));
- const view=render(<TransactionPanel nodeReady/>);await screen.findByText('1,000.00 元');
- expect(Array.from(view.container.querySelector('.transaction-panel-actions')!.children).map(node=>node.textContent)).toEqual(['交易记录','钱包管理']);
- fireEvent.click(screen.getByRole('button',{name:'交易记录'}));const dialog=await screen.findByRole('dialog',{name:'交易记录'});
+ const view=render(<TransactionHistorySection/>);
+ const dialog=await screen.findByRole('region',{name:'交易记录'});
  await screen.findByText('合成冷钱包、合成第二钱包');expect(dialog.querySelectorAll('tbody tr')).toHaveLength(1);
  expect(dialog.textContent).toContain('105.00 元');expect(dialog.textContent).toContain('0.40 元');expect(dialog.textContent).toContain('内部转账');expect(dialog.textContent).not.toContain('0xhistory');
  expect(mocks.invoke).toHaveBeenCalledWith('get_transaction_history',{cursor:null});
- fireEvent.click(screen.getByRole('button',{name:'关闭交易记录'}));expect(screen.queryByRole('dialog',{name:'交易记录'})).toBeNull();view.unmount();
+ expect(screen.queryByRole('dialog')).toBeNull();expect(screen.queryByRole('button',{name:'关闭交易记录'})).toBeNull();view.unmount();
 });
 it('历史记录跳过无相关交易的区块页，加载更多读取更早记录，不建立定时轮询',async()=>{
  let reads=0;const original=mocks.invoke.getMockImplementation()!;
@@ -775,25 +776,26 @@ it('历史记录跳过无相关交易的区块页，加载更多读取更早记�
    ++reads;return Promise.resolve(reads===1?{records:[],cursor:{blockNumber:100,extrinsicIndex:null}}:reads===2?{records:[historyRecord()],cursor:{blockNumber:90,extrinsicIndex:null}}:{records:[historyRecord({blockNumber:8,txHash:'older',direction:'received',amountFen:'200',feeFen:'0'})],cursor:null});
   }return original(command,...args);
  });
- const view=render(<TransactionPanel nodeReady/>);await screen.findByText('1,000.00 元');fireEvent.click(screen.getByRole('button',{name:'交易记录'}));
- await screen.findByText('105.00 元');expect(reads).toBe(2);expect(mocks.invoke).toHaveBeenCalledWith('get_transaction_history',{cursor:{blockNumber:100,extrinsicIndex:null}});
- fireEvent.click(screen.getByRole('button',{name:'加载更多'}));await screen.findByText('2.00 元');expect(reads).toBe(3);
- expect(screen.getByRole('dialog',{name:'交易记录'}).querySelectorAll('tbody tr')).toHaveLength(2);expect(screen.queryByRole('button',{name:'加载更多'})).toBeNull();
+ const view=render(<TransactionHistorySection/>);
+ await screen.findByText('-105.00 元');expect(reads).toBe(2);expect(mocks.invoke).toHaveBeenCalledWith('get_transaction_history',{cursor:{blockNumber:100,extrinsicIndex:null}});
+ fireEvent.click(screen.getByRole('button',{name:'加载更多'}));await screen.findByText('+2.00 元');expect(reads).toBe(3);
+ expect(screen.getByRole('region',{name:'交易记录'}).querySelectorAll('tbody tr')).toHaveLength(2);expect(screen.queryByRole('button',{name:'加载更多'})).toBeNull();
  vi.useFakeTimers();await act(async()=>vi.advanceTimersByTimeAsync(20000));expect(reads).toBe(3);view.unmount();
 });
 it('历史读取失败保留错误可刷新，不把失败当作空记录；关闭后迟到结果不继续查链',async()=>{
  let mode:'error'|'empty'|'pending'='error';const pending=deferred<unknown>();const original=mocks.invoke.getMockImplementation()!;
  mocks.invoke.mockImplementation((command:string,...args:unknown[])=>command==='get_transaction_history'?mode==='error'?Promise.reject(Error('合成历史读取失败')):mode==='empty'?Promise.resolve({records:[],cursor:null}):pending.promise:original(command,...args));
- const view=render(<TransactionPanel nodeReady/>);await screen.findByText('1,000.00 元');fireEvent.click(screen.getByRole('button',{name:'交易记录'}));
+ const view=render(<TransactionHistorySection/>);
  await screen.findByText('合成历史读取失败');expect(screen.queryByText('暂无交易记录')).toBeNull();
  mode='empty';fireEvent.click(screen.getByRole('button',{name:'刷新'}));await screen.findByText('暂无交易记录');
  mode='pending';fireEvent.click(screen.getByRole('button',{name:'刷新'}));const count=mocks.invoke.mock.calls.filter(([c])=>c==='get_transaction_history').length;
- fireEvent.click(screen.getByRole('button',{name:'关闭交易记录'}));await act(async()=>pending.resolve({records:[],cursor:{blockNumber:1,extrinsicIndex:null}}));
+ view.unmount();await act(async()=>pending.resolve({records:[],cursor:{blockNumber:1,extrinsicIndex:null}}));
  expect(mocks.invoke.mock.calls.filter(([c])=>c==='get_transaction_history')).toHaveLength(count);expect(screen.queryByRole('dialog',{name:'交易记录'})).toBeNull();view.unmount();
 });
-it('节点未运行时交易记录入口禁用，不读取本机链',async()=>{
- const view=render(<TransactionPanel nodeReady={false}/>);const button=await screen.findByRole('button',{name:'交易记录'});expect((button as HTMLButtonElement).disabled).toBe(true);fireEvent.click(button);
- expect(mocks.invoke.mock.calls.some(([c])=>c==='get_transaction_history')).toBe(false);view.unmount();
+it('节点未运行时显示原查询错误，不显示伪空记录',async()=>{
+ const original=mocks.invoke.getMockImplementation()!;
+ mocks.invoke.mockImplementation((command:string,...args:unknown[])=>command==='get_transaction_history'?Promise.reject(Error('节点未运行')):original(command,...args));
+ const view=render(<TransactionHistorySection/>);await screen.findByText('节点未运行');expect(screen.queryByText('暂无交易记录')).toBeNull();view.unmount();
 });
 
 it('批量结果子项不完整时不编造成功数，保留原游标再核验且不重新付款',async()=>{
@@ -813,7 +815,7 @@ it('批量结果子项不完整时不编造成功数，保留原游标再核验�
 it('历史游标不前进时停止读取并报错，不循环查询或显示伪空记录',async()=>{
  const original=mocks.invoke.getMockImplementation()!;
  mocks.invoke.mockImplementation((command:string,...args:unknown[])=>command==='get_transaction_history'?Promise.resolve({records:[],cursor:{blockNumber:1,extrinsicIndex:null}}):original(command,...args));
- const view=render(<TransactionPanel nodeReady/>);await screen.findByText('1,000.00 元');fireEvent.click(screen.getByRole('button',{name:'交易记录'}));
+ const view=render(<TransactionHistorySection/>);
  await screen.findByText('交易记录游标未前进');expect(mocks.invoke.mock.calls.filter(([c])=>c==='get_transaction_history')).toHaveLength(2);expect(screen.queryByText('暂无交易记录')).toBeNull();view.unmount();
 });
 
@@ -826,4 +828,15 @@ it('批量模式容器采用普通横排分组，锁定时两选项仍同时禁�
  view.rerender(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={vi.fn()} disabled/>);
  for(const input of group.querySelectorAll<HTMLInputElement>('input'))expect(input.disabled).toBe(true);
  expect(group.getAttribute('aria-disabled')).toBe('true');view.unmount();
+});
+
+it('首页只保留钱包管理，不再包含历史弹窗入口',async()=>{
+ const view=render(<TransactionPanel nodeReady={false}/>);await screen.findByRole('button',{name:'钱包管理'});
+ expect(screen.queryByRole('button',{name:'交易记录'})).toBeNull();view.unmount();
+});
+it('历史刷新重新获取当前钱包名称，收入支出带符号，失败回滚仍显示状态',async()=>{
+ const original=mocks.invoke.getMockImplementation()!;let changed=false;
+ mocks.invoke.mockImplementation((command:string,...args:unknown[])=>command==='get_wallets'?Promise.resolve({wallets:[{...wallet,name:changed?'改名钱包':wallet.name}],activeAccountId:wallet.accountId}):command==='get_transaction_history'?Promise.resolve({records:[historyRecord({amountFen:'100',direction:'received'}),historyRecord({txHash:'failed',amountFen:'200',state:'failed'}),historyRecord({txHash:'rolled',amountFen:'300',state:'rolled_back'})],cursor:null}):original(command,...args));
+ const view=render(<TransactionHistorySection/>);await screen.findByText('+1.00 元');expect(screen.getByText('-2.00 元')).toBeTruthy();expect(screen.getByText('-3.00 元')).toBeTruthy();expect(screen.getByText('失败')).toBeTruthy();expect(screen.getByText('已回滚')).toBeTruthy();
+ const before=mocks.invoke.mock.calls.filter(([c])=>c==='get_wallets').length;changed=true;fireEvent.click(screen.getByRole('button',{name:'刷新'}));await screen.findAllByText('改名钱包');expect(mocks.invoke.mock.calls.filter(([c])=>c==='get_wallets')).toHaveLength(before+1);view.unmount();
 });

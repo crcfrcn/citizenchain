@@ -455,7 +455,7 @@ fn propose_enact_by_non_legislator_rejected() {
 
 #[test]
 fn propose_enact_constitution_rejected() {
-    // 立法入口不得新立第二部宪法(ADR-027 §6.1):tier=Constitution 直接拒。
+    // 立法入口不得新立第二部宪法(立法与宪法协议):tier=Constitution 直接拒。
     new_test_ext().execute_with(|| {
         assert_noop!(
             Lib::propose_enact_law(

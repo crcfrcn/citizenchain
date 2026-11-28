@@ -1,4 +1,4 @@
-//! 验证真实ML-DSA身份、跨消息验签、二维码传输和原生接口。
+//! 验证真实ML-DSA身份、跨消息验签、公共二维码传输和原生接口。
 
 use codec::{Decode, Encode};
 use mldsa::{account_id, public_key, sign, transaction_message, verify, Proof};
@@ -29,21 +29,22 @@ fn same_seed_same_identity_and_cross_message_rejection() {
 #[test]
 fn qr_transport_reorders_deduplicates_and_rejects_conflicts() {
     let text = "😀PQ-signature:".repeat(900);
-    let frames = mldsa::qr_frames(&text).unwrap();
+    use qr_protocol::transport::{Decoder, Encoder, MAX_MESSAGE_BYTES};
+    let mut encoder = Encoder::new(&text).unwrap();
+    let frames = (0..text.len().div_ceil(400) + 1).map(|_| encoder.next_frame().unwrap()).collect::<Vec<_>>();
     assert!(frames.len() > 1);
-    assert!(frames.iter().all(|frame| frame.len() <= 2331));
-    assert_eq!(mldsa::qr_join(&frames[0]).unwrap(), None);
-    let mut reversed = frames.clone();
-    reversed.reverse();
-    reversed.push(frames[0].clone());
-    assert_eq!(mldsa::qr_join(&reversed.join("\n")).unwrap(), Some(text));
-    let other = mldsa::qr_frames(&"other message".repeat(1000)).unwrap();
-    assert!(mldsa::qr_join(&format!("{}\n{}", frames[0], other[1])).is_err());
-    let mut corrupted = frames;
-    let last = corrupted[0].pop().unwrap();
-    corrupted[0].push(if last == 'A' { 'B' } else { 'A' });
-    assert!(mldsa::qr_join(&corrupted.join("\n")).is_err());
-    assert!(mldsa::qr_frames(&"x".repeat(mldsa::QR_MAX_BYTES + 1)).is_err());
+    assert!(frames.iter().all(|frame| frame.len() <= 2048));
+    let mut receiver = Decoder::default();
+    assert!(receiver.receive(&frames[0]).unwrap().text.is_none());
+    let mut other = Encoder::new(&"other message".repeat(1000)).unwrap();
+    assert!(receiver.receive(&other.next_frame().unwrap()).is_err());
+    let mut reversed = frames.clone(); reversed.reverse(); reversed.push(frames[0].clone());
+    let mut result = None;
+    for frame in &reversed { if let Some(value) = receiver.receive(frame).unwrap().text { result = Some(value); } }
+    assert_eq!(result, Some(text));
+    let mut corrupt = frames[0].clone(); let last = corrupt.pop().unwrap(); corrupt.push(if last == 'A' { 'B' } else { 'A' });
+    assert!(Decoder::default().receive(&corrupt).is_err());
+    assert!(Encoder::new(&"x".repeat(MAX_MESSAGE_BYTES + 1)).is_err());
 }
 
 #[cfg(feature = "ffi")]

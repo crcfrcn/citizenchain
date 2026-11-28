@@ -12,9 +12,10 @@
   ],
   "scripts": {
     "check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "node --input-type=module -e \"await (await import('../../scripts/build.mjs')).testQr()\""
   },
   "dependencies": {
+    "qrcode.react": "4.2.0",
     "jsqr": "1.4.0"
   },
   "peerDependencies": {

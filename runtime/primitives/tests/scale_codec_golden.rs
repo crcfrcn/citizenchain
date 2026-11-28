@@ -4,7 +4,7 @@ use codec::{Compact, Encode};
 
 const FIXTURE_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/scale_codec_vectors.json"
+    "/tests/fixtures/scale.json"
 );
 
 const UPDATE_ENV: &str = "SCALE_GOLDEN_UPDATE";

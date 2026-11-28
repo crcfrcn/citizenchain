@@ -10,13 +10,13 @@ import { createRequire } from 'node:module';
 const host = process.env.TAURI_DEV_HOST;
 
 // 开发及预览必须显式提供证书和私钥；构建静态资源不启动TLS服务。
-const { developmentTLS, FLAT_FEE } = createRequire(import.meta.url)('../../scripts/build.mjs');
+const { developmentTLS, FLAT_FEE, qrWasmDefinition, qrNoticePlugin } = createRequire(import.meta.url)('../../scripts/build.mjs');
 
-export default defineConfig(({ command }): UserConfig => {
+export default defineConfig(async ({ command }): Promise<UserConfig> => {
   const https = command === "serve" ? developmentTLS(process.env.CITIZENCHAIN_NODE_TLS_CERT_FILE, process.env.CITIZENCHAIN_NODE_TLS_KEY_FILE) : undefined;
   return {
-  plugins: [react()],
-  define: { FLAT_FEE: JSON.stringify(FLAT_FEE) },
+  plugins: [react(), qrNoticePlugin()],
+  define: { FLAT_FEE: JSON.stringify(FLAT_FEE), __CITIZEN_QR_WASM__: await qrWasmDefinition() },
   // 本仓扫码组件与宿主共用同一React实例，避免链接包加载第二套Hooks运行库。
   resolve: {
     dedupe: ['react', 'react-dom'],

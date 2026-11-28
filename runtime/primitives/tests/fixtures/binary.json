@@ -1,0 +1,39 @@
+{
+  "_comment": "跨端金标唯一真源。有效签名域由现行 SIGN_OP_TAGS 定义；已撤销域单列为拒绝及摘要原语覆盖，不重新登记。签名域由 primitives/tests/sign_golden.rs 验证，二进制载荷及Runtime调用由 runtime/tests/golden.rs 通过真实类型生成和验证。App与钱包副本必须同名且内容完整一致；所属产品原测试入口直接检查，缺失或漂移立即失败。",
+  "domain": "GMB",
+  "vectors": [
+    {
+      "layout": "prefix(4) || cid_number(32 padded, right-zero) || institution_code(4) || kind(1) || pubkey(32) || timestamp_le(8) || nonce(16)",
+      "name": "ROLE_ACCESS",
+      "op_tag": "0x18",
+      "payload_hex": "474d42184c4e3030312d4e524330472d3934343830353136352d323032360000000000004e52430000222222222222222222222222222222222222222222222222222222222222222200f153650000000000000000000000000000000000000000",
+      "prefix_hex": "474d4218",
+      "sample_inputs": {
+        "cid_number": "LN001-NRC0G-944805165-2026",
+        "cid_number_padded_hex": "4c4e3030312d4e524330472d3934343830353136352d32303236000000000000",
+        "institution_code": "NRC",
+        "institution_code_hex": "4e524300",
+        "kind": 0,
+        "nonce_hex": "00000000000000000000000000000000",
+        "pubkey_hex": "2222222222222222222222222222222222222222222222222222222222222222",
+        "timestamp": 1700000000
+      },
+      "total_len": 97
+    },
+    {
+      "layout": "prefix(4) || cid_number(32 padded, right-zero) || pubkey(32) || timestamp_le(8) || nonce(16)",
+      "name": "CLEARING_DECRYPT",
+      "op_tag": "0x19",
+      "payload_hex": "474d421941483030312d53434230562d3132333435363738392d32303236000000000000333333333333333333333333333333333333333333333333333333333333333300f153650000000000000000000000000000000000000000",
+      "prefix_hex": "474d4219",
+      "sample_inputs": {
+        "cid_number": "AH001-SCB0V-123456789-2026",
+        "cid_number_padded_hex": "41483030312d53434230562d3132333435363738392d32303236000000000000",
+        "nonce_hex": "00000000000000000000000000000000",
+        "pubkey_hex": "3333333333333333333333333333333333333333333333333333333333333333",
+        "timestamp": 1700000000
+      },
+      "total_len": 92
+    }
+  ]
+}

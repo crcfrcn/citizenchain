@@ -1,0 +1,8 @@
+{
+  "source": "https://docs.rs/crate/keystone-ur/0.1.1/source/README.md",
+  "message": "Ten chars!",
+  "repeat": 10,
+  "fragment_bytes": 5,
+  "type": "bytes",
+  "first": "ur:bytes/1-20/lpadbbcsiecyvdidatkpfeghihjtcxiabdfevlms"
+}

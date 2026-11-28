@@ -119,7 +119,7 @@ impl BindingProjection for Db {
         .map_err(|e| format!("mark citizen revoked failed: {e}"))
     }
 
-    /// 链上身份推送成功回写(D8:提交路径同步回写,精确到交易哈希与块高)。
+    /// 链上身份推送成功回写(提交路径同步回写,精确到交易哈希与块高)。
     ///
     /// 出生日期 `citizen_birth_date` 是新增公民时必填、写入后不可修改的字段,
     /// 任何编辑/回写路径都不得进入其 SET 子句(与链端 `BirthDateImmutable` 对齐)。

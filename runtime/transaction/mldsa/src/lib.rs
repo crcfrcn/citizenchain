@@ -349,118 +349,6 @@ pub fn sign_transaction(
     ))
 }
 
-/// 二维码传输保持有界、无状态，帧合并与身份认证分别处理。
-pub const QR_SINGLE_CODE_BYTES: usize = 2331;
-pub const QR_FRAME_BYTES: usize = 1200;
-pub const QR_MAX_BYTES: usize = 65_536;
-pub const QR_MAX_FRAMES: usize = 64;
-
-pub fn qr_frames(text: &str) -> Result<alloc::vec::Vec<alloc::string::String>, &'static str> {
-    use alloc::{format, string::ToString};
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-    if text.is_empty() || text.len() > QR_MAX_BYTES {
-        return Err("QR payload exceeds bound");
-    }
-    if text.len() <= QR_SINGLE_CODE_BYTES && !text.contains('\n') {
-        return Ok(alloc::vec![text.to_string()]);
-    }
-    let digest = hash(text.as_bytes());
-    let id: alloc::string::String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    let count = text.len().div_ceil(QR_FRAME_BYTES);
-    Ok(text
-        .as_bytes()
-        .chunks(QR_FRAME_BYTES)
-        .enumerate()
-        .map(|(index, bytes)| {
-            format!(
-                "GMBQR1:{id}:{index}:{count}:{}",
-                URL_SAFE_NO_PAD.encode(bytes)
-            )
-        })
-        .collect())
-}
-
-/// 无状态、有界的帧合并实现，供原生 SDK 与离线钱包 FFI 共用。
-/// 允许重复帧，拒绝冲突帧与不同消息混合。
-pub fn qr_join(input: &str) -> Result<Option<alloc::string::String>, &'static str> {
-    use alloc::{string::ToString, vec::Vec};
-    use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-    if !input.starts_with("GMBQR1:") {
-        return if !input.is_empty() && input.len() <= QR_MAX_BYTES {
-            Ok(Some(input.to_string()))
-        } else {
-            Err("QR payload exceeds bound")
-        };
-    }
-    if input.len() > QR_MAX_BYTES * 3 {
-        return Err("QR frame collection exceeds bound");
-    }
-    let mut id = None;
-    let mut parts: Vec<Option<Vec<u8>>> = Vec::new();
-    for (seen, frame) in input.lines().enumerate() {
-        if seen >= QR_MAX_FRAMES * 2 {
-            return Err("too many QR frames");
-        }
-        let values: Vec<_> = frame.splitn(5, ':').collect();
-        if values.len() != 5 || values[0] != "GMBQR1" || values[1].len() != 64 {
-            return Err("invalid QR frame");
-        }
-        let index: usize = values[2].parse().map_err(|_| "invalid QR index")?;
-        let count: usize = values[3].parse().map_err(|_| "invalid QR count")?;
-        if count == 0 || count > QR_MAX_FRAMES || index >= count {
-            return Err("invalid QR frame bounds");
-        }
-        match id {
-            None => {
-                id = Some(values[1]);
-                parts.resize(count, None);
-            }
-            Some(previous) if previous != values[1] || parts.len() != count => {
-                return Err("mixed QR messages")
-            }
-            _ => {}
-        }
-        if values[4].len() > QR_FRAME_BYTES * 4 / 3
-            || index.to_string() != values[2]
-            || count.to_string() != values[3]
-        {
-            return Err("noncanonical QR frame");
-        }
-        let bytes = URL_SAFE_NO_PAD
-            .decode(values[4])
-            .map_err(|_| "invalid QR base64")?;
-        if bytes.is_empty()
-            || bytes.len() > QR_FRAME_BYTES
-            || URL_SAFE_NO_PAD.encode(&bytes) != values[4]
-        {
-            return Err("noncanonical QR frame");
-        }
-        if parts[index].as_ref().is_some_and(|old| old != &bytes) {
-            return Err("conflicting QR frame");
-        }
-        parts[index] = Some(bytes);
-    }
-    if parts.iter().any(Option::is_none) {
-        return Ok(None);
-    }
-    let size: usize = parts.iter().flatten().map(Vec::len).sum();
-    if size > QR_MAX_BYTES {
-        return Err("QR payload exceeds bound");
-    }
-    let bytes: Vec<_> = parts.into_iter().flatten().flatten().collect();
-    let digest = hash(&bytes);
-    let expected: alloc::string::String = digest
-        .iter()
-        .map(|byte| alloc::format!("{byte:02x}"))
-        .collect();
-    if id != Some(expected.as_str()) {
-        return Err("QR digest mismatch");
-    }
-    alloc::string::String::from_utf8(bytes)
-        .map(Some)
-        .map_err(|_| "invalid QR UTF-8")
-}
-
 /// SDK 与钱包共用原生接口，不依赖 FRAME，不创建句柄或由原生端持有的缓冲区。
 #[cfg(feature = "ffi")]
 pub mod ffi {
@@ -492,25 +380,6 @@ pub mod ffi {
         } else {
             unsafe { slice::from_raw_parts(bytes, length) }
         })
-    }
-    unsafe fn output(
-        bytes: &[u8],
-        out: *mut u8,
-        capacity: usize,
-        required: *mut usize,
-    ) -> Result<(), &'static str> {
-        if required.is_null() {
-            return Err("missing output length");
-        }
-        unsafe { ptr::write(required, bytes.len()) };
-        if out.is_null() && capacity == 0 {
-            return Ok(());
-        }
-        if out.is_null() || capacity < bytes.len() {
-            return Err("output too small");
-        }
-        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), out, bytes.len()) };
-        Ok(())
     }
     /// 调用方须提供可读的 32 字节种子及可写的 1952 字节输出缓冲区。
     #[no_mangle]
@@ -675,49 +544,7 @@ pub mod ffi {
             Ok(())
         })
     }
-    #[no_mangle]
-    pub unsafe extern "C" fn gmb_qr_encode(
-        text: *const u8,
-        length: usize,
-        out: *mut u8,
-        capacity: usize,
-        required: *mut usize,
-    ) -> i32 {
-        guarded(|| {
-            let text = core::str::from_utf8(unsafe { input(text, length, QR_MAX_BYTES)? })
-                .map_err(|_| "UTF-8")?;
-            let encoded = qr_frames(text)?.join("\n");
-            unsafe { output(encoded.as_bytes(), out, capacity, required) }
-        })
-    }
-    #[no_mangle]
-    pub unsafe extern "C" fn gmb_qr_join(
-        text: *const u8,
-        length: usize,
-        out: *mut u8,
-        capacity: usize,
-        required: *mut usize,
-    ) -> i32 {
-        let mut pending = false;
-        let status = guarded(|| {
-            let text = core::str::from_utf8(unsafe { input(text, length, QR_MAX_BYTES * 3)? })
-                .map_err(|_| "UTF-8")?;
-            if let Some(text) = qr_join(text)? {
-                unsafe { output(text.as_bytes(), out, capacity, required) }
-            } else {
-                pending = true;
-                if !required.is_null() {
-                    unsafe { ptr::write(required, 0) }
-                }
-                Ok(())
-            }
-        });
-        if status == 0 && pending {
-            1
-        } else {
-            status
-        }
-    }
+
 }
 
 #[cfg(feature = "runtime")]

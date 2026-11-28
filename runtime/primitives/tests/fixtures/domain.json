@@ -1,6 +1,14 @@
 {
-  "_comment": "签名协议金标向量 (canonical, Rust 权威源). 完整覆盖 SIGN_OP_TAGS 中全部哈希域，即真正经 signing_message = blake2_256(GMB || op_tag || scale_payload) 的域。0x1C 为同一本机 MLS 公钥登记，0x21 为 CitizenApp 本机默认账户切换，0x23 为 CitizenApp 钱包账户签名模式确认，0x24 为 本机生产发布授权；均只在本机链下验签。域 domain=GMB。所有 message_hex 任何时候不得变化。二进制前缀域 0x18/0x19 签原始可解析字节，不在此金标。scale_payload_hex 仅用于跨语言金标对齐，非真实业务数据。重生方式: SIGN_GOLDEN_UPDATE=1 cargo test -p primitives --test sign_golden。【真源】本文件是唯一权威源；镜像由 CI 逐字段校验。",
+  "_comment": "跨端金标唯一真源。有效签名域由现行 SIGN_OP_TAGS 定义；已撤销域单列为拒绝及摘要原语覆盖，不重新登记。签名域由 primitives/tests/sign_golden.rs 验证，二进制载荷及Runtime调用由 runtime/tests/golden.rs 通过真实类型生成和验证。App与钱包副本必须同名且内容完整一致；所属产品原测试入口直接检查，缺失或漂移立即失败。",
   "domain": "GMB",
+  "rejected_vectors": [
+    {
+      "message_hex": "13377a0b08652a43a2bd6485de40e741baf59e75bec33ce6c97aa6d97c6e803a",
+      "name": "OP_SIGN_INSTITUTION_WALLET",
+      "op_tag": "0x25",
+      "scale_payload_hex": "696e737469747574696f6e2d77616c6c6574"
+    }
+  ],
   "vectors": [
     {
       "message_hex": "19e050b3476dfd7db0aae9d527e205da44b8f9d00e5ddf4f81f4830ab0c00568",

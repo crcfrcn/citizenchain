@@ -5,7 +5,7 @@ use primitives::core_const::{GMB, SS58_FORMAT};
 
 const FIXTURE_PATH: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/tests/fixtures/account_derive_vectors.json"
+    "/tests/fixtures/account.json"
 );
 
 const UPDATE_ENV: &str = "ACCOUNT_DERIVE_UPDATE";
@@ -28,7 +28,7 @@ fn hex_decode(s: &str) -> Vec<u8> {
         .collect()
 }
 
-/// 解析 ADR-040 规范形式的 account_id 文本:小写 `0x` + 64 位十六进制。
+/// 解析 规范形式的 account_id 文本:小写 `0x` + 64 位十六进制。
 ///
 /// 这里**强制**要求 `0x` 前缀而非宽容接受:金标 fixture 里的账户字段一律走规范
 /// 形式,写成裸 hex 应当当场失败,而不是被静默接受后与 Dart 侧产生格式分叉。
@@ -167,7 +167,8 @@ fn account_derive_golden_vectors() {
         .as_array()
         .expect("vectors 必须是数组")
         .clone();
-    assert!(!vectors.is_empty(), "fixture 至少需 1 条向量");
+    assert!(vectors.len() >= 10, "不得减少现有账户派生金标覆盖");
+    assert!(vectors.iter().any(|row| row["kind"].as_str() == Some("Personal")), "必须覆盖个人多签派生");
 
     let mut updated = Vec::with_capacity(vectors.len());
     for v in &vectors {
@@ -184,7 +185,7 @@ fn account_derive_golden_vectors() {
             );
         }
 
-        // ADR-040:account_id 的规范文本形式 = 小写 `0x` + 64 位十六进制。
+        // 账户标识规范:account_id 的规范文本形式 = 小写 `0x` + 64 位十六进制。
         // 金标 fixture 直接以规范形式落盘，Dart 侧 `accountIdText()` 可逐字节对比，
         // 两端不再各自处理前缀（少一处能悄悄分叉的地方）。
         let computed_text = format!("0x{computed_hex}");

@@ -30,17 +30,17 @@ members = [
     "runtime/governance/grandpakey",         # 治理-GRANDPA 密钥治理模块 pallet
     "runtime/governance/destroy",   # 治理-决议销毁模块 pallet
     "runtime/governance/upgrade",    # 治理-协议升级模块 pallet
-    "runtime/public/legislation",       # 公权模组-立法院模块 pallet(法律结构化上链,ADR-027)
+    "runtime/public/legislation",       # 公权模组-立法院模块 pallet(法律结构化上链,立法与宪法协议)
     "runtime/public/election",       # 公权模组-公民选举模块 pallet（当前仅占位）
     "runtime/votingengine/engingcore",    # 投票引擎核心(共用基础设施:Proposals/反向索引/状态机/快照/锁/清理)
     "runtime/votingengine/internalvote",  # 内部投票 pallet（岗位人员票据与个人成员票据）
     "runtime/votingengine/jointvote",     # 联合投票 pallet（机构岗位投票与全民公投）
     "runtime/votingengine/electionvote",   # 选举投票 pallet(普选+互选,Phase 3)
-    "runtime/votingengine/legislationvote",  # 立法投票 pallet(立法机构专属:单院/两院/特别案公投,ADR-027)
+    "runtime/votingengine/legislationvote",  # 立法投票 pallet(立法机构专属:单院/两院/特别案公投,立法与宪法协议)
 
     "runtime/issuance/citizenissue", # 发行-公民发行模块 pallet
     "runtime/issuance/fullnodeissue",        # 发行-全节点发行模块 pallet
-    "runtime/issuance/onchainissue",         # 发行-链上发行代币(Plain FT, ADR-011) pallet
+    "runtime/issuance/onchainissue",         # 发行-链上发行代币(Plain FT, 链上资产发行) pallet
     "runtime/issuance/resolutionissue",        # 发行-决议发行完整流程模块 pallet
     "runtime/issuance/prbbankissue",   # 发行-省储行利息模块 pallet
     "runtime/misc/identity",    # 其他-链上公民身份模块 pallet

@@ -60,7 +60,7 @@ pub(crate) struct AdminCreateCitizenOutput {
     pub(crate) archive_hash: Option<String>,
 }
 
-/// 建档输入校验产物:两阶段占号流程经会话 JSON 往返(ADR-031 D6)。
+/// 建档输入校验产物:两阶段占号流程经会话 JSON 往返(注册与创世目录)。
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[serde(rename_all = "camelCase")]
@@ -83,7 +83,7 @@ pub(crate) struct ValidatedCitizenInput {
     pub(crate) voting_eligible: bool,
 }
 
-/// 校验建档输入(占号 prepare 阶段调用;不生成号、不落库,ADR-031 占号先行)。
+/// 校验建档输入(占号 prepare 阶段调用;不生成号、不落库,注册与创世目录 占号先行)。
 pub(crate) fn validate_citizen_input(
     ctx: &onchina::authentication::login::AdminAuthContext,
     input: &AdminCreateCitizenInput,
@@ -213,7 +213,7 @@ pub(crate) fn persist_citizen_record(
     let Some((citizen_account_id, binding_revision)) = finalized.active_binding() else {
         return Err("finalized CID 绑定无效".into());
     };
-    // 账户与块哈希统一按 ADR-040 规范文本落库:小写 0x + 十六进制。
+    // 账户与块哈希统一按规范账户文本落库:小写 0x + 十六进制。
     let citizen_account_id = format!("0x{}", hex::encode(citizen_account_id));
     let binding_block_hash = format!("0x{}", hex::encode(finalized.finalized_block_hash));
     // 匿名占号:档案选填,出生日期可空,不解析成 NaiveDate(空串会 panic),按字符串原样落库。

@@ -7,18 +7,31 @@ repository.workspace = true
 homepage.workspace = true
 license.workspace = true
 
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["registry", "transport"]
+registry = ["dep:base64", "dep:hex", "dep:serde", "dep:serde_json", "dep:serde_yaml", "dep:thiserror"]
+transport = ["dep:ur", "dep:minicbor", "dep:crc"]
+wasm = ["transport"]
+
 # 入口直接归属 crate/src，避免单文件包装目录；公开 crate/命令名称不变。
 [[bin]]
 name = "export_registry"
 path = "src/export_registry.rs"
+required-features = ["registry"]
 
 [dependencies]
-base64 = "=0.22.1"
-hex = "=0.4.3"
-serde = { workspace = true, features = ["std"] }
-serde_json.workspace = true
-serde_yaml = "0.9"
-thiserror.workspace = true
+base64 = { version = "=0.22.1", optional = true }
+hex = { version = "=0.4.3", optional = true }
+serde = { workspace = true, features = ["std"], optional = true }
+serde_json = { workspace = true, optional = true }
+serde_yaml = { version = "0.9", optional = true }
+thiserror = { workspace = true, optional = true }
+ur = { package = "keystone-ur", version = "=0.1.1", default-features = false, optional = true }
+minicbor = { version = "=0.19.1", features = ["alloc"], optional = true }
+crc = { version = "=3.3.0", optional = true }
 
 [lints]
 workspace = true

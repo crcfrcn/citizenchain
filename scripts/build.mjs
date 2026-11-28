@@ -5,7 +5,8 @@ import {execFileSync, spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, writeFileSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {basename, dirname, isAbsolute, join, relative, resolve, sep, delimiter} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import {fileURLToPath, pathToFileURL} from 'node:url';
+import {createRequire} from 'node:module';
 import {product} from './config.mjs';
 
 export function developmentTLS(certificate, privateKey) {
@@ -119,6 +120,41 @@ export function nodeTools(node = process.execPath) {
   fail('缺少声明版本Node ' + product.tools.node + '随附的npm');
 }
 export function npmCLI(node = process.execPath) { return nodeTools(node).npm; }
+
+// 浏览器与原生使用同一协议源码；WASM只在本轮独立现场构建，读取后立即清理。
+export async function qrWasmDefinition() {
+  const parent = join(root, 'target/build'); mkdirSync(parent, {recursive: true});
+  const work = mkdtempSync(join(parent, 'qr-'));
+  try {
+    await runBuildProcess(process.env.CARGO || join(homedir(), '.cargo/bin/cargo'), [
+      'build', '--locked', '--manifest-path', join(root, 'crates/protocol/Cargo.toml'),
+      '--no-default-features', '--features', 'wasm', '--target', 'wasm32-unknown-unknown', '--lib', '--release',
+    ], {...process.env, CARGO_TARGET_DIR: work}, root);
+    const bytes = readFileSync(join(work, 'wasm32-unknown-unknown/release/qr_protocol.wasm'));
+    if (!bytes.subarray(0, 8).equals(Buffer.from([0,97,115,109,1,0,0,0]))) fail('二维码WASM无效');
+    return JSON.stringify(bytes.toString('base64'));
+  } finally { rmSync(work, {recursive: true, force: true}); }
+}
+
+// 随浏览器产物交付同一上游许可，避免独立模块丢失传输核心声明。
+export function qrNoticePlugin() {
+  return {name:'citizen-qr-notice', generateBundle(){
+    this.emitFile({type:'asset',fileName:'NOTICE',source:readFileSync(join(root,'crates/protocol/NOTICE'))});
+  }};
+}
+
+// 共享扫码包的正式测试入口，交付本仓真实WASM，不以JS假组帧器替代Rust。
+export async function testQr() {
+  const folder=join(root,'crates/scanner'),require=createRequire(join(folder,'package.json'));
+  const {startVitest}=await import(pathToFileURL(require.resolve('vitest/node')).href);
+  const context=await startVitest('test',[],{root:folder,config:false,run:true,watch:false,
+    environment:'jsdom',include:['tests/**/*.test.ts','tests/**/*.test.tsx'],
+    poolOptions:{forks:{execArgv:['--no-experimental-webstorage']}}},
+    {define:{__CITIZEN_QR_WASM__:await qrWasmDefinition()},esbuild:{jsx:'automatic'},resolve:{dedupe:['react','react-dom']}});
+  if(!context)fail('共享扫码测试未启动');
+  try{if(context.state.getUnhandledErrors().length||context.state.getFiles().some(file=>file.result?.state==='fail'))throw Error('共享扫码测试失败');}
+  finally{await context.close();}
+}
 export function platformCargoEnvironment(platform, work, environment) {
   const env = {...environment, NODE: environment.NODE || process.execPath, CARGO: environment.CARGO || 'cargo', CARGO_INCREMENTAL: '1',
     CARGO_TARGET_DIR: join(work, 'cargo-target'), CITIZENCHAIN_SOURCE_ROOT: root, CITIZENCHAIN_WORK_DIR: work,
@@ -438,6 +474,7 @@ export async function buildPlatform(platform,{work=join(root,'target/build',plat
   const onchina = await buildPreparedOnChina({project: root, platform, work, environment: env, prepareDependencies: local});
   const resources = join(work, 'resources'), pgOs = platform === 'macos' ? 'macos' : platform === 'windows' ? 'windows' : 'linux';
   mkdirSync(join(resources, 'onchina-bin'), {recursive: true});
+  copyFileSync(join(root,'crates/protocol/NOTICE'),join(resources,'NOTICE'));
   copyFileSync(onchina.host, join(resources, 'onchina-bin', basename(onchina.host)));
   cpSync(onchina.modules, join(resources, 'onchina-bin/modules'), {recursive: true});
   cpSync(onchina.frontend, join(resources, 'onchina-frontend/dist'), {recursive: true});
@@ -575,7 +612,7 @@ async function compile(platform, exportPackage = false){
   environment.CITIZENCHAIN_PG_DIST=await preparePostgres(work,environment);
   // 本机复用已安装的声明版本，不从GitHub取得工具。
   environment.PROTOC=process.env.PROTOC||'protoc';
-   await runBuildProcess(environment.NODE,[npmCLI(environment.NODE),'ci','--offline','--ignore-scripts','--no-audit','--no-fund'],environment,join(root,'node/frontend'));
+   await runBuildProcess(environment.NODE,[npmCLI(environment.NODE),'ci','--install-links=false','--offline','--ignore-scripts','--no-audit','--no-fund'],environment,join(root,'node/frontend'));
   const previous=process.env;process.env=environment;
   try{await buildPlatform(platform,{work,local:true,consume:async value=>{
     if (exportPackage) {

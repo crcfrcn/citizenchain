@@ -23,7 +23,6 @@ export function TransactionPanel({ nodeReady }: {
   } | null>(null);
   const [balanceRetry, setBalanceRetry] = useState(0);
   const [showWalletModal, setShowWalletModal] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
     const [signingFlow, setSigningFlow] = useState<(TransferDraft & {
         wallet: Wallet;
         executionFee: boolean;
@@ -191,7 +190,6 @@ export function TransactionPanel({ nodeReady }: {
           ]} />
         </div>
         <div className="transaction-panel-actions">
-          <button className="wallet-manage-btn" disabled={!nodeReady} onClick={()=>setShowHistory(true)}>交易记录</button>
           <button className="wallet-manage-btn" onClick={() => setShowWalletModal(true)}>钱包管理</button>
         </div>
       </div>
@@ -211,24 +209,28 @@ export function TransactionPanel({ nodeReady }: {
 
       {signingFlow && (<TransferSigningFlow wallet={signingFlow.wallet} executionFee={signingFlow.executionFee} mode={signingFlow.mode} transfers={signingFlow.transfers} onClose={() => setSigningFlow(null)} onSuccess={handleTransferSuccess}/>)}
 
-      {showHistory && <TransactionHistoryModal wallets={wallets} onClose={()=>setShowHistory(false)}/>}
       {showWalletModal && (<WalletManagerModal wallets={wallets} activeAccountId={activeAccountId} onClose={() => setShowWalletModal(false)} onUpdate={handleWalletUpdate} onSelect={handleWalletSelect}/>)}
     </div>);
 }
 
 
-// 仅在打开、刷新或加载更早记录时读取本机最终链，关闭后丢弃迟到结果。
-function TransactionHistoryModal({wallets,onClose}:{wallets:Wallet[];onClose:()=>void}){
+// 独立tab仅在进入、刷新或加载更多时读取本机最终链，切走后丢弃迟到结果。
+export function TransactionHistorySection(){
+  const [wallets,setWallets]=useState<Wallet[]>([]);
   const [records,setRecords]=useState<TransactionRecord[]>([]);
   const [cursor,setCursor]=useState<TransactionCursor|null>(null);
   const [loading,setLoading]=useState(true),[error,setError]=useState<string|null>(null);
-  const epoch=useRef(0),inFlight=useRef(false),panel=useRef<HTMLElement>(null);
-  const walletsKey=JSON.stringify(wallets.map(wallet=>[wallet.accountId,wallet.name]));
+  const epoch=useRef(0),inFlight=useRef(false);
   const load=async(start:TransactionCursor|null,append:boolean)=>{
     if(inFlight.current)return;
     const id=++epoch.current;inFlight.current=true;setLoading(true);setError(null);
     if(!append){setRecords([]);setCursor(null);}
     try{
+      if(!append){
+        const store=await api.getWallets();
+        if(id!==epoch.current)return;
+        setWallets(store.wallets);
+      }
       let position=start;
       while(true){
         const page=await api.getTransactionHistory(position);
@@ -243,32 +245,21 @@ function TransactionHistoryModal({wallets,onClose}:{wallets:Wallet[];onClose:()=
   useEffect(()=>{
     void load(null,false);
     return()=>{++epoch.current;inFlight.current=false;};
-  },[walletsKey]);
-  useEffect(()=>{const previous=document.activeElement as HTMLElement|null;panel.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();return()=>previous?.focus();},[]);
+  },[]);
   const names=new Map(wallets.map(wallet=>[wallet.accountId,wallet.name]));
   const stateLabel:Record<string,string>={success:'成功',partial:'部分成功',failed:'失败',rolled_back:'已回滚'};
-  return <div className="wallet-manager-modal-mask">
-    <section ref={panel} className="wallet-manager-modal transaction-history-modal" role="dialog" aria-modal="true" aria-labelledby="transaction-history-title" onKeyDown={event=>{
-      if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onClose();}
-      if(event.key==='Tab'){
-        const controls=Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled)'));
-        const first=controls[0],last=controls[controls.length-1];
-        if(event.shiftKey&&document.activeElement===first){event.preventDefault();last?.focus();}
-        else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first?.focus();}
-      }
-    }}>
-      <header className="wallet-manager-header"><button className="wallet-manager-add" disabled={loading} onClick={()=>void load(null,false)}>刷新</button><h3 id="transaction-history-title">交易记录</h3><button className="wallet-manager-close" aria-label="关闭交易记录" onClick={onClose}>×</button></header>
-      <div className="wallet-manager-body">
+  return <section className="transaction-history-section" aria-labelledby="transaction-history-title">
+      <header className="transaction-history-header"><h2 id="transaction-history-title">交易记录</h2><button className="wallet-manage-btn" disabled={loading} onClick={()=>void load(null,false)}>刷新</button></header>
+      <div className="transaction-history-body">
         {error&&<div className="error" role="alert">{error}</div>}
         {records.length>0&&<table className="transaction-history-table"><thead><tr><th>时间</th><th>钱包</th><th>类型</th><th>金额</th><th>手续费</th><th>状态</th></tr></thead><tbody>{records.map(record=>{
           const type=record.direction==='received'?'转入':record.direction==='internal'?'内部转账':record.direction==='operation'?'链上交易':record.mode==='transfer'?'转出':record.mode==='other'?'转出':`批量转账（${record.transferCount}笔）`;
           const date=new Date(record.timestamp);
-          return <tr key={`${record.blockNumber}:${record.txHash}`}><td>{Number.isNaN(date.getTime())?'—':date.toLocaleString()}</td><td>{record.accountIds.map(account=>names.get(account)??accountIdToSs58(account)).join('、')}</td><td>{type}</td><td>{formatFen(record.amountFen)} 元</td><td>{formatFen(record.feeFen)} 元</td><td>{stateLabel[record.state]??'未知'}</td></tr>;
+          return <tr key={`${record.blockNumber}:${record.txHash}`}><td>{Number.isNaN(date.getTime())?'—':date.toLocaleString()}</td><td>{record.accountIds.map(account=>names.get(account)??accountIdToSs58(account)).join('、')}</td><td>{type}</td><td>{record.direction==='received'?'+':record.direction==='sent'?'-':''}{formatFen(record.amountFen)} 元</td><td>{formatFen(record.feeFen)} 元</td><td>{stateLabel[record.state]??'未知'}</td></tr>;
         })}</tbody></table>}
         {loading&&<p role="status">读取中…</p>}
         {!loading&&!error&&records.length===0&&cursor===null&&<p className="no-data">暂无交易记录</p>}
       </div>
       {cursor!==null&&<button className="transaction-history-more" disabled={loading} onClick={()=>void load(cursor,true)}>加载更多</button>}
-    </section>
-  </div>;
+    </section>;
 }

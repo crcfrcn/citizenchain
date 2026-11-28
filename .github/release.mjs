@@ -239,7 +239,7 @@ export async function test() {
 cargo --config config.toml test --locked --release -p runtime --all-targets`);
   const {node,npm} = nodeTools();
   for (const lock of product.locks.filter(file=>file.endsWith('/package-lock.json'))) {
-    await runBuildProcess(node,[npm,'ci','--include=dev'],process.env,join(root,dirname(lock)));
+    await runBuildProcess(node,[npm,'ci','--install-links=false','--include=dev'],process.env,join(root,dirname(lock)));
   }
   await runShell(testEnvironment+'\n'+`node --test --test-concurrency=1 onchina/platform/tests/structure.test.mjs node/frontend/tests/metamask.test.mjs
 cargo test --manifest-path crates/protocol/Cargo.toml --locked

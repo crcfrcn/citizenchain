@@ -153,7 +153,7 @@ pub mod pallet {
         /// Runtime 使用递归 tuple 注册 sub-pallet；核心不再维护 mode/stage 分支。
         type TrackHandlers: crate::tracks::ProposalTracks<BlockNumberFor<Self>, Self::AccountId>;
 
-        /// 立法投票终态业务回调(ADR-027),由 legislation 业务壳实现。
+        /// 立法投票终态业务回调(立法与宪法协议),由 legislation 业务壳实现。
         /// 核心在 PROPOSAL_KIND_LEGISLATION 提案达终态时按 kind 广播。第1步装 `()`。
         type LegislationVoteResultCallback: LegislationVoteResultCallback;
 

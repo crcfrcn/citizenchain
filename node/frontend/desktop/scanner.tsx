@@ -2,9 +2,9 @@
 
 import { ScannerView, createQrAssembler } from "@gmb/scanner-react";
 import { parseAddressQr, type AddressScanResult } from "../client/parseAddressQr";
-import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
-import { invoke } from '../client/tauri';
+
 
 // 节点产品扫码外壳：视觉遮罩留在产品内，设备识别统一交给仓库共享适配器。
 
@@ -20,7 +20,14 @@ export function QrScanner({ onScan, onError }: ScannerProps) {
 
   const session = useRef(0);
   useEffect(() => () => { session.current += 1; }, []);
-  const assemble = useMemo(() => createQrAssembler(frames => invoke<string | null>('join_qr_frames', {frames})), [cameraError]);
+  const [progress, setProgress] = useState(0);
+  const assembler = useRef<ReturnType<typeof createQrAssembler> | null>(null);
+  useEffect(() => {
+    setProgress(0);
+    const current = assembler.current ??= createQrAssembler(setProgress);
+    return () => { current.close(); if (assembler.current === current) assembler.current = null; };
+  }, [cameraError]);
+  const assemble = (raw: string) => (assembler.current ??= createQrAssembler(setProgress))(raw);
   const detected = async (raw: string): Promise<void | false> => {
     const current = session.current;
     try {
@@ -30,6 +37,7 @@ export function QrScanner({ onScan, onError }: ScannerProps) {
       onScan(complete);
     } catch (error) {
       if (current === session.current) onError(String(error));
+      return false;
     }
   };
   return (
@@ -51,6 +59,7 @@ export function QrScanner({ onScan, onError }: ScannerProps) {
         />
       )}
       <div className="qr-scanner-overlay">
+        {progress > 0 && progress < 100 && <p role="status">正在接收签名 {progress}%</p>}
         {ready ? <div className="qr-scanner-frame" /> : (
           <div className="qr-scanner-notice">
             <p role="status">{cameraError ?? '正在准备摄像头'}</p>

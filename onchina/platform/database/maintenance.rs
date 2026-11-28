@@ -54,7 +54,7 @@ enum BackendCommand {
         dry_run: bool,
         backup_path: Option<String>,
     },
-    /// 创世机构目录全量链上双向比对(部署验收,ADR-031 D9)。
+    /// 创世机构目录全量链上双向比对(部署验收,注册与创世目录)。
     AuditChainCatalog,
 }
 

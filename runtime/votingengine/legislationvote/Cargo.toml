@@ -1,7 +1,7 @@
 [package]
 # 根tests统一存放单元测试，独立集成目标仅显式注册，避免重复发现。
 autotests = false
-name = "legislationvote"  # 立法投票 sub-pallet:立法机构专属投票(单院/两院/特别案强制公投,ADR-027)
+name = "legislationvote"  # 立法投票 sub-pallet:立法机构专属投票(单院/两院/特别案强制公投,立法与宪法协议)
 edition.workspace = true
 version.workspace = true
 authors.workspace = true

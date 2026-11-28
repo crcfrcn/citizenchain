@@ -41,7 +41,7 @@ pub(crate) fn fetch_clearing_bank_node(
     cid_number: &str,
 ) -> Result<Option<ClearingBankNodeOnChainInfo>, String> {
     let key = clearing_bank_nodes_key(cid_number)?;
-    // (ADR-017):节点声明属于业务读取,按 finalized 口径,禁止 best。
+    // (最终确认块读取):节点声明属于业务读取,按 finalized 口径,禁止 best。
     match nodeclient::query::fetch_finalized_storage(&key)? {
         None => Ok(None),
         Some(hex_data) => {

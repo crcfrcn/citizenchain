@@ -30,3 +30,19 @@ it('批量默认组及新增组的真实扫码弹层均高于批量弹窗，关�
   }
  }finally{view.unmount();style.remove();}
 });
+
+// 仅隔离业务页及更新查询；使用真实App验证导航顺序和页面挂载切换。
+import App from '../desktop/App';
+vi.mock('../control/index',()=>({HomeNodeSection:()=> <p>节点首页</p>,SettingsSection:()=> <p>设置页面</p>,OtherTabsSection:()=>null}));
+vi.mock('../onchain/TransactionPanel',()=>({TransactionPanel:()=> <p>转账页面</p>,TransactionHistorySection:()=> <section aria-label="交易记录">独立记录页面</section>}));
+vi.mock('../control/api',()=>({settingsApi:{desktopUpdateStatus:async()=>({status:'idle'}),checkDesktopUpdate:async()=>null}}));
+it('交易记录tab位于挖矿右侧国家储委会左侧，切换时独立挂载并移除首页面板',async()=>{
+ const view=render(<App/>);
+ const nav=view.container.querySelector('nav')!;
+ expect(Array.from(nav.querySelectorAll('button')).slice(0,4).map(x=>x.textContent)).toEqual(['首页','挖矿','交易记录','国家储委会']);
+ expect(screen.queryByRole('region',{name:'交易记录'})).toBeNull();
+ fireEvent.click(within(nav).getByRole('button',{name:'交易记录'}));
+ expect(screen.getByRole('region',{name:'交易记录'})).toBeTruthy();expect(screen.queryByText('转账页面')).toBeNull();
+ expect(within(nav).getByRole('button',{name:'交易记录'}).className).toBe('active');
+ fireEvent.click(within(nav).getByRole('button',{name:'首页'}));expect(screen.queryByRole('region',{name:'交易记录'})).toBeNull();view.unmount();
+});

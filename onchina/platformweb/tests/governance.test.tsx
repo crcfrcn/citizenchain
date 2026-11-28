@@ -309,7 +309,7 @@ describe('通用链签名二维码传输回归', () => {
         const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async path => { calls.push(String(path)); throw new Error('unexpected request'); });
         const client = await import('../authentication/passkeyClient');
         const passkey = vi.spyOn(client, 'assertPasskey').mockResolvedValue('unused');
-        vi.doMock('@gmb/scanner-react', () => ({ ScannerView: () => null, createQrAssembler: () => async (raw: string) => raw }));
+        vi.doMock('@gmb/scanner-react', async importOriginal => ({...await importOriginal<typeof import('@gmb/scanner-react')>(), ScannerView: () => null}));
         vi.doMock('../qr/CitizenSignatureModal', () => ({ CitizenSignatureModal: (props: { open: boolean; title: string; qrValue: string; onDetected: (raw: string) => void; onCancel: () => void }) => {
             if (!props.open) return null;
             const scan = () => { const request = JSON.parse(props.qrValue); props.onDetected(JSON.stringify({ p: 'QR_V1', k: 2, i: request.i, e: request.e, b: { u: request.b.u, s: encode(bytes(proof)) } })); };
@@ -325,42 +325,41 @@ describe('通用链签名二维码传输回归', () => {
         } };
     }
     async function transportFrames(text: string): Promise<string[]> {
-        const { blake2b } = await import('@noble/hashes/blake2.js');
-        const content=Buffer.from(text); const id=Buffer.from(blake2b(content,{dkLen:32})).toString('hex');
-        const count=Math.ceil(content.length/1200);
-        return Array.from({length:count},(_,i)=>`GMBQR1:${id}:${i}:${count}:${content.subarray(i*1200,(i+1)*1200).toString('base64url')}`);
+        const {QrSession}=await import('@gmb/scanner-react');const encoder=await QrSession.open('encode',text);
+        const first=encoder.next().text;const count=first.split('/').length===3?Number(first.split('/')[1]!.split('-')[1]):1;
+        const frames=[first,...Array.from({length:count-1},()=>encoder.next().text)];encoder.close();return frames;
     }
-    it('PQ长请求分帧必须完整保留原签名字节，拒绝混帧、丢帧、重复或替换内容', async () => {
-        const { verifiedQrTransportFrames } = await import('../qr/citizenQr');
-        const text='完整链签名请求'.repeat(600), frames=await transportFrames(text);
-        expect(verifiedQrTransportFrames(text,[...frames].reverse())).toEqual(frames);
-        for (const broken of [frames.slice(1),[frames[0],...frames.slice(0,-1)],[frames[0].replace(/:0:/,':99:'),...frames.slice(1)], await transportFrames(text+'tamper')]) expect(()=>verifiedQrTransportFrames(text,broken)).toThrow();
-        expect(verifiedQrTransportFrames('single-qr',['single-qr'])).toEqual(['single-qr']);
+    it('PQ长请求由公共UR恢复原文，拒绝混帧和篡改，丢帧重复不提前完成',async()=>{
+        const {QrSession}=await import('@gmb/scanner-react');const text='完整链签名请求'.repeat(600),frames=await transportFrames(text);
+        const receiver=await QrSession.open('decode');
+        try{
+            expect(receiver.next(frames[0]!).complete).toBe(false);expect(receiver.next(frames[0]!).complete).toBe(false);
+            const other=await transportFrames(text+'tamper');expect(()=>receiver.next(other[0]!)).toThrow();
+            expect(()=>receiver.next(frames[1]!.slice(0,-1)+'!')).toThrow();
+            let complete='';for(const frame of frames.slice(1).reverse()){const value=receiver.next(frame);if(value.complete)complete=value.text;}
+            expect(complete).toBe(text);
+        }finally{receiver.close();}
     });
-    browserTest('PQ长二维码以校验过的原生分帧轮播，切换请求不展示旧帧或超大单码', async () => {
-        const c=await signaturePage();
-        try {
-            const captured: string[]=[];
-            vi.doMock('antd',async importOriginal=>{
-                const actual=await importOriginal<typeof import('antd')>();
-                return {...actual,QRCode:({value}:{value:string})=>{captured.push(value);return c.React.createElement('output',{'data-qr-frame':value});}};
-            });
+    browserTest('PQ长二维码自动轮播，切换请求不展示旧帧，且不逐帧请求后端',async()=>{
+        const c=await signaturePage();const {QrSession}=await import('@gmb/scanner-react');
+        const next=vi.spyOn(QrSession.prototype,'next');
+        try{
             const {CitizenSignaturePanel}=await import('../qr/CitizenSignaturePanel');
-            const text='signed-chain-request-'.repeat(220), frames=await transportFrames(text);
-            c.fetcher.mockImplementationOnce(async(path,init)=>{
-                expect(path).toBe('/api/qr/split');expect(JSON.parse(String(init?.body))).toBe(text);
-                return new Response(JSON.stringify({code:0,data:frames}));
-            });
-            const props={framed:true,qrValue:text,onDetected:vi.fn()};
-            await c.React.act(async()=>c.root.render(c.React.createElement(CitizenSignaturePanel,props)));await c.flush();
-            expect(document.body.textContent).toContain(`1 / ${frames.length} 帧`);
-            expect(document.querySelector('[data-qr-frame]')?.getAttribute('data-qr-frame')).toBe(frames[0]);
-            await c.click('暂停轮播');await c.click('下一帧');
-            expect(document.querySelector('[data-qr-frame]')?.getAttribute('data-qr-frame')).toBe(frames[1]);
+            const text='signed-chain-request-'.repeat(220),props={qrValue:text,onDetected:vi.fn()};
+            await c.React.act(async()=>c.root.render(c.React.createElement(CitizenSignaturePanel,props)));await c.flush();await c.flush();
+            expect(document.querySelector('svg path[fill="#007A74"]')).not.toBeNull();
+            expect(document.body.textContent).toContain('请持续扫码');
+            const first=next.mock.results.filter(value=>value.type==='return').slice(-1)[0]!.value.text;
+            expect(first.startsWith('UR:CITIZEN/')).toBe(true);
+            await c.click('暂停');await c.click('下一帧');
+            const second=next.mock.results.filter(value=>value.type==='return').slice(-1)[0]!.value.text;
+            expect(second).not.toBe(first);
             await c.React.act(async()=>c.root.render(c.React.createElement(CitizenSignaturePanel,{...props,qrValue:'short-new-request'})));await c.flush();
-            expect(captured[captured.length - 1]).toBe('short-new-request');
-            expect(captured.every(value=>new TextEncoder().encode(value).length<=2331)).toBe(true);
-        } finally {vi.doUnmock('antd');await c.disposePage();}
+            const latest=next.mock.results.filter(value=>value.type==='return').slice(-1)[0]!.value.text;
+            const receiver=await QrSession.open('decode');try{expect(receiver.next(latest).text).toBe('short-new-request')}finally{receiver.close()}
+            expect(c.calls).toEqual([]);
+            expect(next.mock.results.filter(value=>value.type==='return').every(value=>new TextEncoder().encode(value.value.text).length<=2048)).toBe(true);
+        }finally{next.mockRestore();await c.disposePage();}
     },15000);
 
     browserTest('原签名调用未启用机构选项时保持旧返回形状，不夹带响应原文', async () => {

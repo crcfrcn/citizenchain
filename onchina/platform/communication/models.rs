@@ -147,7 +147,7 @@ fn institution_row_from_pg_row(
     let cid_short_name: Option<String> = row.get(20);
     let town_code: Option<String> = row.get(22);
     let education_type: Option<String> = row.get(23);
-    // 省/市/镇名字按 code 现场从 china.sqlite 派生,库里不存名字副本(ADR-021)。
+    // 省/市/镇名字按 code 现场从 china.sqlite 派生,库里不存名字副本(行政区目录)。
     let province_code: String = row.get(6);
     let city_code: Option<String> = row.get(7);
     let town_code_value = town_code.clone().unwrap_or_default();
@@ -212,7 +212,7 @@ fn institution_from_subject_row(
     // 字段顺序必须与 get_institution_with_accounts 的 SELECT 保持一致;
     // legal_representative_photo_size 是第 27 列,下标为 26,越界会在持有数据库锁时 panic。
     let legal_representative_photo_size_i64: Option<i64> = row.get(26);
-    // 省/市/镇名字按 code 现场从 china.sqlite 派生,DTO 仍带名字,库里不存名字副本(ADR-021)。
+    // 省/市/镇名字按 code 现场从 china.sqlite 派生,DTO 仍带名字,库里不存名字副本(行政区目录)。
     let province_code: String = row.get(6);
     let city_code: Option<String> = row.get(7);
     let town_code_value = town_code.clone().unwrap_or_default();

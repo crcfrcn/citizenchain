@@ -13,7 +13,7 @@ use scale_info::TypeInfo;
 
 pub const PROPOSAL_KIND_INTERNAL: u8 = 0;
 pub const PROPOSAL_KIND_JOINT: u8 = 1;
-/// 立法投票 pallet 的提案类型(ADR-027)。立法机构专属:单院/两院内部表决 + 特别案强制公投。
+/// 立法投票 pallet 的提案类型(立法与宪法协议)。立法机构专属:单院/两院内部表决 + 特别案强制公投。
 pub const PROPOSAL_KIND_LEGISLATION: u8 = 2;
 /// 选举投票 pallet 的提案类型。只承载选举流程,职位规则由业务模块/选举法解释后传入快照。
 pub const PROPOSAL_KIND_ELECTION: u8 = 3;
@@ -244,14 +244,14 @@ pub const STAGE_LEG_REPRESENTATIVE: u8 = 10;
 /// 立法投票强制公投阶段(legislationvote,特别案/核心修宪):内部全过后强制进入。
 /// 与联合投票 `STAGE_REFERENDUM` 区分,阈值为宪法 ≥70% 参与 + ≥70% 赞成。
 pub const STAGE_LEG_REFERENDUM: u8 = 11;
-/// 立法投票行政签署阶段(legislationvote,ADR-027,宪法第45/46/100/106条):
+/// 立法投票行政签署阶段(legislationvote,立法与宪法协议,宪法第45/46/100/106条):
 /// 非特别案内部全过后,由机构法定代表人签署——市长(市)/省长(省)/总统(国)。
 /// 市行政区单院无救济;省行政区/国家否决或超时进入 `STAGE_LEG_OVERRIDE`。特别案不经此阶段。
 pub const STAGE_LEG_SIGN: u8 = 12;
 /// 立法投票三人会签救济阶段(省行政区/国家):立法院院长 + 参议长 + 众议长共同签署。
 /// 三人全签同意 → 生效;任一否决或会签超时 → 否决。
 pub const STAGE_LEG_OVERRIDE: u8 = 13;
-/// 立法投票护宪大法官终审阶段(ADR-027 修订 2026-06-25,宪法第21条):**仅修宪(tier=宪法)**。
+/// 立法投票护宪大法官终审阶段(立法与宪法协议 修订 2026-06-25,宪法第21条):**仅修宪(tier=宪法)**。
 /// 修宪在现有流程(重要案 总统签署后 / 特别案 公投后)通过后,最后进入护宪大法官表决:
 /// 7 名护宪大法官中 4 名及以上赞成 → 生效;未获 4 名及以上赞成或 30 天超时 → 否决。
 pub const STAGE_LEG_CONSTITUTION_GUARD: u8 = 14;

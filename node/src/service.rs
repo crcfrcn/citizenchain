@@ -598,7 +598,7 @@ fn new_partial_inner(
         genesis.clone(),
     );
 
-    // 宪法守卫保持独立且位于最外层(ADR-027 §7)：先执行整条链最高优先级的
+    // 宪法守卫保持独立且位于最外层(立法与宪法协议)：先执行整条链最高优先级的
     // 不可修改条款校验，再进入节点守卫及 PoW 导入；runtime 升级无法绕过两层执法。
     let guarded_import = nodeguard::constitution::guard::ConstitutionGuard::new(
         node_guard,
@@ -1114,10 +1114,10 @@ pub(crate) fn new_full_with_network_reader(
                 network: network.clone(),
                 sync: Arc::new(sync_service),
                 notification_service: grandpa_notification_service,
-                // (ADR-017 出块即固化)：`()` 是官方无约束投票规则，
+                // (最终确认块读取 出块即固化)：`()` 是官方无约束投票规则，
                 // 允许 GRANDPA 投票到链尾(best)。默认规则集含 BeforeBestBlockBy(2)，
                 // 在"跳空块"链上会让链尾两块永不固化(死水期 finalized 卡在 best−2)；
-                // 全端 finalized 单一口径(ADR-017)依赖本规则放开。
+                // 全端 finalized 单一口径(最终确认块读取)依赖本规则放开。
                 voting_rule: (),
                 prometheus_registry,
                 shared_voter_state: sc_consensus_grandpa::SharedVoterState::empty(),

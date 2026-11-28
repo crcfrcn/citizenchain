@@ -9,7 +9,7 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
 import {product} from './config.mjs';
 import {
-  checkWork, inside, checkTools, runBuildProcess, platformCargoEnvironment, npmCLI, stageWindowsOpenSsl, developmentTLS,
+  checkWork, inside, checkTools, runBuildProcess, platformCargoEnvironment, npmCLI, qrWasmDefinition, qrNoticePlugin, stageWindowsOpenSsl, developmentTLS,
 } from './build.mjs';
 
 const root = realpathSync(resolve(dirname(fileURLToPath(import.meta.url)), '..'));
@@ -95,7 +95,7 @@ function buildProject(project, work) {
 
 async function prepareFrontend(project, environment, targets) {
   for (const packagePath of [join(project, 'crates/scanner'), ...targets.map(target => target.frontend)]) {
-    await runBuildProcess(environment.NODE, [npmCLI(environment.NODE), 'ci', '--include=dev', ...(environment.npm_config_offline === 'true' ? ['--offline'] : [])], environment, packagePath);
+    await runBuildProcess(environment.NODE, [npmCLI(environment.NODE), 'ci', '--install-links=false', '--include=dev', ...(environment.npm_config_offline === 'true' ? ['--offline'] : [])], environment, packagePath);
   }
 }
 
@@ -309,7 +309,8 @@ export async function frontendConfiguration(frontend, {command = 'build', descri
   root: module ? frontend : dirname(page),
   configFile: false,
   base: './',
-  plugins: [react(), ...(module ? [module.publicImports] : [])],
+  plugins: [react(), qrNoticePlugin(), ...(module ? [module.publicImports] : [])],
+  define: {__CITIZEN_QR_WASM__: await qrWasmDefinition()},
   // 本仓扫码组件与宿主共用同一React实例，避免链接包加载第二套Hooks运行库。
   resolve: { dedupe: dependencies },
   build: {
@@ -342,7 +343,8 @@ async function runFrontend(action, args) {
     const {startVitest} = await import(pathToFileURL(require.resolve('vitest/node')).href);
     const context = await startVitest('test', [], {root: frontend, config: false, run: true, watch: false,
       environment: 'node', include: ['**/*.test.ts', '**/*.test.tsx'], testNamePattern},
-      {esbuild: {jsx: 'automatic'}, resolve: {dedupe: [...Object.keys(declared.dependencies), 'vitest']}});
+      {esbuild: {jsx: 'automatic'}, ssr: {noExternal: ['@gmb/scanner-react', 'qrcode.react']},
+        define: {__CITIZEN_QR_WASM__: await qrWasmDefinition()}, resolve: {dedupe: [...Object.keys(declared.dependencies), 'vitest']}});
     if (!context) fail('前端测试未启动');
     try { if (context.state.getUnhandledErrors().length || context.state.getFiles().some(file => file.result?.state === 'fail')) process.exitCode = 1; }
     finally { await context.close(); }

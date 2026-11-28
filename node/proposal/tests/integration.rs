@@ -52,7 +52,7 @@ fn fixture_map(
 ) {
     use codec::{DecodeAll, Encode};
     let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../runtime/primitives/tests/fixtures/role_permission.json"
+        "../../../runtime/primitives/tests/fixtures/permission.json"
     ))
     .unwrap();
     let frozen = &fixture["frozen_institution_voters"];

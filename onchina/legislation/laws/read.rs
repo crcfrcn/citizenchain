@@ -176,7 +176,7 @@ pub(crate) fn resolve_institution_cid_number(
 
 /// 读取链上全部 `Law`(iterate + 镜像 decode,复用 chain_runtime 读链范式)。
 ///
-/// ADR-018——整表扫描一次 + 客户端按已解码字段过滤(law_id/tier/region 均在 value 内,
+/// 批量读取与快照——整表扫描一次 + 客户端按已解码字段过滤(law_id/tier/region 均在 value 内,
 /// 无需 storage key 反解)。网络读取失败必须向调用方返回错误。
 async fn fetch_all_laws() -> Result<Vec<OnChainLaw>, String> {
     let ws_url = chain_url::chain_ws_url()?;

@@ -13,7 +13,7 @@ use std::path::Path;
 
 /// decoder 按条件发射、但不进任何 action `required_fields` 的字段。
 ///
-/// 这些 key 由 `citizenwallet/lib/signer/payload_decoder.dart` 在 Option 字段命中时才发射,
+/// 这些 key 由 `citizenwallet/lib/signing/decoder.dart` 在 Option 字段命中时才发射,
 /// Rust 侧无法从 registry 推出,只能在此显式登记。新增前必须先确认 decoder 真的发射该 key,
 /// 不得拿本表豁免死标签。
 const DECODER_ONLY_FIELDS: &[&str] = &[

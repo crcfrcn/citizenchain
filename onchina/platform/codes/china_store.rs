@@ -165,19 +165,19 @@ fn load_provinces() -> &'static [ProvinceDivision] {
     for p in &provinces {
         assert!(
             province_names.insert(p.province_name),
-            "china.sqlite 省名重复(违反 ADR-021 全国唯一铁律): {}",
+            "china.sqlite 省名重复(违反全国唯一约束): {}",
             p.province_name
         );
         for c in p.cities {
             assert!(
                 city_names.insert(c.city_name),
-                "china.sqlite 市名重复(违反 ADR-021 全国唯一铁律): {}",
+                "china.sqlite 市名重复(违反全国唯一约束): {}",
                 c.city_name
             );
             for t in c.towns {
                 assert!(
                     town_triples.insert((p.province_code, c.city_code, t.town_code)),
-                    "china.sqlite 行政区 code 重复(违反 ADR-021 不可变不复用铁律): {}/{}/{}",
+                    "china.sqlite 行政区 code 重复(违反不可变且不复用约束): {}/{}/{}",
                     p.province_code,
                     c.city_code,
                     t.town_code

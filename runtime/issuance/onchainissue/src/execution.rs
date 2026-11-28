@@ -22,7 +22,7 @@ pub fn execute_issue<T: Config>(
 where
     BalanceOf<T>: From<u128>,
 {
-    // 业务未实装(ADR-011 任务卡 A)。返回 Err 而非 Ok:执行入口必须 fail-closed,
+    // 业务未实装(链上资产发行)。返回 Err 而非 Ok:执行入口必须 fail-closed,
     // 否则将来先接回调后写业务时,投票会"通过且无任何链上副作用"形成假成功。
     Err(Error::<T>::NotImplemented.into())
 }
@@ -31,7 +31,7 @@ where
 pub fn execute_mint<T: Config>(
     _proposal: MintProposal<T::AccountId, BalanceOf<T>>,
 ) -> DispatchResult {
-    // 业务未实装(ADR-011 任务卡 A)。返回 Err 而非 Ok:执行入口必须 fail-closed,
+    // 业务未实装(链上资产发行)。返回 Err 而非 Ok:执行入口必须 fail-closed,
     // 否则将来先接回调后写业务时,投票会"通过且无任何链上副作用"形成假成功。
     Err(Error::<T>::NotImplemented.into())
 }
@@ -40,7 +40,7 @@ pub fn execute_mint<T: Config>(
 pub fn execute_burn<T: Config>(
     _proposal: BurnProposal<T::AccountId, BalanceOf<T>>,
 ) -> DispatchResult {
-    // 业务未实装(ADR-011 任务卡 A)。返回 Err 而非 Ok:执行入口必须 fail-closed,
+    // 业务未实装(链上资产发行)。返回 Err 而非 Ok:执行入口必须 fail-closed,
     // 否则将来先接回调后写业务时,投票会"通过且无任何链上副作用"形成假成功。
     Err(Error::<T>::NotImplemented.into())
 }
@@ -49,17 +49,17 @@ pub fn execute_burn<T: Config>(
 pub fn execute_transfer<T: Config>(
     _proposal: TransferProposal<T::AccountId, BalanceOf<T>>,
 ) -> DispatchResult {
-    // 业务未实装(ADR-011 任务卡 A)。返回 Err 而非 Ok:执行入口必须 fail-closed,
+    // 业务未实装(链上资产发行)。返回 Err 而非 Ok:执行入口必须 fail-closed,
     // 否则将来先接回调后写业务时,投票会"通过且无任何链上副作用"形成假成功。
     Err(Error::<T>::NotImplemented.into())
 }
 
 /// 关闭资产(调 pallet_assets::start_destroy + 销毁余额 + emit AssetClosed)。
 ///
-/// ADR-011 第 8.1 节：必须由 with_transaction 包裹，保证 OnchainIssue::Assets.state 与
+/// 链上资产发行：必须由 with_transaction 包裹，保证 OnchainIssue::Assets.state 与
 /// pallet_assets::Asset.status 原子同步。
 pub fn execute_close<T: Config>(_proposal: CloseProposal) -> DispatchResult {
-    // 业务未实装(ADR-011 任务卡 A)。返回 Err 而非 Ok:执行入口必须 fail-closed,
+    // 业务未实装(链上资产发行)。返回 Err 而非 Ok:执行入口必须 fail-closed,
     // 否则将来先接回调后写业务时,投票会"通过且无任何链上副作用"形成假成功。
     Err(Error::<T>::NotImplemented.into())
 }
@@ -72,7 +72,7 @@ pub fn dispatch_internal_callback<T: Config>(
     _action: [u8; 4],
     _proposal_data: &[u8],
 ) -> DispatchResult {
-    // ACTION 路由未实装(ADR-011 任务卡 A):目标为 execute_issue / execute_mint / ...。
+    // ACTION 路由未实装(链上资产发行):目标为 execute_issue / execute_mint / ...。
     // 未实装期间一律 fail-closed,禁止静默返回成功。
     Err(Error::<T>::NotImplemented.into())
 }

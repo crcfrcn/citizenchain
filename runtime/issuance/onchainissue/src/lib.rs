@@ -19,7 +19,7 @@ pub use pallet::*;
 
 /// 模块标识前缀,用于在投票引擎 ProposalData 中识别 onchainissue 提案。
 ///
-/// 与 ADR-011 第十节固定,跨端识别用户代币业务提案的稳定业务标签。
+/// 与 链上资产发行 第十节固定,跨端识别用户代币业务提案的稳定业务标签。
 pub const MODULE_TAG: &[u8] = b"onc-iss";
 
 #[frame_support::pallet]
@@ -179,7 +179,7 @@ pub mod pallet {
 
     #[pallet::event]
     // deposit_event 由 FRAME 宏生成;事件枚举已定稿但尚无 emit 调用点,
-    // 待开放任务卡 20260507-onchain-issuance-plain-ft 子任务 C 实装时消费。
+    // 待对应链上资产业务实装时消费。
     #[allow(dead_code)]
     #[pallet::generate_deposit(pub(crate) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -274,11 +274,11 @@ pub mod pallet {
         /// propose origin 校验未通过(业务 ACTION:proposer_account_id 不在 actor CID 的 admins;
         /// 监管 ACTION:proposer_account_id 不在 NRC admins)。
         ProposeOriginNotAllowed,
-        /// metadata 不可修改（ADR-011 第 5.7 节铁律）。
+        /// metadata 不可修改（链上资产发行铁律）。
         MetadataImmutable,
         /// 单块强制销毁队列已满。
         ScheduleFull,
-        /// 业务尚未实装(ADR-011 任务卡 A/B)。执行入口一律拒绝,
+        /// 业务尚未实装(链上资产发行)。执行入口一律拒绝,
         /// 禁止形成"投票通过但无任何链上副作用"的假成功。
         NotImplemented,
     }
@@ -287,7 +287,7 @@ pub mod pallet {
     ///
     /// 不暴露 execute/cancel wrapper(走 VotingEngine::retry_passed_proposal 9.4 / cancel_passed_proposal 9.5)。
     /// 框架阶段先统一执行 CID 管理员授权；创建资产还强制校验 execution_account_id 属于同一 CID。
-    /// 资产业务执行、协议费用与投票创建仍由后续发行任务卡实装，但不得绕过本授权入口。
+    /// 资产业务执行、协议费用与投票创建仍由后续发行业务实现，但不得绕过本授权入口。
     ///
     /// call_index 5..=9 / 15+ 留洞不复用(永久 ABI)。
     #[pallet::call]
@@ -333,7 +333,7 @@ pub mod pallet {
                 decimals,
                 initial_supply,
             );
-            // 当前仅建立授权入口；资产发行与投票执行由任务卡 A 统一实装。
+            // 当前仅建立授权入口；资产发行与投票执行由发行业务统一实现。
             //   1. validation::ensure_institution_context / ensure_decimals_in_range / ensure_class_supported
             //   2. 按业务动作校验 proposer_account_id 对目标 RoleSubject 的 Propose 权限
             //   3. 字段过黑名单
@@ -361,7 +361,7 @@ pub mod pallet {
                 false,
             )?;
             let _ = (actor_cid_number, asset_id, to_account_id, amount);
-            // 当前仅建立授权入口；增发提案与投票执行由任务卡 A 统一实装。
+            // 当前仅建立授权入口；增发提案与投票执行由发行业务统一实现。
             Ok(())
         }
 
@@ -385,7 +385,7 @@ pub mod pallet {
                 false,
             )?;
             let _ = (actor_cid_number, asset_id, from_account_id, amount);
-            // 当前仅建立授权入口；销毁提案与投票执行由任务卡 A 统一实装。
+            // 当前仅建立授权入口；销毁提案与投票执行由发行业务统一实现。
             Ok(())
         }
 
@@ -407,7 +407,7 @@ pub mod pallet {
                 false,
             )?;
             let _ = (actor_cid_number, asset_id);
-            // 当前仅建立授权入口；关闭提案与投票执行由任务卡 A 统一实装。
+            // 当前仅建立授权入口；关闭提案与投票执行由发行业务统一实现。
             Ok(())
         }
 
@@ -438,7 +438,7 @@ pub mod pallet {
                 to_account_id,
                 amount,
             );
-            // 当前仅建立授权入口；转账提案与投票执行由任务卡 A 统一实装。
+            // 当前仅建立授权入口；转账提案与投票执行由发行业务统一实现。
             Ok(())
         }
 
@@ -464,7 +464,7 @@ pub mod pallet {
                 true,
             )?;
             let _ = (actor_cid_number, asset_id, account_id, reason_hash);
-            // 当前仅建立 NRC 授权入口；冻结提案与联合投票执行由任务卡 B 统一实装。
+            // 当前仅建立 NRC 授权入口；冻结提案与联合投票执行由监控业务统一实现。
             //   校验 proposer_account_id 对 NRC 委员 RoleSubject 的监管冻结 Propose 权限
             //   构造含 NRC 委员投票主体的固定 VotePlan，再调用指定的联合投票引擎
             Ok(())
@@ -490,7 +490,7 @@ pub mod pallet {
                 true,
             )?;
             let _ = (actor_cid_number, asset_id, account_id, reason_hash);
-            // 当前仅建立 NRC 授权入口；解冻提案与联合投票执行由任务卡 B 统一实装。
+            // 当前仅建立 NRC 授权入口；解冻提案与联合投票执行由监控业务统一实现。
             Ok(())
         }
 
@@ -515,7 +515,7 @@ pub mod pallet {
                 true,
             )?;
             let _ = (actor_cid_number, asset_id, account_id, amount, reason_hash);
-            // 当前仅建立 NRC 授权入口；扣押提案与联合投票执行由任务卡 B 统一实装。
+            // 当前仅建立 NRC 授权入口；扣押提案与联合投票执行由监控业务统一实现。
             Ok(())
         }
 
@@ -548,7 +548,7 @@ pub mod pallet {
                 amount,
                 reason_hash,
             );
-            // 当前仅建立 NRC 授权入口；追赃提案与联合投票执行由任务卡 B 统一实装。
+            // 当前仅建立 NRC 授权入口；追赃提案与联合投票执行由监控业务统一实现。
             Ok(())
         }
 
@@ -571,7 +571,7 @@ pub mod pallet {
                 true,
             )?;
             let _ = (actor_cid_number, asset_id, reason_hash);
-            // 当前仅建立 NRC 授权入口；整币封禁提案与联合投票执行由任务卡 B 统一实装。
+            // 当前仅建立 NRC 授权入口；整币封禁提案与联合投票执行由监控业务统一实现。
             Ok(())
         }
     }

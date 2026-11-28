@@ -262,23 +262,3 @@ export function buildSignatureMessage(args: {
   }
   return `${QR_V1}|${kindCode}|${args.id}|${sys}|${exp}|${pp}`;
 }
-
-
-/** 服务端复用原生分帧算法；显示前逐字节核对完整原文，不能替换待签请求。 */
-export function verifiedQrTransportFrames(original: string, values: unknown): string[] {
-  if (!Array.isArray(values) || values.length < 1 || values.length > 64 || values.some(v => typeof v !== 'string' || new TextEncoder().encode(v).length > 2331)) throw new Error('签名二维码分帧格式无效');
-  const frames = values as string[];
-  if (frames.length === 1 && frames[0] === original) return frames;
-  const expected = new TextEncoder().encode(original);
-  const digest = Array.from(blake2b(expected, { dkLen: 32 }), byte => byte.toString(16).padStart(2, '0')).join('');
-  const pieces = new Map<number, Uint8Array>();
-  for (const frame of frames) {
-    const match = /^GMBQR1:([0-9a-f]{64}):(0|[1-9][0-9]*):([1-9][0-9]*):([A-Za-z0-9_-]+)$/.exec(frame);
-    if (!match || match[1] !== digest || Number(match[3]) !== frames.length || Number(match[2]) >= frames.length || pieces.has(Number(match[2]))) throw new Error('签名二维码分帧编号或摘要不匹配');
-    const encoded = decodeGeneratedBase64Url(match[4], 'qr_frame');
-    pieces.set(Number(match[2]), Uint8Array.from(encoded.slice(2).match(/../g) ?? [], byte => parseInt(byte, 16)));
-  }
-  const merged = Array.from({ length: frames.length }, (_, index) => Array.from(pieces.get(index) ?? [])).flat();
-  if (merged.length !== expected.length || merged.some((byte, index) => byte !== expected[index])) throw new Error('分帧内容与原签名请求不一致');
-  return [...frames].sort((a, b) => Number(a.split(':')[2]) - Number(b.split(':')[2]));
-}

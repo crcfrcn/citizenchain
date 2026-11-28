@@ -12,7 +12,7 @@ use frame_system::pallet_prelude::BlockNumberFor;
 pub fn execute_monitor_freeze<T: Config>(
     _proposal: MonitorFreezeProposal<T::AccountId>,
 ) -> DispatchResult {
-    // 业务未实装(ADR-011 任务卡 B)。返回 Err 而非 Ok:执行入口必须 fail-closed,
+    // 业务未实装(链上资产发行)。返回 Err 而非 Ok:执行入口必须 fail-closed,
     // 否则将来先接回调后写业务时,投票会"通过且无任何链上副作用"形成假成功。
     Err(Error::<T>::NotImplemented.into())
 }
@@ -21,7 +21,7 @@ pub fn execute_monitor_freeze<T: Config>(
 pub fn execute_monitor_unfreeze<T: Config>(
     _proposal: MonitorFreezeProposal<T::AccountId>,
 ) -> DispatchResult {
-    // 业务未实装(ADR-011 任务卡 B)。返回 Err 而非 Ok:执行入口必须 fail-closed,
+    // 业务未实装(链上资产发行)。返回 Err 而非 Ok:执行入口必须 fail-closed,
     // 否则将来先接回调后写业务时,投票会"通过且无任何链上副作用"形成假成功。
     Err(Error::<T>::NotImplemented.into())
 }
@@ -30,7 +30,7 @@ pub fn execute_monitor_unfreeze<T: Config>(
 pub fn execute_monitor_confiscate<T: Config>(
     _proposal: MonitorConfiscateProposal<T::AccountId, BalanceOf<T>>,
 ) -> DispatchResult {
-    // 业务未实装(ADR-011 任务卡 B)。返回 Err 而非 Ok:执行入口必须 fail-closed,
+    // 业务未实装(链上资产发行)。返回 Err 而非 Ok:执行入口必须 fail-closed,
     // 否则将来先接回调后写业务时,投票会"通过且无任何链上副作用"形成假成功。
     Err(Error::<T>::NotImplemented.into())
 }
@@ -39,7 +39,7 @@ pub fn execute_monitor_confiscate<T: Config>(
 pub fn execute_monitor_force_transfer<T: Config>(
     _proposal: MonitorForceTransferProposal<T::AccountId, BalanceOf<T>>,
 ) -> DispatchResult {
-    // 业务未实装(ADR-011 任务卡 B)。返回 Err 而非 Ok:执行入口必须 fail-closed,
+    // 业务未实装(链上资产发行)。返回 Err 而非 Ok:执行入口必须 fail-closed,
     // 否则将来先接回调后写业务时,投票会"通过且无任何链上副作用"形成假成功。
     Err(Error::<T>::NotImplemented.into())
 }
@@ -53,7 +53,7 @@ pub fn execute_monitor_force_transfer<T: Config>(
 pub fn execute_monitor_force_close<T: Config>(
     _proposal: MonitorForceCloseProposal,
 ) -> DispatchResult {
-    // 业务未实装(ADR-011 任务卡 B)。返回 Err 而非 Ok:执行入口必须 fail-closed,
+    // 业务未实装(链上资产发行)。返回 Err 而非 Ok:执行入口必须 fail-closed,
     // 否则将来先接回调后写业务时,投票会"通过且无任何链上副作用"形成假成功。
     Err(Error::<T>::NotImplemented.into())
 }
@@ -68,7 +68,7 @@ pub fn execute_monitor_force_close<T: Config>(
 /// `execute_monitor_force_close` 未实装期间一律返回 `NotImplemented`,
 /// `ForceCloseSchedule` 永远为空,本函数实际是无副作用空转。
 pub fn process_force_close_schedule_on_finalize<T: Config>(_block: BlockNumberFor<T>) {
-    // 队列消费未实装(ADR-011 任务卡 B);实装后按下面注释展开。
+    // 队列消费未实装(链上资产发行);实装后按下面注释展开。
     // let scheduled = ForceCloseSchedule::<T>::take(_block);
     // for asset_id in scheduled.iter() { pallet_assets::start_destroy(asset_id); ... }
 }
@@ -80,7 +80,7 @@ pub fn dispatch_joint_callback<T: Config>(
     _action: [u8; 4],
     _proposal_data: &[u8],
 ) -> DispatchResult {
-    // ACTION 路由未实装(ADR-011 任务卡 B):目标为 execute_monitor_freeze / unfreeze / ...。
+    // ACTION 路由未实装(链上资产发行):目标为 execute_monitor_freeze / unfreeze / ...。
     // 未实装期间一律 fail-closed,禁止静默返回成功。
     Err(Error::<T>::NotImplemented.into())
 }

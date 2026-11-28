@@ -545,9 +545,9 @@ mod runtime {
     #[runtime::pallet_index(19)]
     pub type Offchain = offchain::pallet;
 
-    // 链上发行代币(Plain FT, ADR-011):用户(CID 机构 + personal 个人多签账户)发行 GMB 之外的代币。
+    // 链上发行代币(Plain FT, 链上资产发行):用户(CID 机构 + personal 个人多签账户)发行 GMB 之外的代币。
     // 唯一外壳入口,内核挂 pallet_assets;pallet_assets 原生 extrinsic 由 BaseCallFilter 屏蔽。
-    // 当前为空壳(任务卡 A/B 未实装),OnchainIssue 自身 propose_* 也在 RuntimeCallFilter 中 reject。
+    // 当前为空壳(发行业务未实装),OnchainIssue 自身 propose_* 也在 RuntimeCallFilter 中 reject。
     #[runtime::pallet_index(23)]
     pub type OnchainIssue = onchainissue;
 
@@ -556,12 +556,12 @@ mod runtime {
     #[runtime::pallet_index(24)]
     pub type Assets = pallet_assets;
 
-    // 立法院模块:法律结构化上链 + 修法走立法投票(ADR-027)。业务壳,只承载法律数据与提案入口;
+    // 立法院模块:法律结构化上链 + 修法走立法投票(立法与宪法协议)。业务壳,只承载法律数据与提案入口;
     // 表决/计票/公投归属 legislationvote sub-pallet。
     #[runtime::pallet_index(25)]
     pub type Legislation = legislation;
 
-    // 立法投票 sub-pallet:立法机构专属投票(单院/两院/特别案强制公投,ADR-027)。
+    // 立法投票 sub-pallet:立法机构专属投票(单院/两院/特别案强制公投,立法与宪法协议)。
     // 投票引擎「头等模式」PROPOSAL_KIND_LEGISLATION,共享核心共享基础,只本地存计票账本。
     #[runtime::pallet_index(26)]
     pub type LegislationVote = legislationvote;

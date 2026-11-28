@@ -86,7 +86,7 @@ fn header_block_height(header: &Value) -> Option<u64> {
 }
 
 fn finalized_block_height() -> Option<u64> {
-    // (ADR-017):finalized 钉块哈希统一取自 nodeclient::query 收口。
+    // (最终确认块读取):finalized 钉块哈希统一取自 nodeclient::query 收口。
     let hash = nodeclient::query::fetch_finalized_head().ok()?;
     let header = rpc_post("chain_getHeader", Value::Array(vec![Value::String(hash)])).ok()?;
     header_block_height(&header)
