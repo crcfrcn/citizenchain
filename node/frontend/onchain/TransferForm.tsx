@@ -1,6 +1,7 @@
 // 单笔与批量共用当前钱包；分组仅用于输入，签名前展开为确定清单。
 import { ADDRESS_INPUT_PLACEHOLDER, normalizeSs58Address } from '../client/ss58';
 import { AddressScanModal } from '../desktop/scanner';
+import { MetricHelp } from '../desktop/MetricHelp';
 import { parseYuanToFen, formatFen, quoteTransfers } from './fee';
 import type { Wallet, TransferDraft, TransferItem } from './types';
 import citizenCoinLogo from '../../../icons/gmb.png?url';
@@ -107,6 +108,9 @@ export function TransferForm({ activeWallet, batchEnabled = true, nodeReady = tr
     {(error || submitError) && !open && <div className="error" role="alert">{error ?? submitError}</div>}
     <button className="transfer-form-submit" disabled={locked || !toAddress.trim() || singleTotal === '0' || new TextEncoder().encode(remark).length > 99} onClick={() => submit(false)}>{disabled ? '签名中...' : '签名交易'}</button>
     {open && <div className="wallet-manager-modal-mask"><section ref={dialogRef} onKeyDown={event => {
+                // 说明弹窗经Portal进入原生顶层，键盘行为交由该弹窗处理。
+                if (!event.currentTarget.contains(event.target as Node))
+                    return;
                 if (event.key === 'Escape') {
                     event.preventDefault();
                     event.stopPropagation();
@@ -140,7 +144,12 @@ export function TransferForm({ activeWallet, batchEnabled = true, nodeReady = tr
       <div className="transfer-form-summary batch-transfer-summary">转账数量：{count} 笔｜转账金额：{formatFen(batchQuote?.amount ?? 0n)} 元｜预计手续费：{formatFen(batchQuote?.fee ?? 0n)} 元｜合计：{formatFen(batchQuote?.total ?? 0n)} 元</div>
       {(error || submitError || batchError) && groups.some(g => g.amount || g.addresses) && <div className="error" role="alert">{error ?? submitError ?? batchError}</div>}
       <footer className="batch-transfer-footer">
-        <div className="batch-transfer-mode" role="group" aria-label="交易模式" aria-disabled={locked}><span className="batch-transfer-mode-title">交易模式</span><div className="batch-transfer-options"><label><input type="radio" name="batch-mode" disabled={locked} checked={mode === 'batch_all'} onChange={() => setMode('batch_all')}/>整批成功</label><label><input type="radio" name="batch-mode" disabled={locked} checked={mode === 'force_batch'} onChange={() => setMode('force_batch')}/>逐笔成功</label></div></div>
+        <div className="batch-transfer-mode" role="group" aria-label="交易模式" aria-disabled={locked}><span className="batch-transfer-mode-title">交易模式</span><div className="batch-transfer-options"><label><input type="radio" name="batch-mode" disabled={locked} checked={mode === 'batch_all'} onChange={() => setMode('batch_all')}/>整批成功</label><label><input type="radio" name="batch-mode" disabled={locked} checked={mode === 'force_batch'} onChange={() => setMode('force_batch')}/>逐笔成功</label><MetricHelp title="交易模式说明" items={[
+          '整批成功是指本批所有交易要么全部成功，有一笔失败则全部失败；',
+          '逐笔成功是指本批所有交易按笔成功或失败，失败不影响成功的交易；',
+          '成功的交易才会收取链上交易手续费，失败的则不收取链上交易手续费；',
+          '可将地址添加到钱包管理中，添加后可在交易记录中查询该钱包所有交易。',
+        ]}/></div></div>
         <button className="transfer-form-submit" disabled={locked || !batchQuote} onClick={() => submit(true)}>签名交易</button>
       </footer>
     </section></div>}

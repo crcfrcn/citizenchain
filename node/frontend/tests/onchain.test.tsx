@@ -93,6 +93,9 @@ it('单笔确认摘要只保留收款地址、备注与一份转账金额，地�
     for(const label of ['付款地址','收款地址'])expect(getComputedStyle(screen.getByText(label).nextElementSibling!).textAlign).toBe('left');
     expect(screen.getByText('收款地址').nextElementSibling?.textContent).toBe(destination);
     expect(screen.getByText('冷签（公民钱包离线签名）')).toBeTruthy();
+    for(const row of document.querySelectorAll('.transfer-signing-row')){
+      const css=getComputedStyle(row);expect(css.gridTemplateColumns).toBe('5em minmax(0, 1fr)');expect(css.gap).toBe('1em');expect(css.fontSize).toBe('14px');
+    }
   }finally{style.remove();}
 });
 
@@ -761,10 +764,13 @@ it('批量底栏左侧交易模式右侧签名、两选项顺序及圈大小正�
   expect(Array.from(footer.children)).toEqual([mode,sign]);expect(mode.querySelector('.batch-transfer-mode-title')?.textContent).toBe('交易模式');
   expect(getComputedStyle(footer).marginTop).toBe('20px');
   expect(getComputedStyle(view.container.querySelector('.batch-transfer-modal > .wallet-manager-body')!).paddingTop).toBe('4px');
+  expect(getComputedStyle(view.container.querySelector('.batch-transfer-modal > .wallet-manager-body')!).paddingBottom).toBe('4px');
+  expect(getComputedStyle(view.container.querySelector('.batch-transfer-modal > .wallet-manager-body')!).paddingLeft).toBe('4px');
   expect(mode.tagName).toBe('DIV');expect(mode.getAttribute('role')).toBe('group');
   expect(getComputedStyle(mode).fontSize).toBe('14px');expect(getComputedStyle(mode).alignItems).toBe('center');
   expect(getComputedStyle(mode.querySelector('.batch-transfer-options')!).justifyContent).toBe('flex-start');
   expect(getComputedStyle(view.container.querySelector('.batch-transfer-summary')!).fontSize).toBe('13px');
+  expect(getComputedStyle(view.container.querySelector('.batch-transfer-summary')!).flexShrink).toBe('0');
   expect(Array.from(mode.querySelectorAll('label')).map(node=>node.textContent)).toEqual(['整批成功','逐笔成功']);
   for(const label of mode.querySelectorAll('label'))expect(getComputedStyle(label).flexDirection).toBe('row');
   const options=mode.querySelectorAll<HTMLInputElement>('input[type="radio"]');expect(options[0].checked).toBe(true);expect(options[1].checked).toBe(false);
@@ -776,6 +782,27 @@ it('批量底栏左侧交易模式右侧签名、两选项顺序及圈大小正�
   fireEvent.change(screen.getByLabelText('第1组金额'),{target:{value:'1'}});fireEvent.change(screen.getByLabelText('第1组地址'),{target:{value:destination}});
   expect(view.container.querySelector('.batch-transfer-summary')?.textContent).toBe('转账数量：1 笔｜转账金额：1.00 元｜预计手续费：0.10 元｜合计：1.10 元');
  }finally{view.unmount();style.remove();}
+});
+
+it('逐笔成功右侧复用说明弹窗，四条内容逐字保留，关闭后继续原批次',()=>{
+ const prototype=HTMLDialogElement.prototype,show=Object.getOwnPropertyDescriptor(prototype,'showModal'),close=Object.getOwnPropertyDescriptor(prototype,'close');
+ Object.defineProperties(prototype,{showModal:{configurable:true,value(this:HTMLDialogElement){this.open=true;}},close:{configurable:true,value(this:HTMLDialogElement){this.open=false;}}});
+ const view=render(<TransferForm activeWallet={wallet} balance="1000000" onSubmit={vi.fn()}/>);
+ try{
+  fireEvent.click(screen.getByRole('button',{name:'批量转账'}));fireEvent.change(screen.getByLabelText('第1组金额'),{target:{value:'123'}});fireEvent.click(screen.getByLabelText('逐笔成功'));
+  const help=screen.getByRole('button',{name:'交易模式说明'});expect(screen.getByLabelText('逐笔成功').parentElement?.nextElementSibling).toBe(help);expect(help.className).toBe('metric-help-button');
+  fireEvent.click(help);const dialog=screen.getByRole('dialog',{name:'交易模式说明'});
+  expect([...dialog.querySelectorAll('li')].map(item=>item.textContent)).toEqual([
+   '整批成功是指本批所有交易要么全部成功，有一笔失败则全部失败；',
+   '逐笔成功是指本批所有交易按笔成功或失败，失败不影响成功的交易；',
+   '成功的交易才会收取链上交易手续费，失败的则不收取链上交易手续费；',
+   '可将地址添加到钱包管理中，添加后可在交易记录中查询该钱包所有交易。',
+  ]);
+  expect(fireEvent.keyDown(dialog,{key:'Escape'})).toBe(true);fireEvent(dialog,new Event('cancel',{cancelable:true}));
+  expect(screen.queryByRole('dialog',{name:'交易模式说明'})).toBeNull();expect(screen.getByRole('dialog',{name:'批量转账'})).toBeTruthy();
+  expect((screen.getByLabelText('逐笔成功') as HTMLInputElement).checked).toBe(true);expect((screen.getByLabelText('第1组金额') as HTMLInputElement).value).toBe('123');
+  fireEvent.click(help);fireEvent.click(screen.getByRole('dialog',{name:'交易模式说明'}));expect(screen.queryByRole('dialog',{name:'交易模式说明'})).toBeNull();
+ }finally{view.unmount();if(show)Object.defineProperty(prototype,'showModal',show);else Reflect.deleteProperty(prototype,'showModal');if(close)Object.defineProperty(prototype,'close',close);else Reflect.deleteProperty(prototype,'close');}
 });
 
 

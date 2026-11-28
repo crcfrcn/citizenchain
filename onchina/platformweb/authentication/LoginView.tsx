@@ -118,7 +118,7 @@ export function LoginView() {
 
   const onCompleteSignedLogin = useCallback(async (raw: string) => {
     if (!pendingQrLogin) {
-      notice.error('请先重新扫描人员当前绑定账户码');
+      notice.error('请先重新识别账户码');
       return;
     }
     setScanSubmitting(true);
@@ -192,7 +192,7 @@ export function LoginView() {
         if (status.status === 'PENDING') return;
         if (status.status === 'EXPIRED') {
           window.clearInterval(timer);
-          notice.warning('二维码已过期，请重新扫描人员当前绑定账户码');
+          notice.warning('二维码已过期，请重新识别账户码');
           setPendingQrLogin(null);
           setDisplayName('');
           return;
@@ -205,7 +205,7 @@ export function LoginView() {
         if (error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 429) {
           window.clearInterval(timer);
           setPendingQrLogin(null);
-          notice.error(error, '登录状态查询失败，请重新扫描人员当前绑定账户码');
+          notice.error(error, '登录状态查询失败，请重新识别账户码');
         }
         // 网络暂时失败或限流时沿用轮询；参数及鉴权拒绝不能无限重试。
       } finally {
@@ -258,10 +258,10 @@ export function LoginView() {
           level={4}
           style={{ color: '#fff', margin: 0, fontWeight: 600, letterSpacing: 1 }}
         >
-          人员扫码登录
+          统一扫码登录
         </Typography.Title>
         <Typography.Text style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13 }}>
-          用公民钱包出示账户详情的账户码，再由同一钱包签名登录
+          请使用「公民钱包」中的账户码生成挑战码，再由同一钱包签名登录。
         </Typography.Text>
       </div>
 
@@ -273,18 +273,19 @@ export function LoginView() {
           qrHint={
             pendingQrLogin
               ? `${displayName} · 有效期至 ${new Date(pendingQrLogin.expiresAt * 1000).toLocaleTimeString()}`
-              : '扫描人员当前绑定账户码后生成，仅该账户可以签名'
+              : '生成的登录挑战码，仅该钱包账户可以签名。'
           }
-          scannerTitle={pendingQrLogin ? '签名响应' : '人员当前绑定账户码'}
+          scannerTitle={pendingQrLogin ? '签名响应' : '登录用户'}
           scannerHint={
             pendingQrLogin
               ? '扫描公民钱包生成的签名响应二维码'
-              : '扫描当前绑定账户码，核对链上人员身份和有效岗位后生成登录挑战码。'
+              : '扫描登录用户身份CID号绑定的钱包账户码，核对用户的链上身份和有效任职后生成登录挑战码。'
           }
           primaryActionText={pendingQrLogin ? '重新扫描账户码' : undefined}
           primaryActionLoading={challengeLoading}
           onPrimaryAction={resetIdentityScan}
-          scannerButtonText={pendingQrLogin ? '扫描签名响应' : '扫描人员当前绑定账户码'}
+          scannerButtonText={pendingQrLogin ? '扫描签名响应' : '识别账户码'}
+          scannerRequiresQr={pendingQrLogin !== null}
           scannerDisabled={challengeLoading || scanSubmitting}
           scannerLoading={challengeLoading || scanSubmitting}
           onDetected={pendingQrLogin ? onCompleteSignedLogin : onScanIdentity}

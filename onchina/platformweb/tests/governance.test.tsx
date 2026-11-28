@@ -309,7 +309,8 @@ describe('通用链签名二维码传输回归', () => {
         const fetcher = vi.spyOn(globalThis, 'fetch').mockImplementation(async path => { calls.push(String(path)); throw new Error('unexpected request'); });
         const client = await import('../authentication/passkeyClient');
         const passkey = vi.spyOn(client, 'assertPasskey').mockResolvedValue('unused');
-        vi.doMock('@gmb/scanner-react', async importOriginal => ({...await importOriginal<typeof import('@gmb/scanner-react')>(), ScannerView: () => null}));
+        const camera:{active:boolean;detect?: (raw:string)=>void|false|Promise<void|false>}={active:false};
+        vi.doMock('@gmb/scanner-react', async importOriginal => ({...await importOriginal<typeof import('@gmb/scanner-react')>(), ScannerView: (props:{active?:boolean;onRawValue:(raw:string)=>void|false|Promise<void|false>}) => {camera.active=props.active!==false;camera.detect=props.onRawValue;return null;}}));
         vi.doMock('../qr/CitizenSignatureModal', () => ({ CitizenSignatureModal: (props: { open: boolean; title: string; qrValue: string; onDetected: (raw: string) => void; onCancel: () => void }) => {
             if (!props.open) return null;
             const scan = () => { const request = JSON.parse(props.qrValue); props.onDetected(JSON.stringify({ p: 'QR_V1', k: 2, i: request.i, e: request.e, b: { u: request.b.u, s: encode(bytes(proof)) } })); };
@@ -319,7 +320,7 @@ describe('通用链签名二维码传输回归', () => {
         const root = createRoot(document.getElementById('root')!);
         const flush = () => React.act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
         const click = async (text: string) => { const item = [...document.querySelectorAll('button')].find(b => b.textContent?.replace(/\s/g, '') === text); expect(item, text).toBeTruthy(); await React.act(async () => item!.click()); await flush(); };
-        return { React, root, proof, calls, fetcher, passkey, flush, click, disposePage: async () => {
+        return { React, root, proof, camera, calls, fetcher, passkey, flush, click, disposePage: async () => {
             await React.act(async () => root.unmount()); fetcher.mockRestore(); passkey.mockRestore();
             vi.doUnmock('@gmb/scanner-react'); vi.doUnmock('../qr/CitizenSignatureModal'); dom.window.close(); vi.unstubAllGlobals(); vi.resetModules();
         } };
@@ -329,6 +330,48 @@ describe('通用链签名二维码传输回归', () => {
         const first=encoder.next().text;const count=first.split('/').length===3?Number(first.split('/')[1]!.split('-')[1]):1;
         const frames=[first,...Array.from({length:count-1},()=>encoder.next().text)];encoder.close();return frames;
     }
+    browserTest('登录先识别账户码，模糊二维码只作占位，生成及重试不锁死入口',async()=>{
+        const c=await signaturePage();
+        vi.doMock('../authentication/useAuth',()=>({useAuth:()=>({auth:null,setAuth:vi.fn()})}));
+        vi.doMock('../controls/notice',()=>({notice:{success:vi.fn(),error:vi.fn(),warning:vi.fn()}}));
+        try{
+            const {LoginView}=await import('../authentication/LoginView');
+            await c.React.act(async()=>c.root.render(c.React.createElement(LoginView)));await c.flush();await c.flush();
+            for(const text of ['统一扫码登录','请使用「公民钱包」中的账户码生成挑战码，再由同一钱包签名登录。','登录用户','生成的登录挑战码，仅该钱包账户可以签名。','扫描登录用户身份CID号绑定的钱包账户码，核对用户的链上身份和有效任职后生成登录挑战码。'])expect(document.body.textContent).toContain(text);
+            const placeholder=()=>document.querySelector<SVGElement>('[aria-hidden="true"] .citizen-qr svg');
+            expect(placeholder()).not.toBeNull();expect(placeholder()!.closest<HTMLElement>('[aria-hidden]')!.style.filter).toContain('blur(3px)');expect(c.calls).toEqual([]);
+            const scan=()=>[...document.querySelectorAll('button')].find(button=>button.textContent==='识别账户码')!;
+            expect(scan().disabled).toBe(false);await c.click('识别账户码');expect(c.camera.active).toBe(true);
+            await c.React.act(async()=>{await c.camera.detect!('ONCHINA_QR_PLACEHOLDER');});await c.flush();expect(c.calls).toEqual([]);expect(scan().disabled).toBe(false);
+            let release!:(value:Response)=>void;const response=new Promise<Response>(resolve=>{release=resolve;});
+            c.fetcher.mockImplementation(async path=>{c.calls.push(String(path));return response;});
+            await c.click('识别账户码');const raw=JSON.stringify({p:'QR_V1',k:5,b:{n:account(3)}});
+            await c.React.act(async()=>{await c.camera.detect!(raw);});await c.flush();
+            expect(scan().disabled).toBe(true);expect(c.camera.active).toBe(false);expect(c.calls).toHaveLength(1);expect(c.calls[0]).toContain('/api/admin/auth/qr/sign-request');
+            expect(JSON.parse(String(c.fetcher.mock.calls[0]![1]?.body)).identityQr).toBe(raw);
+            await c.React.act(async()=>release(new Response(JSON.stringify({code:0,data:{challengeId:'login-ui-test',challengePayload:'synthetic-challenge',loginQrPayload:'SYNTHETIC_LOGIN_REQUEST',origin:'https://onchina.example.invalid',domain:'onchina.example.invalid',sessionId:'synthetic-session',expiresAt:Math.floor(Date.now()/1000)+300}}),{headers:{'content-type':'application/json'}})));await c.flush();await c.flush();
+            expect(placeholder()).toBeNull();expect([...document.querySelectorAll('button')].find(button=>button.textContent==='扫描签名响应')!.disabled).toBe(false);
+            await c.click('重新扫描账户码');await c.flush();expect(placeholder()).not.toBeNull();expect(scan().disabled).toBe(false);
+            c.fetcher.mockRejectedValueOnce(Error('合成挑战创建失败'));await c.click('识别账户码');await c.React.act(async()=>{await c.camera.detect!(raw);});await c.flush();
+            expect(placeholder()).not.toBeNull();expect(scan().disabled).toBe(false);expect(c.fetcher).toHaveBeenCalledTimes(2);
+            // 进入签名阶段后仍必须有真实可展示请求，第一步的放行不能延续到签名响应。
+            c.fetcher.mockResolvedValueOnce(new Response(JSON.stringify({code:0,data:{challengeId:'missing-qr-test',loginQrPayload:'',sessionId:'synthetic-session',expiresAt:Math.floor(Date.now()/1000)+300}}),{headers:{'content-type':'application/json'}}));
+            await c.click('识别账户码');await c.React.act(async()=>{await c.camera.detect!(raw);});await c.flush();
+            expect([...document.querySelectorAll('button')].find(button=>button.textContent==='扫描签名响应')!.disabled).toBe(true);
+            await c.click('重新扫描账户码');expect(scan().disabled).toBe(false);
+        }finally{vi.doUnmock('../authentication/useAuth');vi.doUnmock('../controls/notice');await c.disposePage();}
+    },15000);
+    browserTest('普通签名未有请求仍禁用，登录的无请求扫描配置也不能越过忙碌禁用',async()=>{
+        const c=await signaturePage();
+        try{
+            const {CitizenSignaturePanel}=await import('../qr/CitizenSignaturePanel');
+            await c.React.act(async()=>c.root.render(c.React.createElement(CitizenSignaturePanel,{onDetected:vi.fn()})));await c.flush();
+            const button=()=>[...document.querySelectorAll('button')].find(button=>button.textContent==='开启扫码')!;
+            expect(button().disabled).toBe(true);
+            await c.React.act(async()=>c.root.render(c.React.createElement(CitizenSignaturePanel,{scannerRequiresQr:false,scannerDisabled:true,onDetected:vi.fn()})));await c.flush();
+            expect(button().disabled).toBe(true);expect(c.calls).toEqual([]);
+        }finally{await c.disposePage();}
+    },15000);
     it('PQ长请求由公共UR恢复原文，拒绝混帧和篡改，丢帧重复不提前完成',async()=>{
         const {QrSession}=await import('@gmb/scanner-react');const text='完整链签名请求'.repeat(600),frames=await transportFrames(text);
         const receiver=await QrSession.open('decode');

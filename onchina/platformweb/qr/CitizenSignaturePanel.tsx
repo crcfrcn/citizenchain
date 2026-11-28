@@ -18,6 +18,8 @@ export interface CitizenSignaturePanelProps {
   scannerButtonText?: string;
   scannerActiveText?: string;
   scannerDisabled?: boolean;
+  /** 登录第一步需先读账户码，再创建挑战；普通签名流程仍等待真实请求。 */
+  scannerRequiresQr?: boolean;
   scannerLoading?: boolean;
   onDetected: (raw: string) => void | Promise<void>;
   onScannerError?: (message: string) => void;
@@ -39,6 +41,7 @@ export function CitizenSignaturePanel({
   scannerButtonText = '开启扫码',
   scannerActiveText = '停止扫码',
   scannerDisabled = false,
+  scannerRequiresQr = true,
   scannerLoading = false,
   onDetected,
   onScannerError,
@@ -91,12 +94,14 @@ export function CitizenSignaturePanel({
           <div style={{ position: 'absolute', bottom: 0, left: 0, width: 20, height: 20, borderBottom: `3px solid ${cornerColor}`, borderLeft: `3px solid ${cornerColor}`, borderBottomLeftRadius: 8 }} />
           <div style={{ position: 'absolute', bottom: 0, right: 0, width: 20, height: 20, borderBottom: `3px solid ${cornerColor}`, borderRight: `3px solid ${cornerColor}`, borderBottomRightRadius: 8 }} />
           <div
+            aria-hidden={!displayReady}
             style={{
               filter: displayReady ? 'none' : 'blur(3px) opacity(0.4)',
               transition: 'filter 0.3s ease',
             }}
           >
-            {qrValue ? <SigningQr value={qrValue} /> : <span>正在准备签名请求</span>}
+            {/* 占位只含固定非业务文本，不创建挑战或登录凭证。 */}
+            <SigningQr value={qrValue || 'ONCHINA_QR_PLACEHOLDER'} />
           </div>
         </div>
         <div style={{ marginTop: 14, textAlign: 'center' }}>
@@ -222,7 +227,7 @@ export function CitizenSignaturePanel({
               setScannerReady(false);
               setScannerActive((value) => !value);
             }}
-            disabled={scannerDisabled || !displayReady}
+            disabled={scannerDisabled || (scannerRequiresQr && !displayReady)}
             loading={scannerLoading}
             style={{ borderRadius: 10, fontWeight: 500, width: 200 }}
           >
