@@ -41,6 +41,7 @@ export function QrScanner({ onScan, onError }: ScannerProps) {
     }
   };
   return (
+    <div className="qr-scanner-shell">
     <div className="qr-scanner-wrapper">
       {!cameraError && (
         <ScannerView
@@ -59,7 +60,6 @@ export function QrScanner({ onScan, onError }: ScannerProps) {
         />
       )}
       <div className="qr-scanner-overlay">
-        {progress > 0 && progress < 100 && <p role="status">正在接收签名 {progress}%</p>}
         {ready ? <div className="qr-scanner-frame" /> : (
           <div className="qr-scanner-notice">
             <p role="status">{cameraError ?? '正在准备摄像头'}</p>
@@ -71,6 +71,11 @@ export function QrScanner({ onScan, onError }: ScannerProps) {
           </div>
         )}
       </div>
+    </div>
+    {/* 进度与左侧有效时间共用画面外的元数据样式，不覆盖摄像头。 */}
+    <div className="citizen-signature-meta" role="status">
+      {progress > 0 && progress < 100 ? `正在接收签名 ${progress}%` : null}
+    </div>
     </div>
   );
 }

@@ -1,4 +1,6 @@
 // 协调转账审阅、冷热签名、提交和执行结果展示。
+
+import { signatureSecondsRemaining } from '../client/citizenQr';
 import { accountIdToSs58 } from "../client/ss58";
 import { sanitizeError } from "../client/tauri";
 import { CitizenSignaturePanel } from "../desktop/signing";
@@ -19,9 +21,9 @@ type FlowStep = 'confirm' | 'qr' | 'submit' | 'done' | 'error';
 function signModeLabel(signMode: SignMode): string {
   switch (signMode) {
     case 'hot':
-      return 'Hot（本机签名）';
+      return '热签（矿工钱包签名）';
     case 'cold':
-      return 'Cold（公民钱包离线签名）';
+      return '冷签（公民钱包离线签名）';
     default:
       throw new Error(`不支持的 signMode: ${String(signMode)}`);
   }
@@ -40,7 +42,7 @@ export function TransferSigningFlow({ wallet, executionFee = true, mode, transfe
   const [step, setStep] = useState<FlowStep>('confirm');
   const [signRequest, setSignRequest] = useState<TransferSignRequestResult | null>(null);
   const [requestJson, setRequestJson] = useState('');
-  const [countdown, setCountdown] = useState(90);
+  const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [unlockPassword, setUnlockPassword] = useState('');
@@ -52,16 +54,16 @@ export function TransferSigningFlow({ wallet, executionFee = true, mode, transfe
   const isHot = wallet.signMode === 'hot';
     const quote = quoteTransfers(transfers);
   useEffect(() => {
-        if (step !== 'qr')
+        if (step !== 'qr' || !requestJson)
             return;
     if (countdown <= 0) {
       setError('签名请求已过期，请重新操作');
       setStep('error');
       return;
     }
-    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    const timer = setTimeout(() => setCountdown(signatureSecondsRemaining(requestJson)), 1000);
     return () => clearTimeout(timer);
-  }, [step, countdown]);
+  }, [step, countdown, requestJson]);
   const handleConfirm = useCallback(async () => {
         if (inFlight.current)
             return;
@@ -89,7 +91,7 @@ export function TransferSigningFlow({ wallet, executionFee = true, mode, transfe
                     const result = await api.buildColdTransferRequest(wallet.accountId, mode, transfers);
           setSignRequest(result);
           setRequestJson(result.requestJson);
-          setCountdown(90);
+          setCountdown(signatureSecondsRemaining(result.requestJson));
           setStep('qr');
           return;
         }
@@ -150,13 +152,15 @@ export function TransferSigningFlow({ wallet, executionFee = true, mode, transfe
               </div>
               <div className="transfer-signing-row"><span className="transfer-signing-label">交易模式</span><span className="transfer-signing-value">{mode === 'batch_all' ? '整批成功' : mode === 'force_batch' ? '逐笔成功' : mode === 'batch' ? '遇错停止' : '单笔转账'}</span></div>
               {transfers.map((item, index) => <div className="transfer-signing-item" key={index}>
-                <strong>第{index + 1}笔</strong><div className="transfer-signing-value">{item.toAddress}</div>
-                <div>金额：{formatFen(item.amountFen)} 元</div>{item.remark && <div>备注：{item.remark}</div>}
+                {mode !== 'transfer' && <strong>第{index + 1}笔</strong>}
+                <div className="transfer-signing-row"><span className="transfer-signing-label">收款地址</span><span className="transfer-signing-value">{item.toAddress}</span></div>
+                {mode !== 'transfer' && <div>金额：{formatFen(item.amountFen)} 元</div>}
+                {item.remark && <div className="transfer-signing-row"><span className="transfer-signing-label">备注</span><span className="transfer-signing-value">{item.remark}</span></div>}
               </div>)}
-              <div>本金合计：{formatFen(quote.amount)} 元</div>
+              <div className="transfer-signing-row"><span className="transfer-signing-label">转账金额</span><span className="transfer-signing-value">{formatFen(quote.amount)} 元</span></div>
               <div className="transfer-signing-row"><span className="transfer-signing-label">预估手续费</span><span className="transfer-signing-value">{formatFen(quote.fee)} 元（全部成功）</span></div>
-              <div>合计：{formatFen(quote.total)} 元</div>
-              <p>{!executionFee ? '当前Runtime按历史规则外层预扣，执行失败仍收费。' : mode === 'batch_all' ? '任一笔失败，整批本金、手续费和分账一起回滚。' : '仅成功转账项收费，按原费率逐笔分账。'}</p>
+              <div className="transfer-signing-row"><span className="transfer-signing-label">合计</span><span className="transfer-signing-value">{formatFen(quote.total)} 元</span></div>
+              {(!executionFee || mode === 'batch_all') && <p>{!executionFee ? '当前Runtime按历史规则外层预扣，执行失败仍收费。' : '任一笔失败，整批本金、手续费和分账一起回滚。'}</p>}
               <div className="transfer-signing-row">
                 <span className="transfer-signing-label">签名方式</span>
                 <span className="transfer-signing-value">{signModeLabel(wallet.signMode)}</span>

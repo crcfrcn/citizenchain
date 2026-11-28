@@ -17,7 +17,7 @@ use std::time::UNIX_EPOCH;
 
 pub const QR_V1: &str = "QR_V1";
 
-pub const DEFAULT_TTL_SECS: u64 = 90;
+pub const DEFAULT_TTL_SECS: u64 = 300;
 
 const RPC_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 

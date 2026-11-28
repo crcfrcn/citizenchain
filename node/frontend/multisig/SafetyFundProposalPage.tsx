@@ -1,5 +1,7 @@
 // 填写并准备安全基金转账提案。
 
+import { signatureSecondsRemaining } from '../client/citizenQr';
+
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58, ADDRESS_INPUT_PLACEHOLDER } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
@@ -34,7 +36,7 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
   const [showAddressScan, setShowAddressScan] = useState(false);
 
   const [requestJson, setRequestJson] = useState('');
-  const [countdown, setCountdown] = useState(90);
+  const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
 
@@ -44,16 +46,16 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
   selectedSignerRef.current = selectedSigner;
 
   useEffect(() => {
-    if (step !== 'qr') return;
+    if (step !== 'qr' || !requestJson) return;
     if (countdown <= 0) {
       signRequestRef.current = null;
       setError('签名请求已过期，请重新操作');
       setStep('error');
       return;
     }
-    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    const timer = setTimeout(() => setCountdown(signatureSecondsRemaining(requestJson)), 1000);
     return () => clearTimeout(timer);
-  }, [step, countdown]);
+  }, [step, countdown, requestJson]);
 
   const validateForm = (): string | null => {
     if (!selectedSigner) return '请选择人员岗位';
@@ -82,7 +84,7 @@ export function SafetyFundProposalPage({ actorCidNumber, cidFullName, institutio
 
       signRequestRef.current = result;
       setRequestJson(result.requestJson);
-      setCountdown(90);
+      setCountdown(signatureSecondsRemaining(result.requestJson));
       setStep('qr');
     } catch (e) {
       setFormError(sanitizeError(e));

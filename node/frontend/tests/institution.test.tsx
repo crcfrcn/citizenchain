@@ -212,14 +212,14 @@ function mockTransferInstitution(orgType: number, canProposeSweep: boolean) {
       case 'get_pow_difficulty_params': return powParams;
       case 'build_grandpa_key_change_request':
       case 'build_propose_upgrade_request':
-        return { requestId: 'governance-request', requestJson: '{}', expectedPayloadHash: 'hash',
+        return { requestId: 'governance-request', requestJson: JSON.stringify({e:Math.floor(Date.now()/1000)+300}), expectedPayloadHash: 'hash',
           signNonce: 1, signBlockNumber: 2, newPublicKey: accountId('08') };
       case 'submit_grandpa_key_change':
       case 'submit_propose_upgrade':
         return { txHash: '0x1234' };
     }
     if (command.startsWith('build_multisig_')) {
-      return { requestId: 'request', requestJson: '{}', expectedPayloadHash: 'hash', signNonce: 1, signBlockNumber: 2 };
+      return { requestId: 'request', requestJson: JSON.stringify({e:Math.floor(Date.now()/1000)+300}), expectedPayloadHash: 'hash', signNonce: 1, signBlockNumber: 2 };
     }
     if (command.startsWith('submit_multisig_')) return { txHash: '0x1234' };
   });

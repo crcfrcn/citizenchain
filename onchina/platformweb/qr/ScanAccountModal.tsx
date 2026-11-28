@@ -83,7 +83,7 @@ export function ScanAccountModal(props: {
           onFailure={(failure) => setError(failure.message)}
         />
       </div>
-      {progress>0 && progress<100 && <p role="status">正在接收账户码 {progress}%</p>}
+      {progress>0 && progress<100 && <Typography.Text role="status" type="secondary" style={{fontSize:13,display:'block',textAlign:'center',marginTop:14}}>正在接收账户码 {progress}%</Typography.Text>}
       {error && (
         <Typography.Paragraph type="danger" style={{ marginTop: 12, marginBottom: 0 }}>
           {error}

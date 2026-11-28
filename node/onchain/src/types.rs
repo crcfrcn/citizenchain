@@ -46,17 +46,18 @@ pub struct TransferItem {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TransactionCursor {
     pub block_number: u32,
-    pub extrinsic_index: Option<u32>,
+    pub event_index: Option<u32>,
 }
 
-/// 一笔外层交易的相关钱包资金记录，批量子项不重复记为多笔外层交易。
+/// 一个钱包的一笔实际收入或支出，以原始余额事件定位。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TransactionRecord {
     pub block_number: u32,
     pub timestamp: u64,
-    pub tx_hash: String,
-    pub account_ids: Vec<String>,
+    pub tx_hash: Option<String>,
+    pub event_index: u32,
+    pub account_id: String,
     pub direction: String,
     pub mode: String,
     pub transfer_count: u32,

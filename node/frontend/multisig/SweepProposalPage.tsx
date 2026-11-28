@@ -1,5 +1,7 @@
 // 填写并准备机构费用账户归集提案。
 
+import { signatureSecondsRemaining } from '../client/citizenQr';
+
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
@@ -31,7 +33,7 @@ export function SweepProposalPage({
   const [submitting, setSubmitting] = useState(false);
 
   const [requestJson, setRequestJson] = useState('');
-  const [countdown, setCountdown] = useState(90);
+  const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
 
@@ -41,16 +43,16 @@ export function SweepProposalPage({
   selectedSignerRef.current = selectedSigner;
 
   useEffect(() => {
-    if (step !== 'qr') return;
+    if (step !== 'qr' || !requestJson) return;
     if (countdown <= 0) {
       signRequestRef.current = null;
       setError('签名请求已过期');
       setStep('error');
       return;
     }
-    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    const timer = setTimeout(() => setCountdown(signatureSecondsRemaining(requestJson)), 1000);
     return () => clearTimeout(timer);
-  }, [step, countdown]);
+  }, [step, countdown, requestJson]);
 
   const handleSubmit = async () => {
     if (!selectedSigner) { setFormError('请选择人员岗位'); return; }
@@ -66,7 +68,7 @@ export function SweepProposalPage({
       );
       signRequestRef.current = result;
       setRequestJson(result.requestJson);
-      setCountdown(90);
+      setCountdown(signatureSecondsRemaining(result.requestJson));
       setStep('qr');
     } catch (e) {
       setFormError(sanitizeError(e));

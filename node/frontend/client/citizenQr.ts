@@ -5,6 +5,17 @@ import { decodeGeneratedBase64Url, GENERATED_FIXED_KINDS, GENERATED_QR_KIND_CODE
 
 export const QR_V1 = 'QR_V1' as const;
 
+/** 倒计时只读取原请求的到期时间，不另起一份固定寿命或逐秒漂移的时钟。 */
+export function signatureSecondsRemaining(requestJson: string): number {
+  const value: unknown = JSON.parse(requestJson);
+  const expiresAt = value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>).e : undefined;
+  if (typeof expiresAt !== 'number' || !Number.isSafeInteger(expiresAt) || expiresAt <= 0) {
+    throw new QrParseError('签名请求有效期无效');
+  }
+  return Math.max(0, expiresAt - Math.floor(Date.now() / 1000));
+}
+
 export type QrKind = GeneratedQrKind;
 export const QR_KIND_CODE = GENERATED_QR_KIND_CODE;
 

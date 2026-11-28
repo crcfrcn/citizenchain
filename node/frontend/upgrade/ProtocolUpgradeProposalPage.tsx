@@ -1,5 +1,7 @@
 // 采集升级原因、WASM及PoW参数，审阅并冷签运行时升级提案。
 
+import { signatureSecondsRemaining } from '../client/citizenQr';
+
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
@@ -29,7 +31,7 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, r
   const [step, setStep] = useState<TransferProposalStep>('form');
   const [signRequest, setSignRequest] = useState<ProposeUpgradeRequestResult | null>(null);
   const [requestJson, setRequestJson] = useState('');
-  const [countdown, setCountdown] = useState(90);
+  const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
@@ -64,11 +66,11 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, r
   useEffect(() => { void loadPowParams(); }, [loadPowParams]);
 
   useEffect(() => {
-    if (step !== 'qr') return;
+    if (step !== 'qr' || !requestJson) return;
     if (countdown <= 0) { setError('签名请求已过期，请重新操作'); setStep('error'); return; }
-    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    const timer = setTimeout(() => setCountdown(signatureSecondsRemaining(requestJson)), 1000);
     return () => clearTimeout(timer);
-  }, [step, countdown]);
+  }, [step, countdown, requestJson]);
 
   const handlePickFile = useCallback(async () => {
     try {
@@ -116,7 +118,7 @@ export function ProtocolUpgradeProposalPage({ actorCidNumber, institutionName, r
       );
       setSignRequest(result);
       setRequestJson(result.requestJson);
-      setCountdown(90);
+      setCountdown(signatureSecondsRemaining(result.requestJson));
       setStep('qr');
     } catch (e) {
       setError(sanitizeError(e));

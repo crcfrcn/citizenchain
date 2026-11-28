@@ -2,7 +2,7 @@
 use crate::Db;
 use chrono::{DateTime, Utc};
 /// 冷签会话有效期(秒)，沿用现有值。
-pub const SESSION_TTL_SECS: i64 = 600;
+pub const SESSION_TTL_SECS: i64 = 300;
 
 /// 链冷签会话:prepare 只保存短期签名 payload。
 ///

@@ -71,12 +71,12 @@ fn official_batch_encoding_and_large_review_bind_every_item() {
 #[test]
 fn transaction_history_wire_keeps_exact_amounts_and_strict_cursor() {
     use crate::types::{TransactionCursor,TransactionHistory,TransactionRecord};
-    let value=TransactionHistory{records:vec![TransactionRecord{block_number:1,timestamp:1782950400000,tx_hash:"0xfixture".into(),account_ids:vec![format!("0x{}","11".repeat(32))],direction:"sent".into(),mode:"transfer".into(),transfer_count:1,amount_fen:u128::MAX.to_string(),fee_fen:"10".into(),state:"success".into()}],cursor:Some(TransactionCursor{block_number:1,extrinsic_index:Some(0)})};
+    let value=TransactionHistory{records:vec![TransactionRecord{block_number:1,timestamp:1782950400000,tx_hash:Some("0xfixture".into()),event_index:0,account_id:format!("0x{}","11".repeat(32)),direction:"sent".into(),mode:"transfer".into(),transfer_count:1,amount_fen:u128::MAX.to_string(),fee_fen:"10".into(),state:"success".into()}],cursor:Some(TransactionCursor{block_number:1,event_index:Some(0)})};
     let encoded=serde_json::to_value(value).unwrap();
     assert_eq!(encoded["records"][0]["amountFen"],u128::MAX.to_string());
-    assert_eq!(encoded["cursor"],serde_json::json!({"blockNumber":1,"extrinsicIndex":0}));
+    assert_eq!(encoded["cursor"],serde_json::json!({"blockNumber":1,"eventIndex":0}));
     let decoded:TransactionHistory=serde_json::from_value(encoded.clone()).unwrap();assert_eq!(decoded.records[0].amount_fen,u128::MAX.to_string());
     let mut rounded=encoded;rounded["records"][0]["amountFen"]=serde_json::json!(9007199254740992u64);assert!(serde_json::from_value::<TransactionHistory>(rounded).is_err());
-    assert!(serde_json::from_value::<TransactionCursor>(serde_json::json!({"blockNumber":-1,"extrinsicIndex":null})).is_err());
-    assert!(serde_json::from_value::<TransactionCursor>(serde_json::json!({"blockNumber":1,"extrinsicIndex":0,"extra":1})).is_err());
+    assert!(serde_json::from_value::<TransactionCursor>(serde_json::json!({"blockNumber":-1,"eventIndex":null})).is_err());
+    assert!(serde_json::from_value::<TransactionCursor>(serde_json::json!({"blockNumber":1,"eventIndex":0,"extra":1})).is_err());
 }

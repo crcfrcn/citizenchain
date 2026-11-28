@@ -55,9 +55,9 @@ export type TransferResult = {
     }[];
 };
 
-export type TransactionCursor = { blockNumber:number; extrinsicIndex:number|null };
+export type TransactionCursor = { blockNumber:number; eventIndex:number|null };
 export type TransactionRecord = {
-    blockNumber:number; timestamp:number; txHash:string; accountIds:string[];
+    blockNumber:number; timestamp:number; txHash:string|null; eventIndex:number; accountId:string;
     direction:string; mode:string; transferCount:number; amountFen:string; feeFen:string; state:string;
 };
 export type TransactionHistory = {records:TransactionRecord[];cursor:TransactionCursor|null};

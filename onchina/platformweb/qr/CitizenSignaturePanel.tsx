@@ -100,8 +100,7 @@ export function CitizenSignaturePanel({
           </div>
         </div>
         <div style={{ marginTop: 14, textAlign: 'center' }}>
-          {progress > 0 && progress < 100 && <p role="status">正在接收签名 {progress}%</p>}
-          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
             {qrHint}
           </Typography.Text>
           {primaryActionText ? (
@@ -212,8 +211,8 @@ export function CitizenSignaturePanel({
           ) : null}
         </div>
         <div style={{ marginTop: 14, textAlign: 'center' }}>
-          {progress > 0 && progress < 100 && <p role="status">正在接收签名 {progress}%</p>}
-          <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 12 }}>
+          {progress > 0 && progress < 100 && <Typography.Text role="status" type="secondary" style={{fontSize: 13, display: 'block', marginBottom: 12}}>正在接收签名 {progress}%</Typography.Text>}
+          <Typography.Text type="secondary" style={{ fontSize: 13, display: 'block', marginBottom: 12 }}>
             {scannerHint}
           </Typography.Text>
           <Button

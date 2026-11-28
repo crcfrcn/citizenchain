@@ -28,7 +28,7 @@ use std::sync::OnceLock;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
-const DEFAULT_TTL_SECS: u64 = 90;
+const DEFAULT_TTL_SECS: u64 = 300;
 
 /// 当前正在内存中"已解密"的清算行授权表(节点重启清空)。
 ///

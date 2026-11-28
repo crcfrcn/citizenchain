@@ -1,5 +1,7 @@
 // 协调提案投票审阅、冷签响应及交易提交。
 
+import { signatureSecondsRemaining } from '../client/citizenQr';
+
 import type { FrozenVoteBinding } from "./types";
 import { parseQrEnvelope, type SignResponseBody } from "../client/citizenQr";
 import { proposalApi } from './api';
@@ -41,7 +43,7 @@ export function VoteSigningFlow({ proposalId, proposalKind, roleSigners, cidNumb
     (roleSigners.length===1?roleSigners[0].roleCode:''));
   const [signRequest, setSignRequest] = useState<VoteSignRequestResult | null>(null);
   const [requestJson, setRequestJson] = useState('');
-  const [countdown, setCountdown] = useState(90);
+  const [countdown, setCountdown] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [observed, setObserved] = useState(false);
@@ -67,11 +69,11 @@ export function VoteSigningFlow({ proposalId, proposalKind, roleSigners, cidNumb
   }, [context]);
   const close = () => { active.current = false; ++epoch.current; onClose(); };
   useEffect(() => {
-    if (step !== 'qr') return;
+    if (step !== 'qr' || !requestJson) return;
     if (countdown <= 0) { setError('签名请求已过期'); setStep('error'); return; }
-    const timer = setTimeout(() => setCountdown(c => c - 1), 1000);
+    const timer = setTimeout(() => setCountdown(signatureSecondsRemaining(requestJson)), 1000);
     return () => clearTimeout(timer);
-  }, [step, countdown]);
+  }, [step, countdown, requestJson]);
 
   const generateRequest = useCallback(async () => {
     if (!active.current || context !== liveContext.current || recordError || busy.current || pending || !selectedSigner || approve === null || (!!cidNumber && !selectedRoleCode)) return;
@@ -81,7 +83,7 @@ export function VoteSigningFlow({ proposalId, proposalKind, roleSigners, cidNumb
         await proposalApi.buildJointVoteRequest(proposalId, selectedSigner.accountId, cidNumber, selectedRoleCode, approve) :
         await proposalApi.buildVoteRequest(proposalId, selectedSigner.accountId, cidNumber ? selectedRoleCode : null, approve);
       if (token !== epoch.current) return;
-      setSignRequest(result); setRequestJson(result.requestJson); setCountdown(90); setStep('qr');
+      setSignRequest(result); setRequestJson(result.requestJson); setCountdown(signatureSecondsRemaining(result.requestJson)); setStep('qr');
     } catch (e) { if (token === epoch.current) { setError(sanitizeError(e)); setStep('error'); } }
     finally { if (token === epoch.current) busy.current = false; }
   }, [proposalId, proposalKind, selectedSigner, selectedRoleCode, approve, cidNumber, pending, context, recordError]);

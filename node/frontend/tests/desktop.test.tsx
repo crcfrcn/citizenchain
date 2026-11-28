@@ -1,17 +1,33 @@
 // 验证签名弹窗的挂载、内部点击和外部取消交互。
 
 import {expect,it,vi} from 'vitest';
-import {fireEvent,render,screen,within} from '@testing-library/react';
+import {act,fireEvent,render,screen,within} from '@testing-library/react';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {CitizenSignatureModal} from "../desktop/signing";
 import {TransferForm} from '../onchain/TransferForm';
+import {QrSession} from '@gmb/scanner-react';
+const camera = vi.hoisted(() => ({raw: undefined as undefined | ((text:string)=>Promise<void|false>)}));
 // 仅替换摄像头组件，其余公开导出使用真实实现。
 vi.mock('@gmb/scanner-react', async (importOriginal) => ({
   ...await importOriginal<typeof import('@gmb/scanner-react')>(),
-  ScannerView: () => <p>签名内容</p>,
+  ScannerView: ({onRawValue}:{onRawValue:(text:string)=>Promise<void|false>}) => {camera.raw=onRawValue;return <p>签名内容</p>;},
 }));
 it('隐藏弹窗不挂载，内部点击不会取消，外部和关闭按钮保留取消动作',()=>{const onCancel=vi.fn(),props={title:'签名',qrValue:'合成请求',onScan:vi.fn(),onScanError:vi.fn(),onCancel};const view=render(<CitizenSignatureModal {...props} open={false}/>);expect(view.container.childElementCount).toBe(0);view.rerender(<CitizenSignatureModal {...props} open/>);fireEvent.click(screen.getByText('签名内容'));expect(onCancel).not.toHaveBeenCalled();fireEvent.click(view.container.querySelector('.citizen-signature-modal-overlay')!);fireEvent.click(screen.getByRole('button',{name:'×'}));expect(onCancel).toHaveBeenCalledTimes(2);});
+
+it('真实分片接收进度位于摄像画面下方，与有效时间使用相同文字样式',async()=>{
+ const encoder=await QrSession.open('encode','public-progress'.repeat(300));
+ const style=document.createElement('style');style.textContent=readFileSync(resolve(process.cwd(),'desktop/global.css'),'utf8');document.head.append(style);
+ const view=render(<CitizenSignatureModal open title="合成签名" qrValue="public-request" countdownSeconds={300} onScan={vi.fn()} onScanError={vi.fn()} onCancel={vi.fn()}/>);
+ try{
+  await act(async()=>{await camera.raw!(encoder.next().text);});
+  const progress=screen.getByText(/^正在接收签名 \d+%$/),time=screen.getByText('有效时间: 300 秒');
+  expect(view.container.querySelector('.qr-scanner-wrapper')!.contains(progress)).toBe(false);
+  expect(progress.className).toBe(time.parentElement!.className);
+  expect(getComputedStyle(progress).fontSize).toBe(getComputedStyle(time.parentElement!).fontSize);
+  expect(progress.previousElementSibling?.className).toBe('qr-scanner-wrapper');
+ }finally{encoder.close();view.unmount();style.remove();}
+});
 
 it('批量默认组及新增组的真实扫码弹层均高于批量弹窗，关闭扫码后保留原弹窗',()=>{
  const style=document.createElement('style');style.textContent=readFileSync(resolve(process.cwd(),'desktop/global.css'),'utf8');document.head.append(style);

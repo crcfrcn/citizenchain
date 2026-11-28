@@ -121,9 +121,10 @@ const oldWallet = '0x' + '11'.repeat(32);
 const frozenBinding = { genesisHash: 'chain-A', proposalId: '7', cidNumber: 'original-CID', roleCode: 'OLD_ROLE', personCid:'fixture-person',accountId: oldWallet, bindingRevision: '9007199254740993' };
 const fixtureB64 = (value: number, length: number) => btoa(String.fromCharCode(...Array(length).fill(value))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const oldWalletQr = fixtureB64(0x11,32);
-const originalRequest = { requestId: 'original-request', requestJson: JSON.stringify({p:'QR_V1',k:1,i:'original-request',e:123,b:{a:20,g:1,u:oldWalletQr,d:'AQ'}}), callDataHex: '1400original-call', expectedPayloadHash: 'original-hash', signNonce: 8, signBlockNumber: 0 };
+const originalExpiresAt = Math.floor(Date.now()/1000)+300;
+const originalRequest = { requestId: 'original-request', requestJson: JSON.stringify({p:'QR_V1',k:1,i:'original-request',e:originalExpiresAt,b:{a:20,g:1,u:oldWalletQr,d:'AQ'}}), callDataHex: '1400original-call', expectedPayloadHash: 'original-hash', signNonce: 8, signBlockNumber: 0 };
 // PQ公钥与账户ID刻意不同：冻结资格始终取32字节账户ID。
-const originalResponse = JSON.stringify({p:'QR_V1',k:2,i:'original-request',e:123,b:{u:oldWalletQr,s:fixtureB64(0x55,3309),q:fixtureB64(0x66,1952)}});
+const originalResponse = JSON.stringify({p:'QR_V1',k:2,i:'original-request',e:originalExpiresAt,b:{u:oldWalletQr,s:fixtureB64(0x55,3309),q:fixtureB64(0x66,1952)}});
 
 function renderFrozenFlow(onSuccess=vi.fn(),onClose=vi.fn()) {
   return { ...render(<VoteSigningFlow proposalId="7" proposalKind={0} cidNumber={frozenBinding.cidNumber}

@@ -13,7 +13,7 @@ mod qr_login;
 #[path = "login_signature.rs"]
 mod signature;
 
-const LOGIN_SIGN_REQUEST_TTL_SECONDS: i64 = 90;
+const LOGIN_SIGN_REQUEST_TTL_SECONDS: i64 = 300;
 
 pub(crate) use guards::{
     admin_session, bearer_token, validate_current_assignment, validate_selected_permission,

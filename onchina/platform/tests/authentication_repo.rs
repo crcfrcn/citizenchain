@@ -233,7 +233,7 @@ fn login_accepts_each_current_assignment_without_changing_host_binding() {
             assert_eq!(challenge.account_id, format!("0x{}", "22".repeat(32)));
             assert_eq!(
                 challenge.expires_at.timestamp_millis() - challenge.issued_at.timestamp_millis(),
-                90_000
+                300_000
             );
             assert!(!challenge.consumed);
         }

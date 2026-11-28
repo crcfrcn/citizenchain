@@ -1,5 +1,7 @@
 // 填写清算行节点资料，检测连通性并冷签登记。
 
+import { signatureSecondsRemaining } from '../client/citizenQr';
+
 import { IdentityCidText } from '../client/identityCid';
 import { sanitizeError } from "../client/tauri";
 import { roleSigners as selectedRoleSigners } from "../institution/assignments";
@@ -48,7 +50,7 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
 
   // QR 流程
   const [signRequest, setSignRequest] = useState<VoteSignRequestResult | null>(null);
-  const [countdown, setCountdown] = useState(90);
+  const [countdown, setCountdown] = useState(0);
   const [txHash, setTxHash] = useState<string | null>(null);
 
   const signRequestRef = useRef(signRequest);
@@ -75,15 +77,15 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
   }, [cidNumber]);
 
   useEffect(() => {
-    if (step !== 'qr') return;
+    if (step !== 'qr' || !signRequest) return;
     if (countdown <= 0) {
       setError('签名请求已过期,请重新生成');
       setStep('error');
       return;
     }
-    const t = setTimeout(() => setCountdown(c => c - 1), 1000);
+    const t = setTimeout(() => setCountdown(signatureSecondsRemaining(signRequest!.requestJson)), 1000);
     return () => clearTimeout(t);
-  }, [step, countdown]);
+  }, [step, countdown, signRequest]);
 
   const runConnectivityTest = useCallback(async () => {
     setError(null);
@@ -122,8 +124,9 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
     }
     const portNum = parseInt(rpcPort, 10);
     setError(null);
+    setSignRequest(null);
+    setCountdown(0);
     setStep('qr');
-    setCountdown(90);
     try {
       const r = await offchainApi.buildRegisterClearingBankRequest(
         selectedSigner.accountId,
@@ -134,6 +137,7 @@ export function ClearingBankDeclareNodePage({ cidNumber, cidFullName, onBack, on
         portNum,
       );
       setSignRequest(r);
+      setCountdown(signatureSecondsRemaining(r.requestJson));
     } catch (e) {
       setError(sanitizeError(e));
       setStep('error');

@@ -60,7 +60,7 @@ it('节点登记从岗位选择到构建及回执提交始终使用同一岗位'
   if(command==='get_role_access')return roles.map(r=>({cidNumber:'fixture',roleCode:r.roleCode,personCid:'person',accountId,bindingRevision:'2'}));
   if(command==='get_institution_roles')return{cidNumber:'fixture',roles};
   if(command==='test_clearing_bank_endpoint_connectivity')return{allOk:true,checks:[]};
-  if(command==='build_register_clearing_bank_request')return{requestId:'request',requestJson:'fixture-request',expectedPayloadHash:'hash',signNonce:3,signBlockNumber:0};
+  if(command==='build_register_clearing_bank_request')return{requestId:'request',get requestJson() { return JSON.stringify({i:'fixture-request',e:Math.floor(Date.now()/1000)+300}); },expectedPayloadHash:'hash',signNonce:3,signBlockNumber:0};
   if(command==='submit_register_clearing_bank')throw new Error('合成提交拒绝');
  });
  const view=render(<ClearingBankDeclareNodePage cidNumber="fixture" cidFullName="合成机构" onBack={()=>{}} onSuccess={()=>{}}/>);

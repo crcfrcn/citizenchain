@@ -6,6 +6,7 @@
 
 :root {
   --primary: #06b6d4;
+  --action-blue: #2563eb;
   --bg-page: #0b1121;
   --bg-app: #0f172a;
   --bg-card: #1e293b;
@@ -2643,12 +2644,13 @@ select option:checked {
 }
 
 /* ── QrScanner 组件 ── */
+.qr-scanner-shell {display: flex; flex-direction: column; gap: 12px; min-width: 0;}
 
 .qr-scanner-wrapper {
   position: relative;
   width: 320px;
   height: 260px;
-  margin: 0 auto 12px;
+  margin: 0 auto;
   border-radius: 8px;
   overflow: hidden;
   background: #000;
@@ -2753,8 +2755,8 @@ select option:checked {
 }
 
 .citizen-signature-pane {
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   min-width: 0;
   padding: 14px;
@@ -2802,6 +2804,8 @@ select option:checked {
   gap: 6px;
   color: var(--text-muted);
   font-size: 13px;
+  line-height: 1.5;
+  min-height: 1.5em;
   text-align: center;
 }
 
@@ -2809,8 +2813,13 @@ select option:checked {
   width: min(100%, 320px);
   height: auto;
   aspect-ratio: 1 / 1;
-  margin: 0 auto 4px;
+  margin: 0 auto;
+  min-height: 320px;
+  flex: 1;
 }
+
+.citizen-signature-panel .qr-scanner-shell {flex: 1;}
+.citizen-signature-qr-box {flex: 1;}
 
 .citizen-signature-status {
   display: grid;
@@ -3906,8 +3915,8 @@ select option:checked {
 }
 
 .transfer-signing-row {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
   align-items: baseline;
   gap: 16px;
   font-size: 14px;
@@ -3921,7 +3930,7 @@ select option:checked {
 .transfer-signing-value {
   color: var(--text-primary);
   font-weight: 500;
-  text-align: right;
+  text-align: left;
   word-break: break-all;
 }
 
@@ -4028,14 +4037,19 @@ select option:checked {
 }
 
 .transaction-panel-actions {display:flex;align-items:center;gap:8px;}
-.transaction-history-section {width:100%;min-width:0;}
-.transaction-history-header {display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;}
+.app:has(.transaction-history-section) {display:flex;flex-direction:column;overflow:hidden;}
+.app:has(.transaction-history-section) > .content {display:flex;flex:1;min-height:0;overflow:hidden;}
+.transaction-history-section {width:100%;min-width:0;min-height:0;flex:1;display:flex;flex-direction:column;overflow:hidden;}
+.transaction-history-header {flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;}
 .transaction-history-header h2 {margin:0;}
-.transaction-history-body {overflow-x:auto;}
+.transaction-history-body {flex:1;min-height:0;overflow-x:auto;overflow-y:hidden;}
 .transaction-history-table {width:100%;border-collapse:collapse;font-size:13px;}
-.transaction-history-table th,.transaction-history-table td {padding:8px;border-bottom:1px solid var(--border);text-align:left;overflow-wrap:anywhere;}
+.transaction-history-table th,.transaction-history-table td {box-sizing:border-box;height:40px;padding:8px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap;line-height:20px;}
 .transaction-history-table th {white-space:nowrap;}
-.transaction-history-more {margin-top:12px;align-self:center;}
+.transaction-history-actions {display:flex;align-items:center;gap:8px;}
+.transaction-history-actions > .wallet-manage-btn {width:80px;}
+.transaction-history-more {background:var(--action-blue);border-color:var(--action-blue);color:#fff;}
+.transaction-history-pagination {flex:none;display:flex;align-items:center;justify-content:flex-end;gap:8px;padding-top:12px;}
 
 /* 批量输入沿用钱包管理的外壳、按钮和圆点，布局只作用于本弹窗。 */
 .batch-transfer-label {display:flex;align-items:center;gap:12px;}

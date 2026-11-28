@@ -1,4 +1,4 @@
-//! 第5步隔离候选的真实HTTPS只读验收；无写链操作。
+//! 验证隔离节点的HTTPS只读入口和逐钱包收支分页；无写链操作。
 
 #[test]
 #[ignore = "第5步交付隔离HTTPS候选后显式执行"]
@@ -52,23 +52,43 @@ console.log('隔离节点的原创世与真实System健康RPC通过');
 fn transaction_history_pagination_preserves_block_items_and_boundaries() {
     use crate::rpc::{transaction_history_page,HistoryBlock};
     use nodeonchain::types::{TransactionRecord,TransactionCursor};
-    let block=|number:u32|Ok(HistoryBlock{extrinsic_count:25,records:(0..25).map(|index|(index,TransactionRecord{
-        block_number:number,timestamp:1,tx_hash:format!("{number}:{index}"),account_ids:vec![],direction:"sent".into(),mode:"transfer".into(),transfer_count:1,amount_fen:"100".into(),fee_fen:"10".into(),state:"success".into()
+    let block=|number:u32|Ok(HistoryBlock{event_count:25,records:(0..25).map(|index|(index,TransactionRecord{
+        block_number:number,timestamp:1,tx_hash:Some(format!("{number}:{index}")),event_index:index,account_id:"0xsynthetic".into(),direction:"sent".into(),mode:"transfer".into(),transfer_count:1,amount_fen:"100".into(),fee_fen:"10".into(),state:"success".into()
     })).collect()});
     let first=transaction_history_page(1,None,block).unwrap();
-    assert_eq!(first.records.len(),20);assert_eq!(first.records[0].tx_hash,"1:24");assert_eq!(first.records[19].tx_hash,"1:5");
-    let cursor=first.cursor.unwrap();assert_eq!(cursor.block_number,1);assert_eq!(cursor.extrinsic_index,Some(4));
+    assert_eq!(first.records.len(),20);assert_eq!(first.records[0].tx_hash.as_deref(),Some("1:24"));assert_eq!(first.records[19].tx_hash.as_deref(),Some("1:5"));
+    let cursor=first.cursor.unwrap();assert_eq!(cursor.block_number,1);assert_eq!(cursor.event_index,Some(4));
     let next=transaction_history_page(1,Some(cursor),block).unwrap();
-    assert_eq!(next.records.len(),5);assert_eq!(next.records[0].tx_hash,"1:4");assert_eq!(next.records[4].tx_hash,"1:0");assert!(next.cursor.is_none());
-    assert!(transaction_history_page(1,Some(TransactionCursor{block_number:2,extrinsic_index:None}),block).is_err());
-    assert!(transaction_history_page(1,Some(TransactionCursor{block_number:1,extrinsic_index:Some(25)}),block).is_err());
+    assert_eq!(next.records.len(),5);assert_eq!(next.records[0].tx_hash.as_deref(),Some("1:4"));assert_eq!(next.records[4].tx_hash.as_deref(),Some("1:0"));assert!(next.cursor.is_none());
+    assert!(transaction_history_page(1,Some(TransactionCursor{block_number:2,event_index:None}),block).is_err());
+    assert!(transaction_history_page(1,Some(TransactionCursor{block_number:1,event_index:Some(25)}),block).is_err());
+}
+
+#[test]
+fn transaction_history_pagination_keeps_both_wallet_sides_at_page_boundary() {
+    use crate::rpc::{transaction_history_page,HistoryBlock};
+    use nodeonchain::types::TransactionRecord;
+    let block=|number:u32|{
+        let mut records=Vec::new();
+        for index in 0..21 {
+            for direction in if index==1 {vec!["received","sent"]} else {vec!["received"]} {
+                records.push((index,TransactionRecord{block_number:number,timestamp:1,tx_hash:None,event_index:index,account_id:direction.into(),direction:direction.into(),mode:"transfer".into(),transfer_count:1,amount_fen:"100".into(),fee_fen:"0".into(),state:"success".into()}));
+            }
+        }
+        Ok(HistoryBlock{event_count:21,records})
+    };
+    // 第20条和21条属于同一事件的两个钱包，必须一起交付而不跳过其一。
+    let first=transaction_history_page(1,None,block).unwrap();assert_eq!(first.records.len(),21);
+    assert_eq!(first.records.iter().filter(|row|row.event_index==1).count(),2);
+    let cursor=first.cursor.unwrap();assert_eq!(cursor.event_index,Some(0));
+    let second=transaction_history_page(1,Some(cursor),block).unwrap();assert_eq!(second.records.len(),1);assert_eq!(second.records[0].event_index,0);assert!(second.cursor.is_none());
 }
 
 #[test]
 fn transaction_history_empty_pages_are_bounded_and_do_not_hide_read_failures() {
     use crate::rpc::{transaction_history_page,HistoryBlock};
     let mut read=Vec::new();
-    let page=transaction_history_page(100,None,|number|{read.push(number);Ok(HistoryBlock{extrinsic_count:1,records:vec![]})}).unwrap();
+    let page=transaction_history_page(100,None,|number|{read.push(number);Ok(HistoryBlock{event_count:1,records:vec![]})}).unwrap();
     assert_eq!(read,(85..=100).rev().collect::<Vec<_>>());assert_eq!(page.cursor.unwrap().block_number,84);
     assert!(transaction_history_page(10,None,|_|Err("合成归档读取失败".into())).is_err());
     let page=transaction_history_page(0,None,|_|panic!("创世起点没有需要读取的交易")).unwrap();assert!(page.records.is_empty());assert!(page.cursor.is_none());

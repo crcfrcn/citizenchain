@@ -214,52 +214,71 @@ export function TransactionPanel({ nodeReady }: {
 }
 
 
-// 独立tab仅在进入、刷新或加载更多时读取本机最终链，切走后丢弃迟到结果。
+// 按钱包逐笔列出真实收支；已读取记录在本地分页，读取更多才继续请求较早最终块。
 export function TransactionHistorySection(){
   const [wallets,setWallets]=useState<Wallet[]>([]);
   const [records,setRecords]=useState<TransactionRecord[]>([]);
   const [cursor,setCursor]=useState<TransactionCursor|null>(null);
   const [loading,setLoading]=useState(true),[error,setError]=useState<string|null>(null);
+  const [pageIndex,setPageIndex]=useState(0),[pageSize,setPageSize]=useState(10);
+  const body=useRef<HTMLDivElement>(null);
   const epoch=useRef(0),inFlight=useRef(false);
   const load=async(start:TransactionCursor|null,append:boolean)=>{
     if(inFlight.current)return;
     const id=++epoch.current;inFlight.current=true;setLoading(true);setError(null);
-    if(!append){setRecords([]);setCursor(null);}
+    if(!append){setRecords([]);setCursor(null);setPageIndex(0);}
     try{
-      if(!append){
-        const store=await api.getWallets();
-        if(id!==epoch.current)return;
-        setWallets(store.wallets);
-      }
+      if(!append){const store=await api.getWallets();if(id!==epoch.current)return;setWallets(store.wallets);}
       let position=start;
       while(true){
-        const page=await api.getTransactionHistory(position);
+        const result=await api.getTransactionHistory(position);
         if(id!==epoch.current)return;
-        if(page.cursor&&position&&(page.cursor.blockNumber>position.blockNumber||page.cursor.blockNumber===position.blockNumber&&(page.cursor.extrinsicIndex??Infinity)>=(position.extrinsicIndex??Infinity)))throw Error('交易记录游标未前进');
-        if(page.records.length||page.cursor===null){setRecords(previous=>append?[...previous,...page.records]:page.records);setCursor(page.cursor);break;}
-        position=page.cursor;
+        if(result.cursor&&position&&(result.cursor.blockNumber>position.blockNumber||result.cursor.blockNumber===position.blockNumber&&(result.cursor.eventIndex??Infinity)>=(position.eventIndex??Infinity)))throw Error('交易记录游标未前进');
+        if(result.records.length||result.cursor===null){
+          if(append){setRecords(previous=>[...previous,...result.records]);setPageIndex(Math.floor(records.length/pageSize));}
+          else setRecords(result.records);
+          setCursor(result.cursor);break;
+        }
+        position=result.cursor;
       }
     }catch(e){if(id===epoch.current)setError(sanitizeError(e));}
     finally{if(id===epoch.current){inFlight.current=false;setLoading(false);}}
   };
+  useEffect(()=>{void load(null,false);return()=>{++epoch.current;inFlight.current=false;};},[]);
   useEffect(()=>{
-    void load(null,false);
-    return()=>{++epoch.current;inFlight.current=false;};
+    const element=body.current;
+    if(!element||typeof ResizeObserver==='undefined')return;
+    // 表头40px并预留折叠边框1px，避免刚好整页时裁掉末行边线。
+    const measure=()=>{const height=element.clientHeight;if(height>41)setPageSize(Math.max(1,Math.floor((height-41)/40)));};
+    const observer=new ResizeObserver(measure);observer.observe(element);measure();return()=>observer.disconnect();
   },[]);
   const names=new Map(wallets.map(wallet=>[wallet.accountId,wallet.name]));
   const stateLabel:Record<string,string>={success:'成功',partial:'部分成功',failed:'失败',rolled_back:'已回滚'};
+  const pageCount=Math.ceil(records.length/pageSize),currentPage=Math.min(pageIndex,Math.max(0,pageCount-1));
+  const visible=records.slice(currentPage*pageSize,(currentPage+1)*pageSize);
   return <section className="transaction-history-section" aria-labelledby="transaction-history-title">
-      <header className="transaction-history-header"><h2 id="transaction-history-title">交易记录</h2><button className="wallet-manage-btn" disabled={loading} onClick={()=>void load(null,false)}>刷新</button></header>
-      <div className="transaction-history-body">
-        {error&&<div className="error" role="alert">{error}</div>}
-        {records.length>0&&<table className="transaction-history-table"><thead><tr><th>时间</th><th>钱包</th><th>类型</th><th>金额</th><th>手续费</th><th>状态</th></tr></thead><tbody>{records.map(record=>{
-          const type=record.direction==='received'?'转入':record.direction==='internal'?'内部转账':record.direction==='operation'?'链上交易':record.mode==='transfer'?'转出':record.mode==='other'?'转出':`批量转账（${record.transferCount}笔）`;
-          const date=new Date(record.timestamp);
-          return <tr key={`${record.blockNumber}:${record.txHash}`}><td>{Number.isNaN(date.getTime())?'—':date.toLocaleString()}</td><td>{record.accountIds.map(account=>names.get(account)??accountIdToSs58(account)).join('、')}</td><td>{type}</td><td>{record.direction==='received'?'+':record.direction==='sent'?'-':''}{formatFen(record.amountFen)} 元</td><td>{formatFen(record.feeFen)} 元</td><td>{stateLabel[record.state]??'未知'}</td></tr>;
-        })}</tbody></table>}
-        {loading&&<p role="status">读取中…</p>}
-        {!loading&&!error&&records.length===0&&cursor===null&&<p className="no-data">暂无交易记录</p>}
-      </div>
-      {cursor!==null&&<button className="transaction-history-more" disabled={loading} onClick={()=>void load(cursor,true)}>加载更多</button>}
-    </section>;
+    <header className="transaction-history-header"><h2 id="transaction-history-title">交易记录</h2><div className="transaction-history-actions">
+      <button className="wallet-manage-btn transaction-history-more" disabled={loading||cursor===null} onClick={()=>void load(cursor,true)}>加载更多</button>
+      <button className="wallet-manage-btn" disabled={loading} onClick={()=>void load(null,false)}>刷新</button>
+    </div></header>
+    {error&&<div className="error" role="alert">{error}</div>}
+    <div className="transaction-history-body" ref={body}>
+      {visible.length>0&&<table className="transaction-history-table"><thead><tr><th>时间</th><th>钱包</th><th>类型</th><th>金额</th><th>手续费</th><th>状态</th></tr></thead><tbody>{visible.map(record=>{
+        const date=new Date(record.timestamp),income=record.direction==='received';
+        return <tr key={`${record.blockNumber}:${record.eventIndex}:${record.accountId}:${record.direction}`}>
+          <td>{Number.isNaN(date.getTime())?'—':date.toLocaleString()}</td><td>{names.get(record.accountId)??accountIdToSs58(record.accountId)}</td>
+          <td>{income?'收入':'支出'}</td><td>{income?'+':'-'}{formatFen(record.amountFen)} 元</td>
+          <td>{formatFen(record.feeFen)} 元</td><td>{stateLabel[record.state]??'未知'}</td>
+        </tr>;
+      })}</tbody></table>}
+      {loading&&<p role="status">读取中…</p>}
+      {!loading&&!error&&records.length===0&&cursor===null&&<p className="no-data">暂无交易记录</p>}
+    </div>
+    <nav className="transaction-history-pagination" aria-label="交易记录分页">
+      <button className="wallet-manage-btn" disabled={loading||currentPage===0} onClick={()=>setPageIndex(0)}>首页</button>
+      <button className="wallet-manage-btn" disabled={loading||currentPage===0} onClick={()=>setPageIndex(currentPage-1)}>上一页</button>
+      <button className="wallet-manage-btn" disabled={loading||currentPage+1>=pageCount} onClick={()=>setPageIndex(currentPage+1)}>下一页</button>
+      <span>第{pageCount?currentPage+1:0}页 / 全部{pageCount}页</span>
+    </nav>
+  </section>;
 }

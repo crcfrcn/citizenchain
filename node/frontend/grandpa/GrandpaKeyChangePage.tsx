@@ -1,5 +1,7 @@
 // 展示GRANDPA轮换或紧急恢复，协调冷签及生效状态读取。
 
+import { signatureSecondsRemaining } from '../client/citizenQr';
+
 import { sanitizeError } from "../client/tauri";
 import { accountIdToSs58 } from "../client/ss58";
 import { CitizenSignaturePanel } from "../desktop/signing";
@@ -36,7 +38,7 @@ export function GrandpaKeyChangePage({
   const [unlockPassword, setUnlockPassword] = useState('');
   const [step, setStep] = useState<TransferProposalStep>('form');
   const [request, setRequest] = useState<GrandpaKeyChangeRequest | null>(null);
-  const [countdown, setCountdown] = useState(90);
+  const [countdown, setCountdown] = useState(0);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [building, setBuilding] = useState(false);
@@ -52,15 +54,15 @@ export function GrandpaKeyChangePage({
   }, []);
 
   useEffect(() => {
-    if (step !== 'qr') return;
+    if (step !== 'qr' || !request) return;
     if (countdown <= 0) {
       setError('管理员交易签名请求已过期；候选新私钥会在证明窗口过期后自动清理。');
       setStep('error');
       return;
     }
-    const timer = window.setTimeout(() => setCountdown((value) => value - 1), 1000);
+    const timer = window.setTimeout(() => setCountdown(signatureSecondsRemaining(request!.requestJson)), 1000);
     return () => window.clearTimeout(timer);
-  }, [step, countdown]);
+  }, [step, countdown, request]);
 
   const buildRequest = useCallback(async () => {
     if (!selectedSignerAccountId || !unlockPassword) return;
@@ -75,7 +77,7 @@ export function GrandpaKeyChangePage({
       );
       setUnlockPassword('');
       setRequest(built);
-      setCountdown(90);
+      setCountdown(signatureSecondsRemaining(built.requestJson));
       setStep('qr');
     } catch (cause) {
       setError(sanitizeError(cause));
